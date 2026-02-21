@@ -1,0 +1,63 @@
+<% const slipTitle = typeof title !== 'undefined' ? title : t('staffPaySlipTitle'); %>
+<!DOCTYPE html>
+<html lang="<%= lang %>">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title><%= slipTitle %> | AQUA MSK</title>
+  <link rel="stylesheet" href="/css/styles.css?v=<%= assetVersion %>" />
+  <style>
+    @media print { .print-hidden { display: none !important; } }
+  </style>
+</head>
+<body class="bg-white text-slate-900">
+  <div class="mx-auto max-w-3xl p-6">
+    <div class="flex items-center justify-between gap-4">
+      <div class="flex-1">
+        <%- include('../partials/print-brand', { subtitle: slipTitle }) %>
+      </div>
+      <button class="btn-primary print-hidden" onclick="window.print()"><%= t('print') %></button>
+    </div>
+
+    <div class="mt-6 card p-6">
+      <div class="grid gap-4 sm:grid-cols-2 text-sm">
+        <div class="sm:col-span-2 flex items-center gap-4">
+          <% if (payment.photo_path) { %>
+            <img src="<%= payment.photo_path %>" alt="staff" class="h-16 w-16 rounded-full object-cover border border-slate-200" />
+          <% } else { %>
+            <div class="h-16 w-16 rounded-full bg-slate-200"></div>
+          <% } %>
+          <div>
+            <p class="text-slate-500"><%= t('fullName') %></p>
+            <p class="font-semibold"><%= payment.full_name %></p>
+          </div>
+        </div>
+        <div>
+          <p class="text-slate-500"><%= t('phone') %></p>
+          <p class="font-semibold"><%= payment.phone || '-' %></p>
+        </div>
+        <div>
+          <p class="text-slate-500"><%= t('paymentType') %></p>
+          <p class="font-semibold"><%= payment.payment_type === 'SALARY' ? t('salaryPaid') : t('advancePaid') %></p>
+        </div>
+        <div>
+          <p class="text-slate-500"><%= t('receiptNo') %></p>
+          <p class="font-semibold"><%= payment.receipt_no || (`#${payment.id}`) %></p>
+        </div>
+        <div>
+          <p class="text-slate-500"><%= t('date') %></p>
+          <p class="font-semibold"><%= payment.payment_date %></p>
+        </div>
+        <div>
+          <p class="text-slate-500"><%= t('amount') %></p>
+          <p class="font-semibold"><%= payment.amount %></p>
+        </div>
+        <div>
+          <p class="text-slate-500"><%= t('note') %></p>
+          <p class="font-semibold"><%= payment.note || '-' %></p>
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

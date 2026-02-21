@@ -1,0 +1,99 @@
+<%- include('../partials/shell-start', { title }) %>
+<section class="py-8">
+  <div class="flex flex-wrap items-center justify-between gap-3">
+    <div>
+      <h1 class="text-3xl font-semibold"><%= t('inventorySummaryTitle') %></h1>
+      <p class="text-slate-600"><%= t('inventorySummarySubtitle') %></p>
+    </div>
+    <div class="flex flex-wrap gap-2">
+      <a class="btn-outline" href="/admin/reports/inventory/print?from=<%= from %>&to=<%= to %>" target="_blank"><%= t('print') %></a>
+    </div>
+  </div>
+
+  <form class="mt-4 flex flex-wrap items-end gap-3" method="get" action="/admin/reports/inventory">
+    <div>
+      <label class="label"><%= t('from') %></label>
+      <input class="input" type="date" name="from" value="<%= from %>" />
+    </div>
+    <div>
+      <label class="label"><%= t('to') %></label>
+      <input class="input" type="date" name="to" value="<%= to %>" />
+    </div>
+    <button class="btn-outline" type="submit"><%= t('filter') %></button>
+  </form>
+
+  <% const netJars = Math.max(0, (totals.jars || 0) - (totals.return_jars || 0) - (totals.leakage_jars || 0)); %>
+  <% const netBottles = Math.max(0, (totals.bottles || 0) - (totals.return_bottles || 0)); %>
+
+  <div class="mt-6 grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-4">
+    <div class="card p-4">
+      <p class="text-slate-500"><%= t('totalJars') %></p>
+      <p class="text-lg font-semibold"><%= totals.jars %></p>
+    </div>
+    <div class="card p-4">
+      <p class="text-slate-500"><%= t('totalReturnJars') %></p>
+      <p class="text-lg font-semibold"><%= totals.return_jars %></p>
+    </div>
+    <div class="card p-4">
+      <p class="text-slate-500"><%= t('totalLeakageJars') %></p>
+      <p class="text-lg font-semibold"><%= totals.leakage_jars %></p>
+    </div>
+    <div class="card p-4">
+      <p class="text-slate-500"><%= t('netJars') %></p>
+      <p class="text-lg font-semibold"><%= netJars %></p>
+    </div>
+    <div class="card p-4">
+      <p class="text-slate-500"><%= t('totalBottleCases') %></p>
+      <p class="text-lg font-semibold"><%= totals.bottles %></p>
+    </div>
+    <div class="card p-4">
+      <p class="text-slate-500"><%= t('totalReturnBottleCases') %></p>
+      <p class="text-lg font-semibold"><%= totals.return_bottles %></p>
+    </div>
+    <div class="card p-4">
+      <p class="text-slate-500"><%= t('netBottles') %></p>
+      <p class="text-lg font-semibold"><%= netBottles %></p>
+    </div>
+  </div>
+
+  <div class="mt-6 card overflow-hidden">
+    <div class="overflow-x-auto">
+      <table class="table-base">
+        <thead class="table-head">
+          <tr>
+            <th class="px-4 py-3"><%= t('vehicle') %></th>
+            <th class="px-4 py-3"><%= t('jars') %></th>
+            <th class="px-4 py-3"><%= t('returnJars') %></th>
+            <th class="px-4 py-3"><%= t('leakageJars') %></th>
+            <th class="px-4 py-3"><%= t('netJars') %></th>
+            <th class="px-4 py-3"><%= t('bottleCases') %></th>
+            <th class="px-4 py-3"><%= t('returnBottleCases') %></th>
+            <th class="px-4 py-3"><%= t('netBottles') %></th>
+          </tr>
+        </thead>
+        <tbody>
+          <% if (rows.length === 0) { %>
+            <tr>
+              <td class="px-4 py-4 text-slate-500" colspan="8"><%= t('noData') %></td>
+            </tr>
+          <% } %>
+          <% rows.forEach((row) => { %>
+            <% const rowNetJars = Math.max(0, (row.jars || 0) - (row.return_jars || 0) - (row.leakage_jars || 0)); %>
+            <% const rowNetBottles = Math.max(0, (row.bottles || 0) - (row.return_bottles || 0)); %>
+            <tr class="table-row">
+              <td class="px-4 py-3 font-medium"><%= row.vehicle_number %></td>
+              <td class="px-4 py-3"><%= row.jars %></td>
+              <td class="px-4 py-3"><%= row.return_jars %></td>
+              <td class="px-4 py-3"><%= row.leakage_jars %></td>
+              <td class="px-4 py-3"><%= rowNetJars %></td>
+              <td class="px-4 py-3"><%= row.bottles %></td>
+              <td class="px-4 py-3"><%= row.return_bottles %></td>
+              <td class="px-4 py-3"><%= rowNetBottles %></td>
+            </tr>
+          <% }) %>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+<%- include('../partials/shell-end') %>

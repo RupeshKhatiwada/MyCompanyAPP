@@ -1,0 +1,117 @@
+<%- include('../partials/shell-start', { title }) %>
+<section class="py-8">
+  <div class="flex items-center justify-between">
+    <div>
+      <h1 class="text-3xl font-semibold"><%= user ? t('editWorkerTitle') : t('addWorkerTitle') %></h1>
+      <p class="text-slate-600"><%= t('workerFormSubtitle') %></p>
+    </div>
+    <a class="btn-outline" href="/admin/workers"><%= t('back') %></a>
+  </div>
+
+  <div class="mt-6 card p-6">
+    <% if (error) { %>
+      <div class="mb-4 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700"><%= error %></div>
+    <% } %>
+    <% const workerDocument = typeof document !== 'undefined' ? document : null; %>
+    <form method="post" action="<%= user ? '/admin/workers/' + user.id : '/admin/workers' %>" enctype="multipart/form-data" class="space-y-4">
+      <div>
+        <label class="label"><%= t('fullName') %></label>
+        <input class="input" type="text" name="full_name" value="<%= user ? user.full_name : '' %>" required />
+      </div>
+      <div>
+        <label class="label"><%= t('username') %></label>
+        <input class="input" type="text" name="username" value="<%= user ? user.username : '' %>" required />
+      </div>
+      <div>
+        <label class="label"><%= t('phone') %></label>
+        <input class="input" type="text" name="phone" value="<%= user ? user.phone || '' : '' %>" />
+      </div>
+      <div>
+        <label class="label"><%= t('fingerprintId') %></label>
+        <input class="input" type="text" name="fingerprint_id" value="<%= user ? user.fingerprint_id || '' : '' %>" placeholder="<%= t('fingerprintIdHint') %>" />
+      </div>
+      <div>
+        <label class="label"><%= t('startDate') %></label>
+        <input class="input" type="date" name="start_date" value="<%= user ? user.start_date || '' : '' %>" />
+      </div>
+      <div>
+        <label class="label"><%= t('monthlySalary') %></label>
+        <input class="input" type="number" min="0" step="0.01" name="monthly_salary" value="<%= user ? (user.monthly_salary ?? 0) : 0 %>" />
+      </div>
+      <div>
+        <label class="label"><%= t('staffPhoto') %> (<%= t('maxFileSize') %> 5MB)</label>
+        <input class="input" type="file" name="photo" accept="image/*" />
+        <% if (workerDocument && workerDocument.photo_path) { %>
+          <img src="<%= workerDocument.photo_path %>" alt="worker" class="mt-3 h-16 w-16 rounded-full object-cover" />
+        <% } %>
+      </div>
+      <div class="card p-4">
+        <p class="text-sm font-semibold text-slate-700"><%= t('staffDocumentTitle') %></p>
+        <p class="text-xs text-slate-500"><%= t('staffDocumentSubtitle') %></p>
+        <div class="mt-3">
+          <label class="label"><%= t('documentType') %></label>
+          <select class="input" name="doc_type" id="docType">
+            <option value=""><%= t('selectDocumentType') %></option>
+            <option value="CITIZENSHIP" <%= workerDocument && workerDocument.doc_type === 'CITIZENSHIP' ? 'selected' : '' %>><%= t('docCitizenship') %></option>
+            <option value="LICENSE" <%= workerDocument && workerDocument.doc_type === 'LICENSE' ? 'selected' : '' %>><%= t('docLicense') %></option>
+            <option value="PASSPORT" <%= workerDocument && workerDocument.doc_type === 'PASSPORT' ? 'selected' : '' %>><%= t('docPassport') %></option>
+          </select>
+        </div>
+        <div class="mt-3 grid gap-3 sm:grid-cols-2" id="docDouble">
+          <div>
+            <label class="label"><%= t('docFront') %> (<%= t('maxFileSize') %> 5MB)</label>
+            <input class="input" type="file" name="doc_front" accept="image/*" />
+            <% if (workerDocument && workerDocument.front_path) { %>
+              <img src="<%= workerDocument.front_path %>" alt="front" class="mt-2 h-20 w-28 rounded-lg object-cover" />
+            <% } %>
+          </div>
+          <div>
+            <label class="label"><%= t('docBack') %> (<%= t('maxFileSize') %> 5MB)</label>
+            <input class="input" type="file" name="doc_back" accept="image/*" />
+            <% if (workerDocument && workerDocument.back_path) { %>
+              <img src="<%= workerDocument.back_path %>" alt="back" class="mt-2 h-20 w-28 rounded-lg object-cover" />
+            <% } %>
+          </div>
+        </div>
+        <div class="mt-3" id="docSingle">
+          <label class="label"><%= t('docSingle') %> (<%= t('maxFileSize') %> 5MB)</label>
+          <input class="input" type="file" name="doc_single" accept="image/*" />
+          <% if (workerDocument && workerDocument.front_path && workerDocument.doc_type !== 'CITIZENSHIP') { %>
+            <img src="<%= workerDocument.front_path %>" alt="doc" class="mt-2 h-20 w-28 rounded-lg object-cover" />
+          <% } %>
+        </div>
+      </div>
+      <div>
+        <label class="label"><%= t('password') %> <span class="text-xs text-slate-400">(<%= user ? t('leaveBlankToKeep') : t('required') %>)</span></label>
+        <input class="input" type="password" name="password" <%= user ? '' : 'required' %> />
+      </div>
+      <button class="btn-primary" type="submit"><%= t('save') %></button>
+    </form>
+  </div>
+</section>
+
+<script>
+  (() => {
+    const docType = document.getElementById('docType');
+    const doubleWrap = document.getElementById('docDouble');
+    const singleWrap = document.getElementById('docSingle');
+    const update = () => {
+      const type = docType ? docType.value : '';
+      if (!type) {
+        doubleWrap.classList.add('hidden');
+        singleWrap.classList.add('hidden');
+        return;
+      }
+      if (type === 'CITIZENSHIP') {
+        doubleWrap.classList.remove('hidden');
+        singleWrap.classList.add('hidden');
+      } else {
+        doubleWrap.classList.add('hidden');
+        singleWrap.classList.remove('hidden');
+      }
+    };
+    if (docType) docType.addEventListener('change', update);
+    update();
+  })();
+</script>
+<%- include('../partials/shell-end') %>

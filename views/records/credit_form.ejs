@@ -1,0 +1,163 @@
+<%- include('../partials/shell-start', { title }) %>
+<section class="py-8">
+  <div class="flex items-center justify-between">
+    <div>
+      <h1 class="text-3xl font-semibold"><%= record ? t('editCreditTitle') : t('addCreditTitle') %></h1>
+      <p class="text-slate-600"><%= t('creditFormSubtitle') %></p>
+    </div>
+    <a class="btn-outline" href="/records/credits"><%= t('back') %></a>
+  </div>
+
+  <div class="mt-6 card p-6">
+    <% if (error) { %>
+      <div class="mb-4 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700"><%= error %></div>
+    <% } %>
+    <% const tripDateValue = record ? (record.trip_date || '') : (typeof defaultTripDate !== 'undefined' ? defaultTripDate : ''); %>
+    <form method="post" action="<%= record ? '/records/credits/' + record.id : '/records/credits' %>" class="space-y-4">
+      <div>
+        <label class="label"><%= t('vehicle') %></label>
+        <select class="input" name="vehicle_id" required>
+          <option value=""><%= t('selectVehicle') %></option>
+          <% vehicles.forEach((vehicle) => { %>
+            <% const label = `${vehicle.owner_name} • ${vehicle.vehicle_number}`; %>
+            <% const isSelected = record
+              ? Number(record.vehicle_id) === Number(vehicle.id)
+              : Number(typeof selectedVehicleId !== 'undefined' ? selectedVehicleId : 0) === Number(vehicle.id); %>
+            <option value="<%= vehicle.id %>" <%= isSelected ? 'selected' : '' %>><%= label %></option>
+          <% }) %>
+        </select>
+      </div>
+      <div>
+        <label class="label"><%= t('tripDate') %></label>
+        <input class="input" type="date" name="trip_date" value="<%= tripDateValue %>" />
+        <p class="mt-1 text-xs text-slate-500"><%= t('tripDateCreditHint') %></p>
+      </div>
+      <div>
+        <label class="label"><%= t('customerName') %></label>
+        <input class="input" type="text" name="customer_name" list="customerList" value="<%= record ? record.customer_name : '' %>" required />
+        <datalist id="customerList">
+          <% (customers || []).forEach((name) => { %>
+            <option value="<%= name %>"></option>
+          <% }) %>
+        </datalist>
+      </div>
+      <div>
+        <label class="label"><%= t('date') %></label>
+        <input class="input" type="date" name="credit_date" value="<%= defaultDate %>" required />
+      </div>
+      <div class="grid gap-4 md:grid-cols-4">
+        <div>
+          <label class="label"><%= t('creditJars') %></label>
+          <input id="creditJars" class="input" type="number" min="0" name="credit_jars" value="<%= record ? record.credit_jars : 0 %>" />
+        </div>
+        <div>
+          <label class="label"><%= t('pricePerJar') %></label>
+          <input id="jarPrice" class="input" type="number" min="0" step="0.01" name="jar_price" value="<%= record ? (record.jar_price || 0) : 0 %>" />
+        </div>
+        <div>
+          <label class="label"><%= t('creditBottleCases') %></label>
+          <input id="creditBottles" class="input" type="number" min="0" name="credit_bottle_cases" value="<%= record ? record.credit_bottle_cases : 0 %>" />
+        </div>
+        <div>
+          <label class="label"><%= t('pricePerBottleCase') %></label>
+          <input id="bottlePrice" class="input" type="number" min="0" step="0.01" name="bottle_case_price" value="<%= record ? (record.bottle_case_price || 0) : 0 %>" />
+        </div>
+      </div>
+      <div class="grid gap-4 md:grid-cols-4">
+        <div>
+          <label class="label"><%= t('creditDispensers') %></label>
+          <input id="creditDispensers" class="input" type="number" min="0" name="credit_dispensers" value="<%= record ? (record.credit_dispensers || 0) : 0 %>" />
+        </div>
+        <div>
+          <label class="label"><%= t('pricePerDispenser') %></label>
+          <input id="dispenserPrice" class="input" type="number" min="0" step="0.01" name="dispenser_price" value="<%= record ? (record.dispenser_price || 0) : 0 %>" />
+        </div>
+        <div>
+          <label class="label"><%= t('creditJarContainers') %></label>
+          <input id="creditJarContainers" class="input" type="number" min="0" name="credit_jar_containers" value="<%= record ? (record.credit_jar_containers || 0) : 0 %>" />
+        </div>
+        <div>
+          <label class="label"><%= t('jarContainerPrice') %></label>
+          <input id="jarContainerPrice" class="input" type="number" min="0" step="0.01" name="jar_container_price" value="<%= record ? (record.jar_container_price || 0) : 0 %>" />
+        </div>
+      </div>
+      <div class="grid gap-4 md:grid-cols-3">
+        <div>
+          <label class="label"><%= t('amount') %></label>
+          <input id="creditAmount" class="input bg-slate-50" type="number" step="0.01" name="amount" value="<%= record ? record.amount : 0 %>" readonly />
+        </div>
+        <div>
+          <label class="label"><%= t('paidAmount') %></label>
+          <input id="paidAmount" class="input" type="number" step="0.01" min="0" name="paid_amount" value="<%= record ? record.paid_amount : 0 %>" />
+        </div>
+        <div>
+          <label class="label"><%= t('remainingAmount') %></label>
+          <input id="remainingAmount" class="input bg-slate-50" type="number" step="0.01" value="0" readonly />
+        </div>
+      </div>
+      <div class="flex items-center gap-2">
+        <input id="markPaid" type="checkbox" name="paid" class="h-4 w-4" <%= record && record.amount <= record.paid_amount ? 'checked' : '' %> />
+        <label class="label" for="markPaid"><%= t('markAsPaid') %></label>
+      </div>
+      <button class="btn-primary" type="submit"><%= t('save') %></button>
+    </form>
+  </div>
+</section>
+<script>
+  (function () {
+    var jarsInput = document.getElementById('creditJars');
+    var jarPriceInput = document.getElementById('jarPrice');
+    var bottlesInput = document.getElementById('creditBottles');
+    var bottlePriceInput = document.getElementById('bottlePrice');
+    var dispensersInput = document.getElementById('creditDispensers');
+    var dispenserPriceInput = document.getElementById('dispenserPrice');
+    var jarContainersInput = document.getElementById('creditJarContainers');
+    var jarContainerPriceInput = document.getElementById('jarContainerPrice');
+    var amountInput = document.getElementById('creditAmount');
+    var paidInput = document.getElementById('paidAmount');
+    var remainingInput = document.getElementById('remainingAmount');
+    var markPaid = document.getElementById('markPaid');
+    if (!amountInput || !paidInput || !remainingInput) return;
+
+    function toNumber(value) {
+      var num = parseFloat(value);
+      return Number.isFinite(num) ? num : 0;
+    }
+
+    function syncAmounts() {
+      var jars = Math.max(0, toNumber(jarsInput ? jarsInput.value : 0));
+      var jarPrice = Math.max(0, toNumber(jarPriceInput ? jarPriceInput.value : 0));
+      var bottles = Math.max(0, toNumber(bottlesInput ? bottlesInput.value : 0));
+      var bottlePrice = Math.max(0, toNumber(bottlePriceInput ? bottlePriceInput.value : 0));
+      var dispensers = Math.max(0, toNumber(dispensersInput ? dispensersInput.value : 0));
+      var dispenserPrice = Math.max(0, toNumber(dispenserPriceInput ? dispenserPriceInput.value : 0));
+      var jarContainers = Math.max(0, toNumber(jarContainersInput ? jarContainersInput.value : 0));
+      var jarContainerPrice = Math.max(0, toNumber(jarContainerPriceInput ? jarContainerPriceInput.value : 0));
+      var amount = (jars * jarPrice) + (bottles * bottlePrice) + (dispensers * dispenserPrice) + (jarContainers * jarContainerPrice);
+      if (amount < 0) amount = 0;
+      var paid = Math.max(0, toNumber(paidInput ? paidInput.value : 0));
+      if (markPaid && markPaid.checked) paid = amount;
+      if (paid > amount) paid = amount;
+
+      amountInput.value = amount.toFixed(2);
+      paidInput.value = paid.toFixed(2);
+      remainingInput.value = Math.max(0, amount - paid).toFixed(2);
+    }
+
+    ['input', 'change'].forEach(function (eventName) {
+      [jarsInput, jarPriceInput, bottlesInput, bottlePriceInput, dispensersInput, dispenserPriceInput, jarContainersInput, jarContainerPriceInput, paidInput]
+        .forEach(function (el) {
+          if (el) el.addEventListener(eventName, syncAmounts);
+        });
+    });
+    if (markPaid) {
+      markPaid.addEventListener('change', function () {
+        if (paidInput) paidInput.readOnly = markPaid.checked;
+        syncAmounts();
+      });
+      if (paidInput) paidInput.readOnly = markPaid.checked;
+    }
+    syncAmounts();
+  })();
+</script>
+<%- include('../partials/shell-end') %>

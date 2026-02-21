@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="<%= lang %>">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title><%= title %> | AQUA MSK</title>
+  <link rel="stylesheet" href="/css/styles.css?v=<%= assetVersion %>" />
+  <style>
+    :root[data-font-size="sm"] { font-size: 14px; }
+    :root[data-font-size="md"] { font-size: 16px; }
+    :root[data-font-size="lg"] { font-size: 18px; }
+    .print-only { display: none; }
+    .action-menu { position: relative; display: inline-block; }
+    .action-menu > summary { list-style: none; }
+    .action-menu > summary::-webkit-details-marker { display: none; }
+    .action-menu-panel {
+      position: absolute;
+      right: 0;
+      top: calc(100% + 6px);
+      min-width: 180px;
+      border: 1px solid rgba(226, 232, 240, 0.9);
+      background: #fff;
+      border-radius: 0.75rem;
+      box-shadow: 0 12px 24px rgba(15, 23, 42, 0.14);
+      padding: 6px;
+      z-index: 40;
+    }
+    .action-menu-item {
+      display: block;
+      width: 100%;
+      text-align: left;
+      padding: 8px 10px;
+      font-size: 0.85rem;
+      border-radius: 0.5rem;
+      color: #0f172a;
+    }
+    .action-menu-item:hover {
+      background: #f1f5f9;
+    }
+    .action-menu-danger {
+      color: #b91c1c;
+    }
+    .action-menu-danger:hover {
+      background: #fee2e2;
+    }
+    @media print {
+      .print-only { display: block !important; }
+      .print-hidden { display: none !important; }
+    }
+  </style>
+  <script>
+    (function () {
+      try {
+        var size = localStorage.getItem('fontSize') || 'md';
+        document.documentElement.dataset.fontSize = size;
+      } catch (e) {}
+    })();
+  </script>
+</head>
+<body class="bg-gradient-to-br from-red-50 via-white to-aqua-100 text-slate-900">
+  <div class="min-h-screen">
+    <%- include('nav') %>
+    <main class="mx-auto w-full max-w-6xl px-4 pb-16 pt-6">

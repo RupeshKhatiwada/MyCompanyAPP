@@ -1,0 +1,71 @@
+<%- include('../partials/shell-start', { title }) %>
+<section class="py-8">
+  <div class="flex flex-wrap items-center justify-between gap-3">
+    <div>
+      <h1 class="text-3xl font-semibold"><%= t('dailySalesTitle') %></h1>
+      <p class="text-slate-600"><%= t('dailySalesSubtitle') %></p>
+    </div>
+    <div class="flex flex-wrap items-center gap-2">
+      <a class="btn-outline" href="/admin/sales/export?date=<%= date %>"><%= t('exportCsv') %></a>
+    </div>
+  </div>
+
+  <form class="mt-4 flex items-end gap-3" method="get" action="/admin/sales">
+    <div>
+      <label class="label"><%= t('date') %></label>
+      <input class="input" type="date" name="date" value="<%= date %>" />
+    </div>
+    <button class="btn-outline" type="submit"><%= t('filter') %></button>
+  </form>
+
+  <div class="mt-6 card overflow-hidden">
+    <div class="overflow-x-auto">
+      <table class="table-base">
+        <thead class="table-head">
+          <tr>
+            <th class="px-4 py-3"><%= t('date') %></th>
+            <th class="px-4 py-3"><%= t('vehicle') %></th>
+            <th class="px-4 py-3"><%= t('owner') %></th>
+            <th class="px-4 py-3"><%= t('totalSales') %></th>
+          </tr>
+        </thead>
+        <tbody>
+          <% if (sales.length === 0) { %>
+            <tr>
+              <td class="px-4 py-4 text-slate-500" colspan="4"><%= t('noSalesDate') %></td>
+            </tr>
+          <% } %>
+          <% sales.forEach((sale) => { %>
+            <tr class="table-row">
+              <td class="px-4 py-3"><%= sale.sale_date %></td>
+              <td class="px-4 py-3 font-medium"><%= sale.vehicle_number %></td>
+              <td class="px-4 py-3"><%= sale.owner_name %></td>
+              <td class="px-4 py-3"><%= sale.total_sales %></td>
+            </tr>
+          <% }) %>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="mt-4 grid gap-3 text-sm sm:grid-cols-3">
+    <div class="card p-4">
+      <p class="text-slate-500"><%= t('totalJars') %></p>
+      <p class="text-lg font-semibold"><%= counts ? counts.total_jars : 0 %></p>
+    </div>
+    <div class="card p-4">
+      <p class="text-slate-500"><%= t('totalBottleCases') %></p>
+      <p class="text-lg font-semibold"><%= counts ? counts.total_bottles : 0 %></p>
+    </div>
+    <div class="card p-4">
+      <p class="text-slate-500"><%= t('totalExportAmount') %></p>
+      <p class="text-lg font-semibold"><%= counts ? counts.total_amount : total %></p>
+    </div>
+  </div>
+
+  <div class="mt-4 flex flex-wrap items-center justify-between gap-3 text-sm">
+    <span class="text-slate-500"><%= t('dailySalesAuto') %></span>
+    <span class="text-lg font-semibold"><%= t('totalForDate') %> <%= date %>: <%= total %></span>
+  </div>
+</section>
+<%- include('../partials/shell-end') %>

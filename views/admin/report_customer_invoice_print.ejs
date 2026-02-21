@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="<%= lang %>">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title><%= t('customerInvoiceTitle') %> | AQUA MSK</title>
+  <link rel="stylesheet" href="/css/styles.css?v=<%= assetVersion %>" />
+  <style>
+    @media print { .print-hidden { display: none !important; } }
+  </style>
+</head>
+<body class="bg-white text-slate-900">
+  <div class="mx-auto max-w-4xl p-6">
+    <div class="flex items-center justify-between gap-4">
+      <div class="flex-1">
+        <%- include('../partials/print-brand', { subtitle: t('customerInvoiceTitle') }) %>
+        <p class="mt-2 text-sm text-slate-500"><%= customer %></p>
+      </div>
+      <button class="btn-primary print-hidden" onclick="window.print()"><%= t('print') %></button>
+    </div>
+
+    <div class="mt-4 text-sm text-slate-600">
+      <span><%= t('from') %>: <%= from %></span>
+      <span class="mx-2">•</span>
+      <span><%= t('to') %>: <%= to %></span>
+    </div>
+
+    <div class="mt-6 grid gap-3 text-sm sm:grid-cols-3">
+      <div class="card p-4">
+        <p class="text-slate-500"><%= t('totalAmount') %></p>
+        <p class="text-lg font-semibold"><%= totals.total_amount %></p>
+      </div>
+      <div class="card p-4">
+        <p class="text-slate-500"><%= t('totalPaidAmount') %></p>
+        <p class="text-lg font-semibold"><%= totals.total_paid %></p>
+      </div>
+      <div class="card p-4">
+        <p class="text-slate-500"><%= t('totalRemaining') %></p>
+        <p class="text-lg font-semibold"><%= totals.total_remaining %></p>
+      </div>
+    </div>
+
+    <div class="mt-6 overflow-hidden rounded-2xl border border-slate-200">
+      <table class="table-base">
+        <thead class="table-head">
+          <tr>
+            <th class="px-4 py-3"><%= t('date') %></th>
+            <th class="px-4 py-3"><%= t('vehicle') %></th>
+            <th class="px-4 py-3"><%= t('amount') %></th>
+            <th class="px-4 py-3"><%= t('paidAmount') %></th>
+            <th class="px-4 py-3"><%= t('remainingAmount') %></th>
+          </tr>
+        </thead>
+        <tbody>
+          <% if (rows.length === 0) { %>
+            <tr>
+              <td class="px-4 py-4 text-slate-500" colspan="5"><%= t('noCredits') %></td>
+            </tr>
+          <% } %>
+          <% rows.forEach((row) => { %>
+            <tr class="table-row">
+              <td class="px-4 py-3"><%= row.credit_date %></td>
+              <td class="px-4 py-3"><%= row.vehicle_number %></td>
+              <td class="px-4 py-3"><%= row.amount %></td>
+              <td class="px-4 py-3"><%= row.paid_amount %></td>
+              <td class="px-4 py-3"><%= Math.max(0, row.amount - row.paid_amount) %></td>
+            </tr>
+          <% }) %>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</body>
+</html>

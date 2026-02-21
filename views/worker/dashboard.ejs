@@ -1,0 +1,117 @@
+<%- include('../partials/shell-start', { title }) %>
+<section class="py-8">
+  <div class="page-header flex flex-wrap items-center justify-between gap-6">
+    <div>
+      <h1 class="text-3xl font-semibold"><%= t('workerDashboardTitle') %></h1>
+      <p class="mt-2 text-slate-600"><%= t('workerWelcome') %></p>
+    </div>
+    <div class="flex items-center gap-4">
+      <img src="/images/jar.svg" alt="jar" class="h-20 w-20" />
+      <img src="/images/bottle.svg" alt="bottle" class="h-20 w-20" />
+    </div>
+  </div>
+
+  <div class="mt-6 grid gap-4 md:grid-cols-2">
+    <div class="card p-6">
+      <h2 class="text-lg font-semibold"><%= t('quickActions') %></h2>
+      <div class="mt-4 flex flex-wrap gap-2">
+        <a class="btn-primary" href="/records/exports/new"><%= t('addExport') %></a>
+        <a class="btn-outline" href="/records/credits/new"><%= t('addCredit') %></a>
+        <a class="btn-outline" href="/records/vehicle-expenses"><%= t('vehicleExpensesTitle') %></a>
+        <a class="btn-outline" href="/records/water-tests"><%= t('waterTestsTitle') %></a>
+        <a class="btn-outline" href="/records/jar-sales/new"><%= t('addJarSaleTitle') %></a>
+        <a class="btn-outline" href="/records/staffs"><%= t('staffsTitle') %></a>
+      </div>
+    </div>
+    <div class="card p-6">
+      <h2 class="text-lg font-semibold"><%= t('dailyChecklist') %></h2>
+      <ul class="mt-4 space-y-2 text-sm text-slate-600">
+        <li>• <%= t('checklistExport') %></li>
+        <li>• <%= t('checklistCredit') %></li>
+        <li>• <%= t('checklistPaid') %></li>
+      </ul>
+    </div>
+  </div>
+
+  <% const todayLabel = typeof today !== 'undefined' ? today : '' %>
+  <% const exportsSummary = (typeof myExports !== 'undefined' && myExports) ? myExports : { count: 0, total: 0 } %>
+  <% const creditsSummary = (typeof myCredits !== 'undefined' && myCredits) ? myCredits : { count: 0, total: 0, remaining: 0 } %>
+  <% const jarSalesSummary = (typeof myJarSales !== 'undefined' && myJarSales) ? myJarSales : { count: 0, total: 0 } %>
+  <% const vehicleExpenseSummary = (typeof myVehicleExpenses !== 'undefined' && myVehicleExpenses) ? myVehicleExpenses : { count: 0, total: 0 } %>
+  <div class="mt-6 grid gap-4 lg:grid-cols-2">
+    <div class="card p-6">
+      <h2 class="text-lg font-semibold"><%= t('myTodaySummary') %></h2>
+      <p class="mt-1 text-sm text-slate-600"><%= t('summaryForDate') %> <%= todayLabel %></p>
+      <div class="mt-4 grid gap-3 text-sm sm:grid-cols-2">
+        <div class="card p-4">
+          <p class="text-slate-500"><%= t('exportsTitle') %></p>
+          <p class="text-lg font-semibold"><%= exportsSummary.count %> • <%= exportsSummary.total %></p>
+        </div>
+        <div class="card p-4">
+          <p class="text-slate-500"><%= t('creditsTitle') %></p>
+          <p class="text-lg font-semibold"><%= creditsSummary.count %> • <%= creditsSummary.total %></p>
+          <p class="text-xs text-slate-500"><%= t('remainingAmount') %>: <%= creditsSummary.remaining %></p>
+        </div>
+        <div class="card p-4">
+          <p class="text-slate-500"><%= t('jarSalesTitle') %></p>
+          <p class="text-lg font-semibold"><%= jarSalesSummary.count %> • <%= jarSalesSummary.total %></p>
+        </div>
+        <div class="card p-4">
+          <p class="text-slate-500"><%= t('vehicleExpensesTitle') %></p>
+          <p class="text-lg font-semibold"><%= vehicleExpenseSummary.count %> • <%= vehicleExpenseSummary.total %></p>
+        </div>
+      </div>
+    </div>
+    <div class="card p-6">
+      <div class="flex items-center justify-between">
+        <h2 class="text-lg font-semibold"><%= t('recentActivityTitle') %></h2>
+      </div>
+      <div class="mt-4 overflow-hidden rounded-2xl border border-slate-200">
+        <div class="overflow-x-auto">
+          <table class="table-base text-sm">
+            <thead class="table-head">
+              <tr>
+                <th class="px-4 py-3"><%= t('date') %></th>
+                <th class="px-4 py-3"><%= t('action') %></th>
+                <th class="px-4 py-3"><%= t('entity') %></th>
+                <th class="px-4 py-3"><%= t('details') %></th>
+              </tr>
+            </thead>
+            <tbody>
+              <% if (!recentActivity || recentActivity.length === 0) { %>
+                <tr>
+                  <td class="px-4 py-4 text-slate-500" colspan="4"><%= t('noActivity') %></td>
+                </tr>
+              <% } %>
+              <% recentActivity.forEach((row) => { %>
+                <tr class="table-row">
+                  <td class="px-4 py-3"><%= row.created_at %></td>
+                  <td class="px-4 py-3"><%= row.actionLabel || row.action %></td>
+                  <td class="px-4 py-3"><%= row.entityLabel || row.entity_type %></td>
+                  <td class="px-4 py-3"><%= row.detailLabel || row.details || '-' %></td>
+                </tr>
+              <% }) %>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="mt-6 card p-6">
+    <h2 class="text-lg font-semibold"><%= t('jarTypesTitle') %></h2>
+    <p class="mt-1 text-sm text-slate-600"><%= t('jarTypesWorkerHint') %></p>
+    <div class="mt-4 grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-3">
+      <% if (!jarTypes || jarTypes.length === 0) { %>
+        <p class="text-slate-500"><%= t('noJarTypes') %></p>
+      <% } %>
+      <% jarTypes.forEach((type) => { %>
+        <div class="card p-4">
+          <p class="text-slate-500"><%= type.name %></p>
+          <p class="text-lg font-semibold"><%= type.price %></p>
+        </div>
+      <% }) %>
+    </div>
+  </div>
+</section>
+<%- include('../partials/shell-end') %>

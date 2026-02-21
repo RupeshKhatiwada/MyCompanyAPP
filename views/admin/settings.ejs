@@ -1,0 +1,190 @@
+<%- include('../partials/shell-start', { title }) %>
+<section class="py-8">
+  <div class="page-header">
+    <h1 class="text-3xl font-semibold"><%= t('settingsTitle') %></h1>
+    <p class="mt-2 text-slate-600"><%= t('settingsSubtitle') %></p>
+  </div>
+
+  <div class="mt-6 card p-6">
+    <% if (error) { %>
+      <div class="mb-4 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700"><%= error %></div>
+    <% } %>
+    <% if (success) { %>
+      <div class="mb-4 rounded-lg bg-emerald-50 px-4 py-3 text-sm text-emerald-700"><%= success %></div>
+    <% } %>
+    <form method="post" action="/admin/settings" class="space-y-5">
+      <div class="rounded-xl border border-slate-200 bg-slate-50 p-4">
+        <h3 class="text-sm font-semibold"><%= t('backupSettings') %></h3>
+        <div class="mt-3 flex items-center gap-2 text-sm">
+          <input id="auto_backup_enabled" type="checkbox" name="auto_backup_enabled" <%= autoBackupEnabled ? 'checked' : '' %> />
+          <label for="auto_backup_enabled"><%= t('autoBackupEnabled') %></label>
+        </div>
+        <div class="mt-3 grid gap-3 sm:grid-cols-2">
+          <div>
+            <label class="label"><%= t('autoBackupHour') %></label>
+            <input class="input" type="number" min="0" max="23" name="auto_backup_hour" value="<%= autoBackupHour %>" required />
+          </div>
+          <div>
+            <label class="label"><%= t('backupKeepCount') %></label>
+            <input class="input" type="number" min="3" max="180" name="auto_backup_keep" value="<%= autoBackupKeep %>" required />
+          </div>
+        </div>
+      </div>
+      <div class="rounded-xl border border-slate-200 bg-slate-50 p-4">
+        <h3 class="text-sm font-semibold"><%= t('iotAttendanceTitle') %></h3>
+        <p class="mt-1 text-xs text-slate-600"><%= t('iotAttendanceSubtitle') %></p>
+        <div class="mt-3 flex items-center gap-2 text-sm">
+          <input id="iot_attendance_enabled" type="checkbox" name="iot_attendance_enabled" <%= iotAttendanceEnabled ? 'checked' : '' %> />
+          <label for="iot_attendance_enabled"><%= t('iotAttendanceEnabled') %></label>
+        </div>
+        <div class="mt-3">
+          <label class="label"><%= t('iotToken') %></label>
+          <input class="input" type="text" name="iot_attendance_token" value="<%= iotAttendanceToken || '' %>" placeholder="<%= t('iotTokenHint') %>" />
+        </div>
+        <div class="mt-2 text-xs text-slate-500">
+          <%= t('iotEndpoint') %>: <code>/iot/attendance/push</code>
+        </div>
+      </div>
+      <button class="btn-primary" type="submit"><%= t('saveSettings') %></button>
+    </form>
+  </div>
+
+  <div class="mt-6 card p-6">
+    <% const lastBackupDisplay = lastBackupAt ? new Date(lastBackupAt).toLocaleString() : t('backupNever'); %>
+    <h2 class="text-lg font-semibold"><%= t('backup') %> & <%= t('restoreTitle') %></h2>
+    <p class="mt-2 text-sm text-slate-600"><%= t('restoreSubtitle') %></p>
+    <% if (backupOverdue) { %>
+      <div class="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
+        <strong class="mr-1 text-amber-800"><%= t('backupReminderTitle') %></strong>
+        <span><%= t('backupReminderMessagePrefix') %> <%= backupReminderText %>. <%= t('backupReminderMessageSuffix') %></span>
+      </div>
+    <% } %>
+    <div class="mt-4 flex flex-wrap items-center gap-3">
+      <span class="pill"><%= t('lastBackup') %>: <%= lastBackupDisplay %></span>
+      <a class="btn-outline" href="/admin/backup"><%= t('backupNow') %></a>
+      <form method="post" action="/admin/backup/test">
+        <button class="btn-outline" type="submit"><%= t('backupTestButton') %></button>
+      </form>
+    </div>
+    <% if (latestBackup) { %>
+      <p class="mt-3 text-xs text-slate-500">
+        <%= t('latestBackupFile') %>:
+        <strong><%= latestBackup.name %></strong>
+      </p>
+    <% } %>
+    <% if (backupTest) { %>
+      <div class="mt-3 rounded-lg px-4 py-3 text-sm <%= backupTest.ok ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700' %>">
+        <% if (backupTest.ok) { %>
+          <span><%= t('backupTestPassed') %></span>
+          <% if (typeof backupTest.tableCount !== 'undefined') { %>
+            <span class="ml-2 text-xs">(<%= t('tables') %>: <%= backupTest.tableCount %>, <%= t('users') %>: <%= backupTest.usersCount %>)</span>
+          <% } %>
+        <% } else { %>
+          <span><%= t('backupTestFailed') %></span>
+        <% } %>
+      </div>
+    <% } %>
+    <% if (backupFiles && backupFiles.length > 0) { %>
+      <div class="mt-4 overflow-x-auto">
+        <table class="table-base text-sm">
+          <thead class="table-head">
+            <tr>
+              <th class="px-3 py-2"><%= t('backupFile') %></th>
+              <th class="px-3 py-2"><%= t('size') %></th>
+              <th class="px-3 py-2"><%= t('date') %></th>
+            </tr>
+          </thead>
+          <tbody>
+            <% backupFiles.forEach((file) => { %>
+              <tr class="table-row">
+                <td class="px-3 py-2 font-mono text-xs"><%= file.name %></td>
+                <td class="px-3 py-2"><%= Math.round((file.size || 0) / 1024) %> KB</td>
+                <td class="px-3 py-2"><%= new Date(file.mtimeMs).toLocaleString() %></td>
+              </tr>
+            <% }) %>
+          </tbody>
+        </table>
+      </div>
+    <% } %>
+    <form method="post" action="/admin/restore" enctype="multipart/form-data" class="mt-4 space-y-3">
+      <div>
+        <label class="label"><%= t('backupFile') %></label>
+        <input class="input" type="file" name="backup_file" accept=".db" required />
+      </div>
+      <p class="text-xs text-slate-500"><%= t('restoreWarning') %></p>
+      <button class="btn-danger" type="submit"><%= t('restoreButton') %></button>
+    </form>
+  </div>
+
+  <div class="mt-6 card p-6">
+    <h2 class="text-lg font-semibold"><%= t('dayCloseTitle') %></h2>
+    <p class="mt-2 text-sm text-slate-600"><%= t('dayCloseSubtitle') %></p>
+    <form method="get" action="/admin/settings" class="mt-4 flex flex-wrap items-end gap-3">
+      <div>
+        <label class="label"><%= t('date') %></label>
+        <input class="input" type="date" name="closure_date" value="<%= selectedClosureDate %>" />
+      </div>
+      <button class="btn-outline" type="submit"><%= t('loadDate') %></button>
+    </form>
+
+    <div class="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
+      <div class="flex flex-wrap items-center gap-2 text-sm">
+        <span class="font-medium"><%= t('selectedDate') %>:</span>
+        <span><%= selectedClosureDate %></span>
+        <% if (selectedClosure && Number(selectedClosure.is_closed) === 1) { %>
+          <span class="badge bg-red-100 text-red-700"><%= t('closed') %></span>
+        <% } else { %>
+          <span class="badge bg-emerald-100 text-emerald-700"><%= t('open') %></span>
+        <% } %>
+      </div>
+      <form method="post" action="<%= selectedClosure && Number(selectedClosure.is_closed) === 1 ? '/admin/day-close/reopen' : '/admin/day-close/close' %>" class="mt-3 space-y-3">
+        <input type="hidden" name="closure_date" value="<%= selectedClosureDate %>" />
+        <div>
+          <label class="label"><%= t('note') %></label>
+          <input class="input" type="text" name="note" value="<%= selectedClosure && selectedClosure.note ? selectedClosure.note : '' %>" />
+        </div>
+        <% if (selectedClosure && Number(selectedClosure.is_closed) === 1) { %>
+          <button class="btn-outline" type="submit"><%= t('reopenDay') %></button>
+        <% } else { %>
+          <button class="btn-primary" type="submit"><%= t('closeDay') %></button>
+        <% } %>
+      </form>
+    </div>
+
+    <% if (recentClosures && recentClosures.length > 0) { %>
+      <div class="mt-4 overflow-x-auto">
+        <table class="table-base text-sm">
+          <thead class="table-head">
+            <tr>
+              <th class="px-3 py-2"><%= t('date') %></th>
+              <th class="px-3 py-2"><%= t('status') %></th>
+              <th class="px-3 py-2"><%= t('details') %></th>
+            </tr>
+          </thead>
+          <tbody>
+            <% recentClosures.forEach((row) => { %>
+              <tr class="table-row">
+                <td class="px-3 py-2"><%= row.closure_date %></td>
+                <td class="px-3 py-2">
+                  <% if (Number(row.is_closed) === 1) { %>
+                    <span class="badge bg-red-100 text-red-700"><%= t('closed') %></span>
+                  <% } else { %>
+                    <span class="badge bg-emerald-100 text-emerald-700"><%= t('open') %></span>
+                  <% } %>
+                </td>
+                <td class="px-3 py-2">
+                  <div><%= t('closedAt') %>: <%= row.closed_at || '-' %> <%= row.closed_by_name ? `(${row.closed_by_name})` : '' %></div>
+                  <div><%= t('reopenedAt') %>: <%= row.reopened_at || '-' %> <%= row.reopened_by_name ? `(${row.reopened_by_name})` : '' %></div>
+                  <% if (row.note) { %>
+                    <div><%= t('note') %>: <%= row.note %></div>
+                  <% } %>
+                </td>
+              </tr>
+            <% }) %>
+          </tbody>
+        </table>
+      </div>
+    <% } %>
+  </div>
+</section>
+<%- include('../partials/shell-end') %>

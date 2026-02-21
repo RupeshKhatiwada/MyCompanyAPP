@@ -1,0 +1,152 @@
+<%- include('../partials/shell-start', { title }) %>
+<section class="py-8">
+  <div class="flex flex-wrap items-center justify-between gap-3">
+    <div>
+      <h1 class="text-3xl font-semibold"><%= t('stockLedgerTitle') %></h1>
+      <p class="text-slate-600"><%= t('stockLedgerSubtitle') %></p>
+    </div>
+    <div class="flex flex-wrap gap-2">
+      <a class="btn-outline" href="/admin/reports/stock-ledger/export?from=<%= from %>&to=<%= to %>&item=<%= item %>"><%= t('exportCsv') %></a>
+      <a class="btn-outline" href="/admin/reports/stock-ledger/print?from=<%= from %>&to=<%= to %>&item=<%= item %>" target="_blank"><%= t('print') %></a>
+    </div>
+  </div>
+
+  <form class="mt-4 flex flex-wrap items-end gap-3" method="get" action="/admin/reports/stock-ledger">
+    <div>
+      <label class="label"><%= t('from') %></label>
+      <input class="input" type="date" name="from" value="<%= from %>" />
+    </div>
+    <div>
+      <label class="label"><%= t('to') %></label>
+      <input class="input" type="date" name="to" value="<%= to %>" />
+    </div>
+    <div>
+      <label class="label"><%= t('itemType') %></label>
+      <select class="input" name="item">
+        <option value="all" <%= item === 'all' ? 'selected' : '' %>><%= t('all') %></option>
+        <option value="JAR" <%= item === 'JAR' ? 'selected' : '' %>><%= t('containerJars') %></option>
+        <option value="BOTTLE" <%= item === 'BOTTLE' ? 'selected' : '' %>><%= t('bottleCases') %></option>
+      </select>
+    </div>
+    <button class="btn-outline" type="submit"><%= t('filter') %></button>
+  </form>
+
+  <div class="mt-6 grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-4">
+    <div class="card p-4">
+      <p class="text-slate-500"><%= t('jarsIn') %></p>
+      <p class="text-lg font-semibold"><%= totals.jar_in %></p>
+    </div>
+    <div class="card p-4">
+      <p class="text-slate-500"><%= t('jarsOut') %></p>
+      <p class="text-lg font-semibold"><%= totals.jar_out %></p>
+    </div>
+    <div class="card p-4">
+      <p class="text-slate-500"><%= t('bottlesIn') %></p>
+      <p class="text-lg font-semibold"><%= totals.bottle_in %></p>
+    </div>
+    <div class="card p-4">
+      <p class="text-slate-500"><%= t('bottlesOut') %></p>
+      <p class="text-lg font-semibold"><%= totals.bottle_out %></p>
+    </div>
+  </div>
+
+  <% const soldFromExports = exportsTotals.sold_jars || 0; %>
+  <% const soldFromSales = jarSalesTotals ? (jarSalesTotals.sold_jars || 0) : 0; %>
+  <% const soldTotal = soldFromExports + soldFromSales; %>
+  <div class="mt-4 grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-4">
+    <div class="card p-4">
+      <p class="text-slate-500"><%= t('exportsOut') %></p>
+      <p class="text-lg font-semibold"><%= exportsTotals.net_jars %> / <%= exportsTotals.net_bottles %></p>
+      <p class="text-xs text-slate-500"><%= t('containerJars') %> / <%= t('bottleCases') %></p>
+    </div>
+    <div class="card p-4">
+      <p class="text-slate-500"><%= t('leakageJars') %></p>
+      <p class="text-lg font-semibold"><%= exportsTotals.leakage_jars %></p>
+    </div>
+    <div class="card p-4">
+      <p class="text-slate-500"><%= t('jarContainersSold') %></p>
+      <p class="text-lg font-semibold"><%= soldTotal %></p>
+      <% if (jarSalesTotals && jarSalesTotals.company_jars) { %>
+        <p class="text-xs text-slate-500"><%= t('companyVehicle') %>: <%= jarSalesTotals.company_jars %></p>
+      <% } %>
+    </div>
+    <div class="card p-4">
+      <p class="text-slate-500"><%= t('netChange') %></p>
+      <p class="text-lg font-semibold">
+        <%= (totals.jar_in - totals.jar_out - exportsTotals.net_jars - exportsTotals.leakage_jars - soldTotal) %> /
+        <%= (totals.bottle_in - totals.bottle_out - exportsTotals.net_bottles) %>
+      </p>
+      <p class="text-xs text-slate-500"><%= t('containerJars') %> / <%= t('bottleCases') %></p>
+    </div>
+  </div>
+
+  <div class="mt-6 card p-6">
+    <h2 class="text-lg font-semibold"><%= t('addStockEntry') %></h2>
+    <form class="mt-4 grid gap-3 sm:grid-cols-4" method="post" action="/admin/reports/stock-ledger">
+      <div>
+        <label class="label"><%= t('itemType') %></label>
+        <select class="input" name="item_type" required>
+          <option value="JAR"><%= t('containerJars') %></option>
+          <option value="BOTTLE"><%= t('bottleCases') %></option>
+        </select>
+      </div>
+      <div>
+        <label class="label"><%= t('direction') %></label>
+        <select class="input" name="direction" required>
+          <option value="IN"><%= t('incoming') %></option>
+          <option value="OUT"><%= t('outgoing') %></option>
+        </select>
+      </div>
+      <div>
+        <label class="label"><%= t('quantity') %></label>
+        <input class="input" type="number" name="quantity" min="1" required />
+      </div>
+      <div>
+        <label class="label"><%= t('date') %></label>
+        <input class="input" type="date" name="entry_date" value="<%= to %>" required />
+      </div>
+      <div class="sm:col-span-3">
+        <label class="label"><%= t('note') %></label>
+        <input class="input" type="text" name="note" placeholder="<%= t('stockNotePlaceholder') %>" />
+      </div>
+      <div class="sm:col-span-1 flex items-end">
+        <button class="btn-primary w-full" type="submit"><%= t('addEntry') %></button>
+      </div>
+    </form>
+  </div>
+
+  <div class="mt-6 card overflow-hidden">
+    <div class="overflow-x-auto">
+      <table class="table-base">
+        <thead class="table-head">
+          <tr>
+            <th class="px-4 py-3"><%= t('date') %></th>
+            <th class="px-4 py-3"><%= t('itemType') %></th>
+            <th class="px-4 py-3"><%= t('direction') %></th>
+            <th class="px-4 py-3"><%= t('quantity') %></th>
+            <th class="px-4 py-3"><%= t('note') %></th>
+            <th class="px-4 py-3"><%= t('recordedBy') %></th>
+          </tr>
+        </thead>
+        <tbody>
+          <% if (entries.length === 0) { %>
+            <tr>
+              <td class="px-4 py-4 text-slate-500" colspan="6"><%= t('noData') %></td>
+            </tr>
+          <% } %>
+          <% entries.forEach((row) => { %>
+            <tr class="table-row">
+              <td class="px-4 py-3"><%= row.entry_date %></td>
+              <td class="px-4 py-3"><%= row.item_type === 'JAR' ? t('containerJars') : t('bottleCases') %></td>
+              <td class="px-4 py-3"><%= row.direction === 'IN' ? t('incoming') : t('outgoing') %></td>
+              <td class="px-4 py-3"><%= row.quantity %></td>
+              <td class="px-4 py-3"><%= row.note || '-' %></td>
+              <td class="px-4 py-3"><%= row.recorded_by || '-' %></td>
+            </tr>
+          <% }) %>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+<%- include('../partials/shell-end') %>

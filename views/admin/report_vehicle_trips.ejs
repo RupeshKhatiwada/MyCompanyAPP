@@ -1,0 +1,105 @@
+<%- include('../partials/shell-start', { title }) %>
+<section class="py-8">
+  <div class="flex flex-wrap items-center justify-between gap-3">
+    <div>
+      <h1 class="text-3xl font-semibold"><%= t('vehicleTripsTitle') %></h1>
+      <p class="text-slate-600"><%= t('vehicleTripsSubtitle') %></p>
+    </div>
+    <div class="flex flex-wrap gap-2">
+      <a class="btn-outline" href="/admin/reports/vehicle-trips/export?from=<%= from %>&to=<%= to %>"><%= t('exportCsv') %></a>
+      <a class="btn-outline" href="/admin/reports/vehicle-trips/print?from=<%= from %>&to=<%= to %>" target="_blank"><%= t('print') %></a>
+    </div>
+  </div>
+
+  <form class="mt-4 flex flex-wrap items-end gap-3" method="get" action="/admin/reports/vehicle-trips">
+    <div>
+      <label class="label"><%= t('from') %></label>
+      <input class="input" type="date" name="from" value="<%= from %>" />
+    </div>
+    <div>
+      <label class="label"><%= t('to') %></label>
+      <input class="input" type="date" name="to" value="<%= to %>" />
+    </div>
+    <button class="btn-outline" type="submit"><%= t('filter') %></button>
+  </form>
+
+  <% const totals = rows.reduce((acc, row) => { acc.trips += Number(row.trip_count || 0); acc.jars += Number(row.jars || 0); acc.bottles += Number(row.bottles || 0); return acc; }, { trips: 0, jars: 0, bottles: 0 }); %>
+
+  <div class="mt-6 grid gap-3 text-sm sm:grid-cols-3">
+    <div class="card p-4">
+      <p class="text-slate-500"><%= t('tripCount') %></p>
+      <p class="text-lg font-semibold"><%= totals.trips %></p>
+    </div>
+    <div class="card p-4">
+      <p class="text-slate-500"><%= t('totalJars') %></p>
+      <p class="text-lg font-semibold"><%= totals.jars %></p>
+    </div>
+    <div class="card p-4">
+      <p class="text-slate-500"><%= t('totalBottleCases') %></p>
+      <p class="text-lg font-semibold"><%= totals.bottles %></p>
+    </div>
+  </div>
+
+  <div class="mt-6 card overflow-hidden">
+    <div class="overflow-x-auto">
+      <table class="table-base">
+        <thead class="table-head">
+          <tr>
+            <th class="px-4 py-3"><%= t('date') %></th>
+            <th class="px-4 py-3"><%= t('vehicle') %></th>
+            <th class="px-4 py-3"><%= t('tripCount') %></th>
+            <th class="px-4 py-3"><%= t('jars') %></th>
+            <th class="px-4 py-3"><%= t('bottleCases') %></th>
+          </tr>
+        </thead>
+        <tbody>
+          <% if (rows.length === 0) { %>
+            <tr>
+              <td class="px-4 py-4 text-slate-500" colspan="5"><%= t('noData') %></td>
+            </tr>
+          <% } %>
+          <% rows.forEach((row) => { %>
+            <tr class="table-row">
+              <td class="px-4 py-3"><%= row.export_date %></td>
+              <td class="px-4 py-3 font-medium"><%= row.vehicle_number %></td>
+              <td class="px-4 py-3"><%= row.trip_count %></td>
+              <td class="px-4 py-3"><%= row.jars %></td>
+              <td class="px-4 py-3"><%= row.bottles %></td>
+            </tr>
+          <% }) %>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="mt-6 card p-6">
+    <h2 class="text-lg font-semibold"><%= t('routeHistoryTitle') %></h2>
+    <p class="mt-1 text-sm text-slate-600"><%= t('routeHistorySubtitle') %></p>
+    <div class="mt-3 overflow-x-auto">
+      <table class="table-base">
+        <thead class="table-head">
+          <tr>
+            <th class="px-4 py-3"><%= t('date') %></th>
+            <th class="px-4 py-3"><%= t('vehicle') %></th>
+            <th class="px-4 py-3"><%= t('route') %></th>
+          </tr>
+        </thead>
+        <tbody>
+          <% if (routes.length === 0) { %>
+            <tr>
+              <td class="px-4 py-4 text-slate-500" colspan="3"><%= t('noData') %></td>
+            </tr>
+          <% } %>
+          <% routes.forEach((row) => { %>
+            <tr class="table-row">
+              <td class="px-4 py-3"><%= row.export_date %></td>
+              <td class="px-4 py-3"><%= row.vehicle_number %></td>
+              <td class="px-4 py-3"><%= row.route %></td>
+            </tr>
+          <% }) %>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+<%- include('../partials/shell-end') %>

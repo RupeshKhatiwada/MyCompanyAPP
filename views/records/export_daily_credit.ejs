@@ -1,0 +1,76 @@
+<%- include('../partials/shell-start', { title }) %>
+<section class="py-8">
+  <div class="flex flex-wrap items-center justify-between gap-3">
+    <div>
+      <h1 class="text-3xl font-semibold"><%= t('dayCreditTitle') %></h1>
+      <p class="text-slate-600"><%= t('dayCreditSubtitle') %></p>
+    </div>
+    <a class="btn-outline" href="/records/exports?from=<%= date %>&to=<%= date %>"><%= t('back') %></a>
+  </div>
+
+  <% if (error) { %>
+    <div class="mt-4 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700"><%= error %></div>
+  <% } %>
+
+  <div class="mt-6 grid gap-3 sm:grid-cols-2">
+    <div class="card p-4">
+      <p class="text-slate-500"><%= t('vehicle') %></p>
+      <p class="text-lg font-semibold"><%= `${vehicle.owner_name} • ${vehicle.vehicle_number}` %></p>
+    </div>
+    <div class="card p-4">
+      <p class="text-slate-500"><%= t('date') %></p>
+      <p class="text-lg font-semibold"><%= date %></p>
+    </div>
+    <div class="card p-4">
+      <p class="text-slate-500"><%= t('totalRemaining') %></p>
+      <p class="text-lg font-semibold"><%= totalRemaining %></p>
+    </div>
+  </div>
+
+  <div class="mt-6 card p-6">
+    <h2 class="text-lg font-semibold"><%= t('dayCreditPaymentTitle') %></h2>
+    <p class="text-sm text-slate-600"><%= t('dayCreditPaymentSubtitle') %></p>
+    <form class="mt-4 grid gap-3 sm:grid-cols-3" method="post" action="/records/exports/daily-credit">
+      <input type="hidden" name="date" value="<%= date %>" />
+      <input type="hidden" name="vehicle_id" value="<%= vehicle.id %>" />
+      <div>
+        <label class="label"><%= t('paymentAmount') %></label>
+        <input class="input" type="number" min="0" step="0.01" name="payment_amount" required />
+      </div>
+      <div class="sm:col-span-2 flex items-end">
+        <button class="btn-primary" type="submit"><%= t('addPayment') %></button>
+      </div>
+    </form>
+  </div>
+
+  <div class="mt-6 card overflow-hidden">
+    <div class="overflow-x-auto">
+      <table class="table-base">
+        <thead class="table-head">
+          <tr>
+            <th class="px-4 py-3"><%= t('receiptNo') %></th>
+            <th class="px-4 py-3"><%= t('totalAmount') %></th>
+            <th class="px-4 py-3"><%= t('paidAmount') %></th>
+            <th class="px-4 py-3"><%= t('remainingAmount') %></th>
+          </tr>
+        </thead>
+        <tbody>
+          <% if (!trips.length) { %>
+            <tr>
+              <td class="px-4 py-4 text-slate-500" colspan="4"><%= t('noCredits') %></td>
+            </tr>
+          <% } %>
+          <% trips.forEach((trip) => { %>
+            <tr class="table-row">
+              <td class="px-4 py-3"><%= trip.receipt_no %></td>
+              <td class="px-4 py-3"><%= trip.total_amount %></td>
+              <td class="px-4 py-3"><%= trip.paid_amount %></td>
+              <td class="px-4 py-3"><%= trip.remaining %></td>
+            </tr>
+          <% }) %>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+<%- include('../partials/shell-end') %>

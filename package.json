@@ -1,0 +1,36 @@
+{
+  "name": "aqua-msk",
+  "version": "0.1.0",
+  "private": true,
+  "type": "commonjs",
+  "scripts": {
+    "dev": "nodemon src/server.js",
+    "start": "node src/server.js",
+    "build:css": "tailwindcss -i ./src/styles/tailwind.css -o ./public/css/styles.css --minify",
+    "watch:css": "tailwindcss -i ./src/styles/tailwind.css -o ./public/css/styles.css --watch",
+    "build": "npm run build:css",
+    "make:windows-kit": "node scripts/build-windows-kit.js"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "dayjs": "^1.11.11",
+    "ejs": "^3.1.10",
+    "express": "^4.19.2",
+    "express-session": "^1.18.1",
+    "multer": "^1.4.5-lts.1",
+    "session-file-store": "^1.5.0",
+    "chart.js": "^4.4.3"
+  },
+  "devDependencies": {
+    "autoprefixer": "^10.4.20",
+    "nodemon": "^3.1.4",
+    "postcss": "^8.4.41",
+    "tailwindcss": "^3.4.10"
+  },
+  "browserslist": [
+    "defaults",
+    "last 2 versions",
+    "Safari >= 13",
+    "Firefox ESR"
+  ]
+}

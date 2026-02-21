@@ -1,0 +1,89 @@
+<%- include('../partials/shell-start', { title }) %>
+<section class="py-8">
+  <div class="flex flex-wrap items-center justify-between gap-3">
+    <div>
+      <h1 class="text-3xl font-semibold"><%= t('customerInvoiceTitle') %></h1>
+      <p class="text-slate-600"><%= t('customerInvoiceSubtitle') %></p>
+    </div>
+    <div class="flex flex-wrap gap-2">
+      <% if (customer) { %>
+        <a class="btn-outline" href="/admin/reports/customer-invoice/print?from=<%= from %>&to=<%= to %>&customer=<%= encodeURIComponent(customer) %>" target="_blank"><%= t('print') %></a>
+      <% } %>
+    </div>
+  </div>
+
+  <form class="mt-4 flex flex-wrap items-end gap-3" method="get" action="/admin/reports/customer-invoice">
+    <div>
+      <label class="label"><%= t('from') %></label>
+      <input class="input" type="date" name="from" value="<%= from %>" />
+    </div>
+    <div>
+      <label class="label"><%= t('to') %></label>
+      <input class="input" type="date" name="to" value="<%= to %>" />
+    </div>
+    <div class="min-w-[220px]">
+      <label class="label"><%= t('customerName') %></label>
+      <input class="input" type="text" name="customer" list="customerList" value="<%= customer %>" placeholder="<%= t('selectCustomer') %>" />
+      <datalist id="customerList">
+        <% (customers || []).forEach((name) => { %>
+          <option value="<%= name %>"></option>
+        <% }) %>
+      </datalist>
+    </div>
+    <button class="btn-outline" type="submit"><%= t('run') %></button>
+  </form>
+
+  <% if (!customer) { %>
+    <div class="mt-6 card p-6 text-sm text-slate-600"><%= t('customerInvoiceHint') %></div>
+  <% } %>
+
+  <% if (customer) { %>
+    <div class="mt-6 grid gap-3 text-sm sm:grid-cols-3">
+      <div class="card p-4">
+        <p class="text-slate-500"><%= t('totalAmount') %></p>
+        <p class="text-lg font-semibold"><%= totals.total_amount %></p>
+      </div>
+      <div class="card p-4">
+        <p class="text-slate-500"><%= t('totalPaidAmount') %></p>
+        <p class="text-lg font-semibold"><%= totals.total_paid %></p>
+      </div>
+      <div class="card p-4">
+        <p class="text-slate-500"><%= t('totalRemaining') %></p>
+        <p class="text-lg font-semibold"><%= totals.total_remaining %></p>
+      </div>
+    </div>
+
+    <div class="mt-6 card overflow-hidden">
+      <div class="overflow-x-auto">
+        <table class="table-base">
+          <thead class="table-head">
+            <tr>
+              <th class="px-4 py-3"><%= t('date') %></th>
+              <th class="px-4 py-3"><%= t('vehicle') %></th>
+              <th class="px-4 py-3"><%= t('amount') %></th>
+              <th class="px-4 py-3"><%= t('paidAmount') %></th>
+              <th class="px-4 py-3"><%= t('remainingAmount') %></th>
+            </tr>
+          </thead>
+          <tbody>
+            <% if (rows.length === 0) { %>
+              <tr>
+                <td class="px-4 py-4 text-slate-500" colspan="5"><%= t('noCredits') %></td>
+              </tr>
+            <% } %>
+            <% rows.forEach((row) => { %>
+              <tr class="table-row">
+                <td class="px-4 py-3"><%= row.credit_date %></td>
+                <td class="px-4 py-3"><%= row.vehicle_number %></td>
+                <td class="px-4 py-3"><%= row.amount %></td>
+                <td class="px-4 py-3"><%= row.paid_amount %></td>
+                <td class="px-4 py-3"><%= Math.max(0, row.amount - row.paid_amount) %></td>
+              </tr>
+            <% }) %>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  <% } %>
+</section>
+<%- include('../partials/shell-end') %>

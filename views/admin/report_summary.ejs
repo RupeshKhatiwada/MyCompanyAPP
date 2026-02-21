@@ -1,0 +1,83 @@
+<%- include('../partials/shell-start', { title }) %>
+<section class="py-8">
+  <div class="print-only mb-4">
+    <%- include('../partials/print-brand', { subtitle: t('salesSummaryTitle') }) %>
+  </div>
+  <div class="flex flex-wrap items-center justify-between gap-3">
+    <div>
+      <h1 class="text-3xl font-semibold"><%= t('salesSummaryTitle') %></h1>
+      <p class="text-slate-600"><%= t('salesSummarySubtitle') %></p>
+    </div>
+    <div class="flex flex-wrap gap-2">
+      <a class="btn-outline" href="/admin/reports/sales"><%= t('salesReport') %></a>
+      <button class="btn-primary" onclick="window.print()"><%= t('print') %></button>
+    </div>
+  </div>
+
+  <form class="mt-4 flex flex-wrap items-end gap-3" method="get" action="/admin/reports/summary">
+    <div>
+      <label class="label"><%= t('from') %></label>
+      <input class="input" type="date" name="from" value="<%= from %>" />
+    </div>
+    <div>
+      <label class="label"><%= t('to') %></label>
+      <input class="input" type="date" name="to" value="<%= to %>" />
+    </div>
+    <div>
+      <label class="label"><%= t('groupBy') %></label>
+      <select class="input" name="group">
+        <option value="day" <%= group === 'day' ? 'selected' : '' %>><%= t('day') %></option>
+        <option value="month" <%= group === 'month' ? 'selected' : '' %>><%= t('month') %></option>
+        <option value="year" <%= group === 'year' ? 'selected' : '' %>><%= t('year') %></option>
+      </select>
+    </div>
+    <button class="btn-outline" type="submit"><%= t('run') %></button>
+  </form>
+
+  <div class="mt-6 card p-6">
+    <h2 class="text-lg font-semibold"><%= t('summaryLabel') %></h2>
+    <div class="mt-4 space-y-2 text-sm">
+      <div class="flex items-center justify-between">
+        <span class="text-slate-600"><%= t('totalPeriod') %></span>
+        <span class="font-semibold"><%= total %></span>
+      </div>
+      <div class="flex items-center justify-between">
+        <span class="text-slate-600"><%= t('groups') %></span>
+        <span class="font-semibold"><%= rows.length %></span>
+      </div>
+      <div class="flex items-center justify-between">
+        <span class="text-slate-600"><%= t('average') %></span>
+        <span class="font-semibold"><%= rows.length ? (total / rows.length).toFixed(2) : '0.00' %></span>
+      </div>
+    </div>
+    <div class="mt-4 text-xs text-slate-500"><%= t('groupHelp') %></div>
+  </div>
+
+  <div class="mt-6 card overflow-hidden">
+    <div class="overflow-x-auto">
+      <table class="table-base">
+        <thead class="table-head">
+          <tr>
+            <th class="px-4 py-3"><%= t('group') %></th>
+            <th class="px-4 py-3"><%= t('totalSalesCol') %></th>
+          </tr>
+        </thead>
+        <tbody>
+          <% if (rows.length === 0) { %>
+            <tr>
+              <td class="px-4 py-4 text-slate-500" colspan="2"><%= t('noSalesRange') %></td>
+            </tr>
+          <% } %>
+          <% rows.forEach((row) => { %>
+            <tr class="table-row">
+              <td class="px-4 py-3"><%= row.label %></td>
+              <td class="px-4 py-3"><%= row.total %></td>
+            </tr>
+          <% }) %>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<%- include('../partials/shell-end') %>

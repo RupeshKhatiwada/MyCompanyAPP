@@ -1,0 +1,93 @@
+<%- include('../partials/shell-start', { title }) %>
+<section class="py-8">
+  <div class="print-only mb-4">
+    <%- include('../partials/print-brand', { subtitle: t('vehicleBalancesTitle') }) %>
+  </div>
+  <div class="flex flex-wrap items-center justify-between gap-3">
+    <div>
+      <h1 class="text-3xl font-semibold"><%= t('vehicleBalancesTitle') %></h1>
+      <p class="text-slate-600"><%= t('vehicleBalancesSubtitle') %></p>
+    </div>
+    <div class="flex flex-wrap gap-2">
+      <button class="btn-primary" onclick="window.print()"><%= t('print') %></button>
+    </div>
+  </div>
+
+  <form class="mt-4 flex flex-wrap items-end gap-3" method="get" action="/admin/reports/vehicle-balances">
+    <div>
+      <label class="label"><%= t('from') %></label>
+      <input class="input" type="date" name="from" value="<%= from %>" />
+    </div>
+    <div>
+      <label class="label"><%= t('to') %></label>
+      <input class="input" type="date" name="to" value="<%= to %>" />
+    </div>
+    <button class="btn-outline" type="submit"><%= t('run') %></button>
+  </form>
+
+  <div class="mt-6 grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-3">
+    <div class="card p-4">
+      <p class="text-slate-500"><%= t('totalExportAmount') %></p>
+      <p class="text-lg font-semibold"><%= totals.export_total %></p>
+    </div>
+    <div class="card p-4">
+      <p class="text-slate-500"><%= t('totalPaidAmount') %></p>
+      <p class="text-lg font-semibold"><%= totals.export_paid %></p>
+    </div>
+    <div class="card p-4">
+      <p class="text-slate-500"><%= t('totalCreditAmount') %></p>
+      <p class="text-lg font-semibold"><%= totals.export_credit %></p>
+    </div>
+    <div class="card p-4">
+      <p class="text-slate-500"><%= t('creditTotal') %></p>
+      <p class="text-lg font-semibold"><%= totals.credit_total %></p>
+    </div>
+    <div class="card p-4">
+      <p class="text-slate-500"><%= t('creditPaid') %></p>
+      <p class="text-lg font-semibold"><%= totals.credit_paid %></p>
+    </div>
+    <div class="card p-4">
+      <p class="text-slate-500"><%= t('creditRemaining') %></p>
+      <p class="text-lg font-semibold"><%= totals.credit_remaining %></p>
+    </div>
+  </div>
+
+  <div class="mt-6 card overflow-hidden">
+    <div class="overflow-x-auto">
+      <table class="table-base">
+        <thead class="table-head">
+          <tr>
+            <th class="px-4 py-3"><%= t('vehicle') %></th>
+            <th class="px-4 py-3"><%= t('ownerName') %></th>
+            <th class="px-4 py-3"><%= t('totalExportAmount') %></th>
+            <th class="px-4 py-3"><%= t('totalPaidAmount') %></th>
+            <th class="px-4 py-3"><%= t('totalCreditAmount') %></th>
+            <th class="px-4 py-3"><%= t('creditTotal') %></th>
+            <th class="px-4 py-3"><%= t('creditPaid') %></th>
+            <th class="px-4 py-3"><%= t('creditRemaining') %></th>
+          </tr>
+        </thead>
+        <tbody>
+          <% if (rows.length === 0) { %>
+            <tr>
+              <td class="px-4 py-4 text-slate-500" colspan="8"><%= t('noVehicles') %></td>
+            </tr>
+          <% } %>
+          <% rows.forEach((row) => { %>
+            <tr class="table-row">
+              <td class="px-4 py-3 font-medium"><%= row.vehicle_number %></td>
+              <td class="px-4 py-3"><%= row.owner_name %></td>
+              <td class="px-4 py-3"><%= row.export_total %></td>
+              <td class="px-4 py-3"><%= row.export_paid %></td>
+              <td class="px-4 py-3"><%= row.export_credit %></td>
+              <td class="px-4 py-3"><%= row.credit_total %></td>
+              <td class="px-4 py-3"><%= row.credit_paid %></td>
+              <td class="px-4 py-3"><%= row.credit_remaining %></td>
+            </tr>
+          <% }) %>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+<%- include('../partials/shell-end') %>

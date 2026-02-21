@@ -1,0 +1,241 @@
+<%- include('../partials/shell-start', { title }) %>
+<section class="py-8">
+  <div class="flex flex-wrap items-center justify-between gap-3">
+    <div>
+      <h1 class="text-3xl font-semibold"><%= t('companyPurchasesTitle') %></h1>
+      <p class="text-slate-600"><%= t('companyPurchasesSubtitle') %></p>
+    </div>
+    <div class="flex flex-wrap gap-2">
+      <a class="btn-outline" href="/records/company-purchases/print?from=<%= from %>&to=<%= to %>&q=<%= encodeURIComponent(q || '') %>" target="_blank"><%= t('downloadPdf') %></a>
+      <a class="btn-outline" href="/records/company-purchases/export?from=<%= from %>&to=<%= to %>&q=<%= encodeURIComponent(q || '') %>"><%= t('exportCsv') %></a>
+    </div>
+  </div>
+
+  <% if (error) { %>
+    <div class="mt-4 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700"><%= error %></div>
+  <% } %>
+  <% if (success) { %>
+    <div class="mt-4 rounded-lg bg-emerald-50 px-4 py-3 text-sm text-emerald-700"><%= success %></div>
+  <% } %>
+  <% const safePaymentRows = typeof paymentRows !== 'undefined' ? paymentRows : []; %>
+
+  <form class="mt-4 flex flex-wrap items-end gap-3" method="get" action="/records/company-purchases">
+    <div>
+      <label class="label"><%= t('from') %></label>
+      <input class="input" type="date" name="from" value="<%= from %>" />
+    </div>
+    <div>
+      <label class="label"><%= t('to') %></label>
+      <input class="input" type="date" name="to" value="<%= to %>" />
+    </div>
+    <div class="min-w-56 flex-1">
+      <label class="label"><%= t('search') %></label>
+      <input class="input" type="text" name="q" value="<%= q %>" placeholder="<%= t('purchaseSearchPlaceholder') %>" />
+    </div>
+    <button class="btn-outline" type="submit"><%= t('filter') %></button>
+  </form>
+
+  <div class="mt-6 card p-6">
+    <h2 class="text-lg font-semibold"><%= t('addPurchaseTitle') %></h2>
+    <form class="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4" method="post" action="/records/company-purchases">
+      <div>
+        <label class="label"><%= t('date') %></label>
+        <input class="input" type="date" name="purchase_date" value="<%= to %>" required />
+      </div>
+      <div class="sm:col-span-2">
+        <label class="label"><%= t('itemName') %></label>
+        <input class="input" type="text" name="item_name" required />
+      </div>
+      <div>
+        <label class="label"><%= t('sellerName') %></label>
+        <input class="input" type="text" name="seller_name" />
+      </div>
+      <div>
+        <label class="label"><%= t('amount') %></label>
+        <input class="input" type="number" min="0" step="0.01" name="amount" required />
+      </div>
+      <div>
+        <label class="label"><%= t('paidAmount') %></label>
+        <input class="input" type="number" min="0" step="0.01" name="paid_amount" value="0" />
+      </div>
+      <div class="sm:col-span-2 lg:col-span-4">
+        <label class="inline-flex items-center gap-2 text-sm">
+          <input type="checkbox" name="is_credit" value="1" />
+          <span><%= t('purchaseOnCredit') %></span>
+        </label>
+      </div>
+      <div class="sm:col-span-2 lg:col-span-4">
+        <label class="inline-flex items-center gap-2 text-sm">
+          <input type="checkbox" name="is_machinery" value="1" data-machinery-toggle />
+          <span><%= t('isMachineryWork') %></span>
+        </label>
+      </div>
+      <div class="sm:col-span-2 machinery-only hidden">
+        <label class="label"><%= t('machineryName') %></label>
+        <input class="input" type="text" name="machinery_name" />
+      </div>
+      <div class="machinery-only hidden">
+        <label class="label"><%= t('technicianName') %></label>
+        <input class="input" type="text" name="technician_name" data-tech-name />
+      </div>
+      <div class="machinery-only hidden">
+        <label class="label"><%= t('technicianPhone') %></label>
+        <input class="input" type="text" name="technician_phone" />
+      </div>
+      <div class="sm:col-span-2 machinery-only hidden">
+        <label class="label"><%= t('workDetails') %></label>
+        <input class="input" type="text" name="work_details" />
+      </div>
+      <div class="sm:col-span-2 lg:col-span-4">
+        <label class="label"><%= t('note') %></label>
+        <input class="input" type="text" name="note" />
+      </div>
+      <div class="sm:col-span-2 lg:col-span-4">
+        <button class="btn-primary" type="submit"><%= t('save') %></button>
+      </div>
+    </form>
+  </div>
+
+  <div class="mt-6 grid gap-3 sm:grid-cols-3">
+    <div class="card p-4">
+      <p class="text-slate-500"><%= t('total') %></p>
+      <p class="text-lg font-semibold"><%= totals.total %></p>
+    </div>
+    <div class="card p-4">
+      <p class="text-slate-500"><%= t('machineryExpenses') %></p>
+      <p class="text-lg font-semibold"><%= totals.machinery %></p>
+    </div>
+    <div class="card p-4">
+      <p class="text-slate-500"><%= t('generalExpenses') %></p>
+      <p class="text-lg font-semibold"><%= totals.general %></p>
+    </div>
+  </div>
+
+  <div class="mt-4 grid gap-3 sm:grid-cols-3">
+    <div class="card p-4">
+      <p class="text-slate-500"><%= t('totalPaid') %></p>
+      <p class="text-lg font-semibold"><%= totals.paid || 0 %></p>
+    </div>
+    <div class="card p-4">
+      <p class="text-slate-500"><%= t('totalDue') %></p>
+      <p class="text-lg font-semibold"><%= totals.due || 0 %></p>
+    </div>
+    <div class="card p-4">
+      <p class="text-slate-500"><%= t('openCredits') %></p>
+      <p class="text-lg font-semibold"><%= totals.open_count || 0 %></p>
+    </div>
+  </div>
+
+  <div class="mt-6 card overflow-hidden">
+    <div class="overflow-x-auto">
+      <table class="table-base">
+        <thead class="table-head">
+          <tr>
+            <th class="px-4 py-3"><%= t('date') %></th>
+            <th class="px-4 py-3"><%= t('itemName') %></th>
+            <th class="px-4 py-3"><%= t('sellerName') %></th>
+            <th class="px-4 py-3"><%= t('amount') %></th>
+            <th class="px-4 py-3"><%= t('paidAmount') %></th>
+            <th class="px-4 py-3"><%= t('remaining') %></th>
+            <th class="px-4 py-3"><%= t('machineryName') %></th>
+            <th class="px-4 py-3"><%= t('technicianName') %></th>
+            <th class="px-4 py-3"><%= t('technicianPhone') %></th>
+            <th class="px-4 py-3"><%= t('workDetails') %></th>
+            <th class="px-4 py-3"><%= t('recordedBy') %></th>
+            <th class="px-4 py-3 text-right"><%= t('actions') %></th>
+          </tr>
+        </thead>
+        <tbody>
+          <% if (!rows || rows.length === 0) { %>
+            <tr>
+              <td class="px-4 py-4 text-slate-500" colspan="12"><%= t('noPurchases') %></td>
+            </tr>
+          <% } %>
+          <% rows.forEach((row) => { %>
+            <% const rowDue = Math.max(0, Number(row.amount || 0) - Number(row.paid_amount || 0)); %>
+            <tr class="table-row">
+              <td class="px-4 py-3"><%= row.purchase_date %></td>
+              <td class="px-4 py-3"><%= row.item_name %></td>
+              <td class="px-4 py-3"><%= row.seller_name || '-' %></td>
+              <td class="px-4 py-3"><%= row.amount %></td>
+              <td class="px-4 py-3"><%= row.paid_amount || 0 %></td>
+              <td class="px-4 py-3"><%= rowDue %></td>
+              <td class="px-4 py-3"><%= row.machinery_name || '-' %></td>
+              <td class="px-4 py-3"><%= row.technician_name || '-' %></td>
+              <td class="px-4 py-3"><%= row.technician_phone || '-' %></td>
+              <td class="px-4 py-3"><%= row.work_details || '-' %></td>
+              <td class="px-4 py-3"><%= row.recorded_by || '-' %></td>
+              <td class="px-4 py-3 text-right">
+                <details class="action-menu">
+                  <summary class="btn-outline h-9 w-9 flex items-center justify-center">⋯</summary>
+                  <div class="action-menu-panel">
+                    <a class="action-menu-item" href="/records/company-purchases/<%= row.id %>/edit"><%= t('edit') %></a>
+                    <a class="action-menu-item" href="/records/company-purchases/<%= row.id %>/edit"><%= t('paymentHistory') %></a>
+                    <form method="post" action="/records/company-purchases/<%= row.id %>/delete" onsubmit="return confirm('<%= t('deletePurchaseConfirm') %>');">
+                      <button class="action-menu-item action-menu-danger" type="submit"><%= t('delete') %></button>
+                    </form>
+                  </div>
+                </details>
+              </td>
+            </tr>
+          <% }) %>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <details class="mt-6 card p-6">
+    <summary class="flex cursor-pointer items-center justify-between text-sm font-semibold">
+      <span><%= t('paymentHistory') %></span>
+      <span class="text-xs text-slate-500"><%= t('tapToExpand') %></span>
+    </summary>
+    <div class="mt-4 overflow-x-auto">
+      <table class="table-base">
+        <thead class="table-head">
+          <tr>
+            <th class="px-4 py-3"><%= t('date') %></th>
+            <th class="px-4 py-3"><%= t('itemName') %></th>
+            <th class="px-4 py-3"><%= t('sellerName') %></th>
+            <th class="px-4 py-3"><%= t('amount') %></th>
+            <th class="px-4 py-3"><%= t('note') %></th>
+            <th class="px-4 py-3"><%= t('recordedBy') %></th>
+          </tr>
+        </thead>
+        <tbody>
+          <% if (!safePaymentRows.length) { %>
+            <tr>
+              <td class="px-4 py-4 text-slate-500" colspan="6"><%= t('noPaymentHistory') %></td>
+            </tr>
+          <% } %>
+          <% safePaymentRows.forEach((row) => { %>
+            <tr class="table-row">
+              <td class="px-4 py-3"><%= row.payment_date %></td>
+              <td class="px-4 py-3"><%= row.item_name %></td>
+              <td class="px-4 py-3"><%= row.seller_name || '-' %></td>
+              <td class="px-4 py-3"><%= row.amount %></td>
+              <td class="px-4 py-3"><%= row.note || '-' %></td>
+              <td class="px-4 py-3"><%= row.recorded_by || '-' %></td>
+            </tr>
+          <% }) %>
+        </tbody>
+      </table>
+    </div>
+  </details>
+</section>
+
+<script>
+  (() => {
+    const toggle = document.querySelector('[data-machinery-toggle]');
+    const blocks = document.querySelectorAll('.machinery-only');
+    const techName = document.querySelector('[data-tech-name]');
+    if (!toggle || !blocks.length) return;
+    const sync = () => {
+      const on = toggle.checked;
+      blocks.forEach((node) => node.classList.toggle('hidden', !on));
+      if (techName) techName.required = on;
+    };
+    toggle.addEventListener('change', sync);
+    sync();
+  })();
+</script>
+<%- include('../partials/shell-end') %>

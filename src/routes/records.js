@@ -1,0 +1,5780 @@
+const express = require("express");
+const dayjs = require("dayjs");
+const { db } = require("../db");
+const { requireRole } = require("../middleware/auth");
+const path = require("path");
+const multer = require("multer");
+const bcrypt = require("bcryptjs");
+const { buildReceiptNo } = require("../utils/receipt");
+const { createRecycleEntry } = require("../utils/recycleBin");
+
+const router = express.Router();
+const defaultStaffRoleCodes = ["CLEANER", "MACHINE_MANAGER", "VEHICLE_CONDUCTOR", "KITCHEN_COOK"];
+const importLabelKeyByCode = {
+  JAR_CONTAINER: "importItemJarContainer",
+  JAR_CAP: "importItemJarCap",
+  CHEMICAL_LABEL: "importItemChemicalLabel",
+  LABEL_STICKER: "importItemLabelSticker",
+  DATE_LABEL: "importItemDateLabel",
+  BOTTLE_CASE: "importItemBottleCase"
+};
+const importUnitFallbackByCode = {
+  JAR_CONTAINER: "",
+  JAR_CAP: "unitBora",
+  CHEMICAL_LABEL: "unitGallon",
+  LABEL_STICKER: "unitBundle",
+  DATE_LABEL: "unitRoll",
+  BOTTLE_CASE: "unitCase"
+};
+const vehicleExpenseTypes = ["FUEL", "REPAIR", "SERVICE", "OTHER"];
+const uploadDir = path.join(__dirname, "..", "..", "public", "uploads");
+const staffStorage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, uploadDir),
+  filename: (req, file, cb) => {
+    const ext = path.extname(file.originalname) || ".jpg";
+    const base = `staff_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+    cb(null, `${base}${ext}`);
+  }
+});
+const staffUpload = multer({
+  storage: staffStorage,
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype && file.mimetype.startsWith("image/")) return cb(null, true);
+    cb(new Error("Invalid file type"));
+  }
+});
+const vehicleStorage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, uploadDir),
+  filename: (req, file, cb) => {
+    const ext = path.extname(file.originalname) || ".jpg";
+    const base = `vehicle_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+    cb(null, `${base}${ext}`);
+  }
+});
+const vehicleUpload = multer({
+  storage: vehicleStorage,
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype && file.mimetype.startsWith("image/")) return cb(null, true);
+    cb(new Error("Invalid file type"));
+  }
+});
+const waterReportStorage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, uploadDir),
+  filename: (req, file, cb) => {
+    const ext = path.extname(file.originalname) || "";
+    const base = `water_test_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+    cb(null, `${base}${ext}`);
+  }
+});
+const waterReportUpload = multer({
+  storage: waterReportStorage,
+  limits: { fileSize: 10 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    const mime = String(file.mimetype || "").toLowerCase();
+    if (mime.startsWith("image/") || mime === "application/pdf") return cb(null, true);
+    cb(new Error("Invalid file type"));
+  }
+});
+
+const computeSalaryDue = (staffRow, paidTotal, asOf) => {
+  if (!staffRow || !staffRow.start_date) return 0;
+  const salary = Number(staffRow.monthly_salary || 0);
+  if (salary <= 0) return 0;
+  const start = dayjs(staffRow.start_date).startOf("month");
+  const lastCompletedMonth = dayjs(asOf).startOf("month").subtract(1, "month");
+  if (!start.isValid() || lastCompletedMonth.isBefore(start)) return 0;
+  const months = lastCompletedMonth.diff(start, "month") + 1;
+  const accrued = months * salary;
+  const paid = Number(paidTotal || 0);
+  return Math.max(0, accrued - paid);
+};
+
+const humanizeRoleCode = (code) => String(code || "")
+  .trim()
+  .replace(/_/g, " ")
+  .toLowerCase()
+  .replace(/\b\w/g, (char) => char.toUpperCase());
+
+const resolveStaffRoleLabel = (roleCode, roleName, t) => {
+  const safeCode = String(roleCode || "").trim().toUpperCase();
+  if (roleName && String(roleName).trim()) return String(roleName).trim();
+  if (!safeCode) return "-";
+  const key = `staffRole${safeCode}`;
+  const translated = t(key);
+  if (translated !== key) return translated;
+  return humanizeRoleCode(safeCode);
+};
+
+const getStaffRoles = ({ includeInactive = false } = {}) => {
+  const where = includeInactive ? "" : "WHERE is_active = 1";
+  return db.prepare(
+    `SELECT id, code, name, is_active
+     FROM staff_roles
+     ${where}
+     ORDER BY name ASC, code ASC`
+  ).all();
+};
+
+const getStaffRoleChoices = (t, selectedCode = null) => {
+  const safeSelected = String(selectedCode || "").trim().toUpperCase();
+  const rows = getStaffRoles();
+  const choices = rows.map((row) => ({
+    code: row.code,
+    label: resolveStaffRoleLabel(row.code, row.name, t)
+  }));
+  if (!safeSelected) return choices;
+  if (choices.find((row) => row.code === safeSelected)) return choices;
+  const extra = db.prepare("SELECT code, name FROM staff_roles WHERE code = ?").get(safeSelected);
+  if (extra) {
+    return [...choices, { code: extra.code, label: resolveStaffRoleLabel(extra.code, extra.name, t) }];
+  }
+  return [...choices, { code: safeSelected, label: resolveStaffRoleLabel(safeSelected, null, t) }];
+};
+
+const normalizeStaffRole = (value, options = {}) => {
+  const allowInactive = Boolean(options.allowInactive);
+  const safe = String(value || "").trim().toUpperCase();
+  if (!safe) return null;
+  const sql = allowInactive
+    ? "SELECT code FROM staff_roles WHERE code = ?"
+    : "SELECT code FROM staff_roles WHERE code = ? AND is_active = 1";
+  const exists = db.prepare(sql).get(safe);
+  if (exists) return safe;
+  if (defaultStaffRoleCodes.includes(safe)) return safe;
+  return null;
+};
+
+const getSetting = (key, fallback = 0) => {
+  const row = db.prepare("SELECT value FROM settings WHERE key = ?").get(key);
+  if (!row) return fallback;
+  const num = Number(row.value);
+  return Number.isNaN(num) ? fallback : num;
+};
+
+const getStaffOptions = () => db.prepare(
+  "SELECT id, full_name FROM staff ORDER BY full_name ASC"
+).all();
+
+const getExportStaffOptions = () => db.prepare(
+  `SELECT staff.id, staff.full_name
+   FROM staff
+   JOIN staff_roles ON staff_roles.code = staff.staff_role
+   WHERE COALESCE(staff_roles.show_in_exports, 0) = 1
+     AND COALESCE(staff_roles.is_active, 1) = 1
+   ORDER BY staff.full_name ASC`
+).all();
+
+const getExportStaffById = (staffId) => db.prepare(
+  `SELECT staff.id, staff.full_name
+   FROM staff
+   JOIN staff_roles ON staff_roles.code = staff.staff_role
+   WHERE staff.id = ?
+     AND COALESCE(staff_roles.show_in_exports, 0) = 1
+     AND COALESCE(staff_roles.is_active, 1) = 1`
+).get(staffId);
+
+const getExportStaffByName = (fullName) => db.prepare(
+  `SELECT staff.id, staff.full_name
+   FROM staff
+   JOIN staff_roles ON staff_roles.code = staff.staff_role
+   WHERE lower(trim(staff.full_name)) = lower(trim(?))
+     AND COALESCE(staff_roles.show_in_exports, 0) = 1
+     AND COALESCE(staff_roles.is_active, 1) = 1
+   LIMIT 1`
+).get(fullName);
+
+const getExportNameSuggestions = () => {
+  const staffNames = getExportStaffOptions()
+    .map((row) => String(row.full_name || "").trim())
+    .filter(Boolean);
+  const historicalNames = db.prepare(
+    `SELECT DISTINCT TRIM(checked_by_staff_name) as name
+     FROM exports
+     WHERE checked_by_staff_name IS NOT NULL
+       AND TRIM(checked_by_staff_name) <> ''
+     UNION
+     SELECT DISTINCT TRIM(force_wash_staff_name) as name
+     FROM exports
+     WHERE force_wash_staff_name IS NOT NULL
+       AND TRIM(force_wash_staff_name) <> ''`
+  ).all().map((row) => String(row.name || "").trim()).filter(Boolean);
+  return Array.from(new Set([...staffNames, ...historicalNames]))
+    .sort((a, b) => a.localeCompare(b));
+};
+
+const parseCheckbox = (value) => {
+  if (typeof value === "boolean") return value;
+  const safe = String(value || "").trim().toLowerCase();
+  return safe === "1" || safe === "true" || safe === "on" || safe === "yes";
+};
+
+const parseMoneyValue = (value) => {
+  const num = Number(value || 0);
+  if (Number.isNaN(num) || num < 0) return 0;
+  return Math.round(num * 100) / 100;
+};
+
+const normalizeFingerprintId = (value) => {
+  const safe = String(value || "").trim();
+  return safe || null;
+};
+
+const findFingerprintConflict = ({ fingerprintId, skipStaffId = null, skipWorkerId = null }) => {
+  const safe = normalizeFingerprintId(fingerprintId);
+  if (!safe) return null;
+  const staff = db.prepare(
+    "SELECT id, full_name FROM staff WHERE lower(trim(fingerprint_id)) = lower(trim(?)) AND (? IS NULL OR id != ?)"
+  ).get(safe, skipStaffId, skipStaffId);
+  if (staff) return { type: "STAFF", id: staff.id, name: staff.full_name };
+  const worker = db.prepare(
+    "SELECT id, full_name FROM users WHERE role = 'WORKER' AND lower(trim(fingerprint_id)) = lower(trim(?)) AND (? IS NULL OR id != ?)"
+  ).get(safe, skipWorkerId, skipWorkerId);
+  if (worker) return { type: "WORKER", id: worker.id, name: worker.full_name };
+  return null;
+};
+
+const getAttendanceIotEnabled = () => String(
+  (db.prepare("SELECT value FROM settings WHERE key = 'iot_attendance_enabled'").get() || { value: "0" }).value
+) === "1";
+
+const parsePaymentAmount = (details) => {
+  const match = String(details || "").match(/payment=([0-9.]+)/i);
+  if (!match) return 0;
+  const value = Number(match[1]);
+  return Number.isNaN(value) ? 0 : value;
+};
+
+const buildCreditsListUrl = (params = {}) => {
+  const from = params.from || dayjs().subtract(7, "day").format("YYYY-MM-DD");
+  const to = params.to || dayjs().format("YYYY-MM-DD");
+  const status = ["all", "paid", "unpaid", "partial"].includes(params.status) ? params.status : "all";
+  const sort = String(params.sort || "date_desc");
+  const q = String(params.q || "").trim();
+  const notice = String(params.notice || "").trim();
+  const error = String(params.error || "").trim();
+
+  const query = new URLSearchParams();
+  query.set("from", from);
+  query.set("to", to);
+  query.set("status", status);
+  query.set("sort", sort);
+  if (q) query.set("q", q);
+  if (notice) query.set("notice", notice);
+  if (error) query.set("error", error);
+  return `/records/credits?${query.toString()}`;
+};
+
+const buildExportsListUrl = (params = {}) => {
+  const from = params.from || dayjs().subtract(7, "day").format("YYYY-MM-DD");
+  const to = params.to || dayjs().format("YYYY-MM-DD");
+  const q = String(params.q || "").trim();
+  const sort = String(params.sort || "date_desc");
+  const tripVehicleId = String(params.trip_vehicle_id || params.tripVehicleId || "").trim();
+  const status = String(params.status || "").trim();
+  const error = String(params.error || "").trim();
+
+  const query = new URLSearchParams();
+  query.set("from", from);
+  query.set("to", to);
+  query.set("sort", sort);
+  if (q) query.set("q", q);
+  if (tripVehicleId) query.set("trip_vehicle_id", tripVehicleId);
+  if (status) query.set("status", status);
+  if (error) query.set("error", error);
+  return `/records/exports?${query.toString()}`;
+};
+
+const applyCreditSettlementPayment = ({ creditRows, paymentAmount, note, userId }) => {
+  const rows = Array.isArray(creditRows) ? creditRows : [];
+  const totalRemaining = rows.reduce((sum, row) => {
+    const remaining = Math.max(0, Number(row.amount || 0) - Number(row.paid_amount || 0));
+    return sum + remaining;
+  }, 0);
+  if (totalRemaining <= 0) return { applied: 0, totalRemaining: 0, count: 0 };
+
+  let toApply = Math.min(Number(paymentAmount || 0), totalRemaining);
+  if (Number.isNaN(toApply) || toApply <= 0) {
+    return { applied: 0, totalRemaining, count: 0 };
+  }
+
+  let applied = 0;
+  let count = 0;
+  db.exec("BEGIN;");
+  try {
+    rows.forEach((row) => {
+      if (toApply <= 0) return;
+      const amount = Number(row.amount || 0);
+      const paid = Number(row.paid_amount || 0);
+      const remaining = Math.max(0, amount - paid);
+      if (remaining <= 0) return;
+      const share = Math.min(toApply, remaining);
+      const newPaid = Math.min(amount, paid + share);
+      const paidFlag = amount === 0 ? 1 : newPaid >= amount ? 1 : 0;
+
+      db.prepare("UPDATE credits SET paid_amount = ?, paid = ? WHERE id = ?").run(newPaid, paidFlag, row.id);
+      insertCreditPayment({
+        creditId: row.id,
+        amount: share,
+        note,
+        userId
+      });
+
+      toApply -= share;
+      applied += share;
+      count += 1;
+    });
+    db.exec("COMMIT;");
+  } catch (err) {
+    db.exec("ROLLBACK;");
+    throw err;
+  }
+
+  return { applied, totalRemaining, count };
+};
+
+const resolveExportVehicleInput = ({
+  vehicleId,
+  useExternalVehicle,
+  externalVehicleNumber,
+  externalOwnerName,
+  externalPhone
+}) => {
+  const useExternal = parseCheckbox(useExternalVehicle);
+  const externalVehicleNumberSafe = String(externalVehicleNumber || "").trim();
+  const externalOwnerNameSafe = String(externalOwnerName || "").trim();
+  const externalPhoneSafe = String(externalPhone || "").trim();
+  let resolvedVehicleId = Number(vehicleId || 0);
+
+  if (useExternal) {
+    if (!externalVehicleNumberSafe || !externalOwnerNameSafe) {
+      return {
+        errorKey: "externalVehicleRequired",
+        useExternalVehicle: true,
+        vehicleId: null,
+        externalVehicleNumber: externalVehicleNumberSafe,
+        externalOwnerName: externalOwnerNameSafe,
+        externalPhone: externalPhoneSafe
+      };
+    }
+
+    const existingVehicle = db.prepare(
+      "SELECT id, is_company FROM vehicles WHERE lower(trim(vehicle_number)) = lower(trim(?)) LIMIT 1"
+    ).get(externalVehicleNumberSafe);
+
+    if (existingVehicle) {
+      if (Number(existingVehicle.is_company) === 1) {
+        return {
+          errorKey: "externalVehicleCompanyConflict",
+          useExternalVehicle: true,
+          vehicleId: null,
+          externalVehicleNumber: externalVehicleNumberSafe,
+          externalOwnerName: externalOwnerNameSafe,
+          externalPhone: externalPhoneSafe
+        };
+      }
+      resolvedVehicleId = Number(existingVehicle.id);
+    } else {
+      const created = db.prepare(
+        "INSERT INTO vehicles (vehicle_number, owner_name, phone, is_company) VALUES (?, ?, ?, 0)"
+      ).run(
+        externalVehicleNumberSafe,
+        externalOwnerNameSafe,
+        externalPhoneSafe || null
+      );
+      resolvedVehicleId = Number(created.lastInsertRowid || 0);
+    }
+  }
+
+  if (!resolvedVehicleId) {
+    return {
+      errorKey: "salesRequired",
+      useExternalVehicle: useExternal,
+      vehicleId: null,
+      externalVehicleNumber: externalVehicleNumberSafe,
+      externalOwnerName: externalOwnerNameSafe,
+      externalPhone: externalPhoneSafe
+    };
+  }
+
+  return {
+    errorKey: null,
+    useExternalVehicle: useExternal,
+    vehicleId: resolvedVehicleId,
+    externalVehicleNumber: externalVehicleNumberSafe,
+    externalOwnerName: externalOwnerNameSafe,
+    externalPhone: externalPhoneSafe
+  };
+};
+
+const buildExternalVehicleNote = ({
+  useExternalVehicle,
+  externalOwnerName,
+  externalPhone,
+  externalOrganization
+}) => {
+  if (!useExternalVehicle) return null;
+  const owner = String(externalOwnerName || "").trim();
+  const phone = String(externalPhone || "").trim();
+  const organization = String(externalOrganization || "").trim();
+  const segments = [];
+  if (owner) segments.push(`person=${owner}`);
+  if (phone) segments.push(`phone=${phone}`);
+  if (organization) segments.push(`org=${organization}`);
+  if (!segments.length) return null;
+  return `external(${segments.join(", ")})`;
+};
+
+const mergeNoteWithExternalVehicle = (noteValue, externalNote) => {
+  const base = String(noteValue || "").trim();
+  if (!externalNote) return base || null;
+  if (!base) return externalNote;
+  if (base.includes(externalNote)) return base;
+  return `${base} | ${externalNote}`;
+};
+
+const getImportItemTypes = (includeInactive = false) => {
+  const where = includeInactive ? "" : "WHERE is_active = 1";
+  return db.prepare(
+    `SELECT id, code, name, unit_label, uses_direction, is_predefined, is_active
+     FROM import_item_types
+     ${where}
+     ORDER BY is_predefined DESC, name ASC`
+  ).all();
+};
+
+const getImportItemTypeByCode = (code) => db.prepare(
+  "SELECT id, code, name, unit_label, uses_direction, is_predefined, is_active FROM import_item_types WHERE code = ?"
+).get(code);
+
+const resolveImportItemLabel = (code, rawName, t) => {
+  const key = importLabelKeyByCode[code];
+  if (key) return t(key);
+  return rawName || code;
+};
+
+const resolveImportItemUnit = (code, rawUnitLabel, t) => {
+  if (rawUnitLabel) return rawUnitLabel;
+  const key = importUnitFallbackByCode[code];
+  return key ? t(key) : "";
+};
+
+const normalizeVehicleExpenseType = (value) => {
+  const safe = String(value || "").trim().toUpperCase();
+  return vehicleExpenseTypes.includes(safe) ? safe : "FUEL";
+};
+
+const getVehicleExpenseTypeLabel = (type, t) => {
+  const safe = normalizeVehicleExpenseType(type);
+  if (safe === "REPAIR") return t("vehicleExpenseTypeRepair");
+  if (safe === "SERVICE") return t("vehicleExpenseTypeService");
+  if (safe === "OTHER") return t("vehicleExpenseTypeOther");
+  return t("vehicleExpenseTypeFuel");
+};
+
+const getImportItemsForUi = (t, includeInactive = false) => {
+  return getImportItemTypes(includeInactive).map((row) => ({
+    ...row,
+    label: resolveImportItemLabel(row.code, row.name, t),
+    unit: resolveImportItemUnit(row.code, row.unit_label, t),
+    uses_direction: Number(row.uses_direction) === 1
+  }));
+};
+
+const getCreditVehicles = () => db.prepare(
+  "SELECT id, vehicle_number, owner_name, is_company FROM vehicles WHERE is_company = 0 ORDER BY vehicle_number"
+).all();
+
+const getCreditTripRows = () => {
+  const from = dayjs().subtract(120, "day").format("YYYY-MM-DD");
+  return db.prepare(
+    `SELECT exports.id, exports.vehicle_id, exports.export_date, exports.receipt_no, exports.total_amount
+     FROM exports
+     JOIN vehicles ON exports.vehicle_id = vehicles.id
+     WHERE exports.export_date >= ? AND vehicles.is_company = 0
+     ORDER BY exports.export_date DESC, exports.id DESC`
+  ).all(from);
+};
+
+const parseOptionalId = (value) => {
+  const num = Number(value || 0);
+  if (Number.isNaN(num) || num <= 0) return null;
+  return num;
+};
+
+const parseOptionalDate = (value) => {
+  const text = String(value || "").trim();
+  if (!text) return null;
+  return /^\d{4}-\d{2}-\d{2}$/.test(text) ? text : null;
+};
+
+const insertCreditPayment = ({ creditId, amount, note, paidAt, userId }) => {
+  const numericAmount = Number(amount || 0);
+  if (!creditId || Number.isNaN(numericAmount) || numericAmount === 0) return;
+  const timestamp = paidAt || dayjs().format("YYYY-MM-DD HH:mm:ss");
+  db.prepare(
+    "INSERT INTO credit_payments (credit_id, amount, note, created_by, paid_at) VALUES (?, ?, ?, ?, ?)"
+  ).run(creditId, numericAmount, note || null, userId || null, timestamp);
+};
+
+const getUserAttendancePayload = (userId) => {
+  const today = dayjs().format("YYYY-MM-DD");
+  const attendanceRow = db.prepare(
+    "SELECT status FROM user_attendance WHERE user_id = ? AND attendance_date = ?"
+  ).get(userId, today);
+  const attendanceHistory = db.prepare(
+    `SELECT user_attendance.attendance_date, user_attendance.status, users.full_name as recorded_by
+     FROM user_attendance
+     LEFT JOIN users ON user_attendance.recorded_by = users.id
+     WHERE user_attendance.user_id = ?
+     ORDER BY attendance_date DESC
+     LIMIT 14`
+  ).all(userId);
+  return {
+    attendanceDate: today,
+    attendanceStatus: attendanceRow ? attendanceRow.status : null,
+    attendanceHistory
+  };
+};
+
+const attachWorkerPhoto = (user) => {
+  if (!user || user.role !== "WORKER") return user;
+  const doc = db.prepare("SELECT photo_path FROM worker_documents WHERE worker_id = ?").get(user.id);
+  return { ...user, photo_path: doc ? doc.photo_path : null };
+};
+
+const logActivity = ({ userId, action, entityType, entityId, details }) => {
+  if (!action || !entityType) return;
+  db.prepare(
+    "INSERT INTO activity_logs (user_id, action, entity_type, entity_id, details) VALUES (?, ?, ?, ?, ?)"
+  ).run(userId || null, action, entityType, entityId ? String(entityId) : null, details || null);
+};
+
+const formatDiffValue = (value) => {
+  if (value === null || value === undefined || value === "") return "empty";
+  return String(value);
+};
+
+const buildDiffDetails = (beforeRow, afterRow, fields) => {
+  const changes = [];
+  fields.forEach((field) => {
+    const key = typeof field === "string" ? field : field.key;
+    const label = typeof field === "string" ? field : (field.label || field.key);
+    const beforeValue = beforeRow ? beforeRow[key] : undefined;
+    const afterValue = afterRow ? afterRow[key] : undefined;
+    if (String(beforeValue ?? "") === String(afterValue ?? "")) return;
+    changes.push(`${label}: ${formatDiffValue(beforeValue)} -> ${formatDiffValue(afterValue)}`);
+  });
+  return changes.length > 0 ? changes.join("; ") : "no_changes";
+};
+
+const getDateFromEntityById = (table, id, column) => {
+  if (!id) return null;
+  const row = db.prepare(`SELECT ${column} FROM ${table} WHERE id = ?`).get(id);
+  return row ? row[column] : null;
+};
+
+const extractIdFromPath = (pathName, pattern) => {
+  const match = pathName.match(pattern);
+  return match ? match[1] : null;
+};
+
+const getClosedDateForMutation = (req) => {
+  const body = req.body || {};
+  const pathName = req.path || "";
+
+  if (pathName === "/exports") return body.export_date || null;
+  if (/^\/exports\/\d+$/.test(pathName)) {
+    const id = extractIdFromPath(pathName, /^\/exports\/(\d+)$/);
+    return body.export_date || getDateFromEntityById("exports", id, "export_date");
+  }
+  if (/^\/exports\/\d+\/delete$/.test(pathName)) {
+    const id = extractIdFromPath(pathName, /^\/exports\/(\d+)\/delete$/);
+    return getDateFromEntityById("exports", id, "export_date");
+  }
+  if (/^\/exports\/\d+\/pay-credit$/.test(pathName)) {
+    const id = extractIdFromPath(pathName, /^\/exports\/(\d+)\/pay-credit$/);
+    return getDateFromEntityById("exports", id, "export_date");
+  }
+
+  if (pathName === "/imports") return body.entry_date || null;
+  if (/^\/imports\/\d+$/.test(pathName)) {
+    const id = extractIdFromPath(pathName, /^\/imports\/(\d+)$/);
+    return body.entry_date || getDateFromEntityById("import_entries", id, "entry_date");
+  }
+  if (/^\/imports\/\d+\/delete$/.test(pathName)) {
+    const id = extractIdFromPath(pathName, /^\/imports\/(\d+)\/delete$/);
+    return getDateFromEntityById("import_entries", id, "entry_date");
+  }
+
+  if (pathName === "/savings") return body.entry_date || null;
+  if (/^\/savings\/\d+$/.test(pathName)) {
+    const id = extractIdFromPath(pathName, /^\/savings\/(\d+)$/);
+    return body.entry_date || getDateFromEntityById("vehicle_savings", id, "entry_date");
+  }
+  if (/^\/savings\/\d+\/delete$/.test(pathName)) {
+    const id = extractIdFromPath(pathName, /^\/savings\/(\d+)\/delete$/);
+    return getDateFromEntityById("vehicle_savings", id, "entry_date");
+  }
+
+  if (pathName === "/vehicle-expenses") return body.expense_date || null;
+  if (/^\/vehicle-expenses\/\d+\/delete$/.test(pathName)) {
+    const id = extractIdFromPath(pathName, /^\/vehicle-expenses\/(\d+)\/delete$/);
+    return getDateFromEntityById("vehicle_expenses", id, "expense_date");
+  }
+
+  if (pathName === "/jar-sales") return body.sale_date || null;
+  if (/^\/jar-sales\/\d+$/.test(pathName)) {
+    const id = extractIdFromPath(pathName, /^\/jar-sales\/(\d+)$/);
+    return body.sale_date || getDateFromEntityById("jar_sales", id, "sale_date");
+  }
+  if (/^\/jar-sales\/\d+\/delete$/.test(pathName)) {
+    const id = extractIdFromPath(pathName, /^\/jar-sales\/(\d+)\/delete$/);
+    return getDateFromEntityById("jar_sales", id, "sale_date");
+  }
+
+  if (pathName === "/credits") return body.credit_date || null;
+  if (/^\/credits\/\d+$/.test(pathName)) {
+    const id = extractIdFromPath(pathName, /^\/credits\/(\d+)$/);
+    return body.credit_date || getDateFromEntityById("credits", id, "credit_date");
+  }
+  if (/^\/credits\/\d+\/delete$/.test(pathName)) {
+    const id = extractIdFromPath(pathName, /^\/credits\/(\d+)\/delete$/);
+    return getDateFromEntityById("credits", id, "credit_date");
+  }
+
+  return null;
+};
+
+const getCombinedCredits = ({ from, to, q }) => {
+  const exportSearchClause = q ? "AND (vehicles.vehicle_number LIKE ? OR vehicles.owner_name LIKE ?)" : "";
+  const creditSearchClause = q ? "AND (vehicles.vehicle_number LIKE ? OR vehicles.owner_name LIKE ? OR credits.customer_name LIKE ?)" : "";
+  const exportParams = q ? [from, to, `%${q}%`, `%${q}%`] : [from, to];
+  const creditParams = q ? [from, to, `%${q}%`, `%${q}%`, `%${q}%`] : [from, to];
+  const params = [...exportParams, ...creditParams];
+
+  const rows = db.prepare(
+    `SELECT 'export' as source, exports.export_date as credit_date, vehicles.vehicle_number, vehicles.owner_name,
+            NULL as customer_name, exports.credit_amount as credit_amount, 0 as paid_amount,
+            exports.credit_amount as remaining_amount
+     FROM exports
+     JOIN vehicles ON exports.vehicle_id = vehicles.id
+     WHERE exports.export_date BETWEEN ? AND ?
+       AND vehicles.is_company = 0
+       AND exports.credit_amount > 0
+       ${exportSearchClause}
+     UNION ALL
+     SELECT 'customer' as source, credits.credit_date as credit_date, vehicles.vehicle_number, vehicles.owner_name,
+            credits.customer_name as customer_name, credits.amount as credit_amount, credits.paid_amount as paid_amount,
+            CASE WHEN credits.amount - credits.paid_amount < 0 THEN 0 ELSE credits.amount - credits.paid_amount END as remaining_amount
+     FROM credits
+     JOIN vehicles ON credits.vehicle_id = vehicles.id
+     WHERE credits.credit_date BETWEEN ? AND ?
+       AND vehicles.is_company = 0
+       ${creditSearchClause}
+     ORDER BY credit_date DESC`
+  ).all(...params);
+
+  const totals = rows.reduce(
+    (acc, row) => {
+      acc.total += Number(row.credit_amount || 0);
+      acc.remaining += Number(row.remaining_amount || 0);
+      if (row.source === "export") acc.exportTotal += Number(row.credit_amount || 0);
+      if (row.source === "customer") acc.customerTotal += Number(row.credit_amount || 0);
+      return acc;
+    },
+    { total: 0, remaining: 0, exportTotal: 0, customerTotal: 0 }
+  );
+
+  return { rows, totals };
+};
+
+router.use(requireRole(["SUPER_ADMIN", "ADMIN", "WORKER"]));
+router.use((req, res, next) => {
+  if (req.method !== "POST") return next();
+  const currentUser = res.locals.currentUser;
+  if (!currentUser || currentUser.role !== "WORKER") return next();
+  const lockedDate = getClosedDateForMutation(req);
+  if (!lockedDate) return next();
+  const closure = db.prepare("SELECT is_closed FROM day_closures WHERE closure_date = ?").get(lockedDate);
+  if (!closure || Number(closure.is_closed) !== 1) return next();
+  return res.status(423).render("day_closed", {
+    title: req.t("dayClosedTitle"),
+    closureDate: lockedDate,
+    backUrl: req.get("Referrer") || "/records/exports"
+  });
+});
+
+router.get("/vehicles", (req, res) => {
+  const vehicles = db.prepare("SELECT * FROM vehicles ORDER BY vehicle_number").all();
+  res.render("admin/vehicles", {
+    title: req.t("vehicles"),
+    vehicles,
+    vehicleRouteBase: "/records/vehicles"
+  });
+});
+
+router.get("/vehicles/new", (req, res) => {
+  res.render("admin/vehicle_form", {
+    title: req.t("addVehicleTitle"),
+    vehicle: null,
+    error: null,
+    vehicleRouteBase: "/records/vehicles"
+  });
+});
+
+router.post("/vehicles", vehicleUpload.single("profile_pic"), (req, res) => {
+  const { vehicle_number, owner_name, phone, is_company } = req.body;
+  if (!vehicle_number || !owner_name) {
+    return res.render("admin/vehicle_form", {
+      title: req.t("addVehicleTitle"),
+      vehicle: null,
+      error: req.t("vehicleRequired"),
+      vehicleRouteBase: "/records/vehicles"
+    });
+  }
+
+  const profilePath = req.file ? `/uploads/${req.file.filename}` : null;
+  const companyFlag = is_company === "on" ? 1 : 0;
+
+  try {
+    const result = db.prepare(
+      "INSERT INTO vehicles (vehicle_number, owner_name, phone, is_company, profile_pic_path) VALUES (?, ?, ?, ?, ?)"
+    ).run(vehicle_number.trim(), owner_name.trim(), phone ? phone.trim() : null, companyFlag, profilePath);
+    logActivity({
+      userId: req.session.userId,
+      action: "create",
+      entityType: "vehicle",
+      entityId: result.lastInsertRowid,
+      details: `vehicle_number=${vehicle_number.trim()}, owner=${owner_name.trim()}, company=${companyFlag}`
+    });
+    return res.redirect("/records/vehicles");
+  } catch (err) {
+    return res.render("admin/vehicle_form", {
+      title: req.t("addVehicleTitle"),
+      vehicle: null,
+      error: req.t("vehicleExists"),
+      vehicleRouteBase: "/records/vehicles"
+    });
+  }
+});
+
+router.get("/vehicles/:id/edit", (req, res) => {
+  const vehicle = db.prepare("SELECT * FROM vehicles WHERE id = ?").get(req.params.id);
+  if (!vehicle) return res.redirect("/records/vehicles");
+  res.render("admin/vehicle_form", {
+    title: req.t("editVehicleTitle"),
+    vehicle,
+    error: null,
+    vehicleRouteBase: "/records/vehicles"
+  });
+});
+
+router.post("/vehicles/:id", vehicleUpload.single("profile_pic"), (req, res) => {
+  const vehicle = db.prepare("SELECT * FROM vehicles WHERE id = ?").get(req.params.id);
+  if (!vehicle) return res.redirect("/records/vehicles");
+
+  const { vehicle_number, owner_name, phone, is_company } = req.body;
+  if (!vehicle_number || !owner_name) {
+    return res.render("admin/vehicle_form", {
+      title: req.t("editVehicleTitle"),
+      vehicle,
+      error: req.t("vehicleRequired"),
+      vehicleRouteBase: "/records/vehicles"
+    });
+  }
+
+  const profilePath = req.file ? `/uploads/${req.file.filename}` : vehicle.profile_pic_path;
+  const companyFlag = is_company === "on" ? 1 : 0;
+
+  try {
+    db.prepare(
+      "UPDATE vehicles SET vehicle_number = ?, owner_name = ?, phone = ?, is_company = ?, profile_pic_path = ?, updated_at = datetime('now') WHERE id = ?"
+    ).run(vehicle_number.trim(), owner_name.trim(), phone ? phone.trim() : null, companyFlag, profilePath, req.params.id);
+    logActivity({
+      userId: req.session.userId,
+      action: "update",
+      entityType: "vehicle",
+      entityId: req.params.id,
+      details: `vehicle_number=${vehicle_number.trim()}, owner=${owner_name.trim()}, company=${companyFlag}`
+    });
+    return res.redirect("/records/vehicles");
+  } catch (err) {
+    return res.render("admin/vehicle_form", {
+      title: req.t("editVehicleTitle"),
+      vehicle,
+      error: req.t("vehicleExists"),
+      vehicleRouteBase: "/records/vehicles"
+    });
+  }
+});
+
+router.post("/vehicles/:id/delete", (req, res) => {
+  const vehicle = db.prepare("SELECT id, vehicle_number FROM vehicles WHERE id = ?").get(req.params.id);
+  if (!vehicle) return res.redirect("/records/vehicles");
+  try {
+    db.prepare("DELETE FROM vehicles WHERE id = ?").run(req.params.id);
+    logActivity({
+      userId: req.session.userId,
+      action: "delete",
+      entityType: "vehicle",
+      entityId: req.params.id,
+      details: `vehicle_number=${vehicle.vehicle_number || ""}`
+    });
+    return res.redirect("/records/vehicles");
+  } catch (err) {
+    return res.redirect("/records/vehicles");
+  }
+});
+
+router.get("/water-tests", (req, res) => {
+  const from = req.query.from || dayjs().startOf("month").format("YYYY-MM-DD");
+  const to = req.query.to || dayjs().format("YYYY-MM-DD");
+  const q = String(req.query.q || "").trim();
+  const searchClause = q ? "AND (COALESCE(water_test_reports.coliform, '') LIKE ? OR COALESCE(water_test_reports.note, '') LIKE ?)" : "";
+  const params = q ? [from, to, `%${q}%`, `%${q}%`] : [from, to];
+  const rows = db.prepare(
+    `SELECT water_test_reports.*, users.full_name as recorded_by
+     FROM water_test_reports
+     LEFT JOIN users ON water_test_reports.created_by = users.id
+     WHERE water_test_reports.test_date BETWEEN ? AND ?
+     ${searchClause}
+     ORDER BY water_test_reports.test_date DESC, water_test_reports.created_at DESC`
+  ).all(...params);
+
+  res.render("records/water_tests", {
+    title: req.t("waterTestsTitle"),
+    from,
+    to,
+    q,
+    rows
+  });
+});
+
+router.get("/water-tests/new", (req, res) => {
+  res.render("records/water_test_form", {
+    title: req.t("addWaterTestTitle"),
+    record: null,
+    error: null,
+    defaultDate: dayjs().format("YYYY-MM-DD")
+  });
+});
+
+router.post(
+  "/water-tests",
+  waterReportUpload.fields([
+    { name: "forensic_report", maxCount: 1 },
+    { name: "government_report", maxCount: 1 }
+  ]),
+  (req, res) => {
+    const { test_date, ph_value, tds_value, coliform, note } = req.body;
+    const phValue = Number(ph_value || 0);
+    const tdsValue = Number(tds_value || 0);
+    if (!test_date || Number.isNaN(phValue) || Number.isNaN(tdsValue)) {
+      return res.render("records/water_test_form", {
+        title: req.t("addWaterTestTitle"),
+        record: null,
+        error: req.t("waterTestRequired"),
+        defaultDate: test_date || dayjs().format("YYYY-MM-DD")
+      });
+    }
+    const forensicFile = req.files && req.files.forensic_report ? req.files.forensic_report[0] : null;
+    const governmentFile = req.files && req.files.government_report ? req.files.government_report[0] : null;
+    const result = db.prepare(
+      `INSERT INTO water_test_reports
+      (test_date, ph_value, tds_value, coliform, forensic_report_path, forensic_report_name, government_report_path, government_report_name, note, created_by)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      test_date,
+      phValue,
+      tdsValue,
+      coliform ? String(coliform).trim() : null,
+      forensicFile ? `/uploads/${forensicFile.filename}` : null,
+      forensicFile ? forensicFile.originalname : null,
+      governmentFile ? `/uploads/${governmentFile.filename}` : null,
+      governmentFile ? governmentFile.originalname : null,
+      note ? String(note).trim() : null,
+      req.session.userId
+    );
+    logActivity({
+      userId: req.session.userId,
+      action: "create",
+      entityType: "water_test_report",
+      entityId: result.lastInsertRowid,
+      details: `test_date=${test_date}; ph=${phValue}; tds=${tdsValue}; coliform=${coliform || ""}`
+    });
+    return res.redirect(`/records/water-tests?from=${test_date}&to=${test_date}`);
+  }
+);
+
+router.get("/water-tests/:id/edit", (req, res) => {
+  const record = db.prepare("SELECT * FROM water_test_reports WHERE id = ?").get(req.params.id);
+  if (!record) return res.redirect("/records/water-tests");
+  res.render("records/water_test_form", {
+    title: req.t("editWaterTestTitle"),
+    record,
+    error: null,
+    defaultDate: record.test_date
+  });
+});
+
+router.post(
+  "/water-tests/:id",
+  waterReportUpload.fields([
+    { name: "forensic_report", maxCount: 1 },
+    { name: "government_report", maxCount: 1 }
+  ]),
+  (req, res) => {
+    const existing = db.prepare("SELECT * FROM water_test_reports WHERE id = ?").get(req.params.id);
+    if (!existing) return res.redirect("/records/water-tests");
+    const { test_date, ph_value, tds_value, coliform, note, remove_forensic, remove_government } = req.body;
+    const phValue = Number(ph_value || 0);
+    const tdsValue = Number(tds_value || 0);
+    if (!test_date || Number.isNaN(phValue) || Number.isNaN(tdsValue)) {
+      return res.render("records/water_test_form", {
+        title: req.t("editWaterTestTitle"),
+        record: existing,
+        error: req.t("waterTestRequired"),
+        defaultDate: test_date || existing.test_date
+      });
+    }
+    const forensicFile = req.files && req.files.forensic_report ? req.files.forensic_report[0] : null;
+    const governmentFile = req.files && req.files.government_report ? req.files.government_report[0] : null;
+    let forensicPath = existing.forensic_report_path || null;
+    let forensicName = existing.forensic_report_name || null;
+    let governmentPath = existing.government_report_path || null;
+    let governmentName = existing.government_report_name || null;
+    if (remove_forensic === "on") {
+      forensicPath = null;
+      forensicName = null;
+    }
+    if (remove_government === "on") {
+      governmentPath = null;
+      governmentName = null;
+    }
+    if (forensicFile) {
+      forensicPath = `/uploads/${forensicFile.filename}`;
+      forensicName = forensicFile.originalname;
+    }
+    if (governmentFile) {
+      governmentPath = `/uploads/${governmentFile.filename}`;
+      governmentName = governmentFile.originalname;
+    }
+    db.prepare(
+      `UPDATE water_test_reports
+       SET test_date = ?, ph_value = ?, tds_value = ?, coliform = ?, forensic_report_path = ?, forensic_report_name = ?,
+           government_report_path = ?, government_report_name = ?, note = ?, updated_at = datetime('now')
+       WHERE id = ?`
+    ).run(
+      test_date,
+      phValue,
+      tdsValue,
+      coliform ? String(coliform).trim() : null,
+      forensicPath,
+      forensicName,
+      governmentPath,
+      governmentName,
+      note ? String(note).trim() : null,
+      req.params.id
+    );
+    logActivity({
+      userId: req.session.userId,
+      action: "update",
+      entityType: "water_test_report",
+      entityId: req.params.id,
+      details: `test_date=${test_date}; ph=${phValue}; tds=${tdsValue}; coliform=${coliform || ""}`
+    });
+    return res.redirect(`/records/water-tests?from=${test_date}&to=${test_date}`);
+  }
+);
+
+router.post("/water-tests/:id/delete", (req, res) => {
+  const record = db.prepare("SELECT id, test_date FROM water_test_reports WHERE id = ?").get(req.params.id);
+  if (!record) return res.redirect("/records/water-tests");
+  db.prepare("DELETE FROM water_test_reports WHERE id = ?").run(req.params.id);
+  logActivity({
+    userId: req.session.userId,
+    action: "delete",
+    entityType: "water_test_report",
+    entityId: req.params.id,
+    details: `test_date=${record.test_date || ""}`
+  });
+  return res.redirect("/records/water-tests");
+});
+
+router.get("/exports", (req, res) => {
+  const from = req.query.from || dayjs().subtract(7, "day").format("YYYY-MM-DD");
+  const to = req.query.to || dayjs().format("YYYY-MM-DD");
+  const q = (req.query.q || "").trim();
+  const status = String(req.query.status || "");
+  const errorKey = String(req.query.error || "");
+  const success = status === "credit_paid"
+    ? req.t("exportCreditPaymentSaved")
+    : status === "day_credit_paid"
+      ? req.t("dayCreditPaymentSaved")
+      : status === "vehicle_cumulative_paid"
+        ? req.t("vehicleCumulativePaymentSaved")
+      : null;
+  const error = errorKey ? req.t(errorKey) : null;
+  const tripVehicleRaw = Number(req.query.trip_vehicle_id || 0);
+  const tripVehicleId = Number.isInteger(tripVehicleRaw) && tripVehicleRaw > 0 ? tripVehicleRaw : null;
+  const sortRaw = req.query.sort || "date_desc";
+  const sortMap = {
+    date_desc: "export_date DESC, exports.created_at DESC",
+    date_asc: "export_date ASC, exports.created_at ASC",
+    total_desc: "exports.total_amount DESC",
+    total_asc: "exports.total_amount ASC",
+    jars_desc: "exports.jar_count DESC",
+    paid_desc: "exports.paid_amount DESC",
+    credit_desc: "exports.credit_amount DESC"
+  };
+  const sort = sortMap[sortRaw] ? sortRaw : "date_desc";
+  const orderBy = sortMap[sort];
+  const searchClause = q ? "AND (vehicles.vehicle_number LIKE ? OR vehicles.owner_name LIKE ?)" : "";
+  const params = q ? [from, to, `%${q}%`, `%${q}%`] : [from, to];
+  const exportsRows = db.prepare(
+    `SELECT exports.*, vehicles.vehicle_number, vehicles.owner_name, vehicles.is_company,
+            users.full_name as recorded_by,
+            COALESCE(NULLIF(TRIM(exports.checked_by_staff_name), ''), checked_staff.full_name) as checked_by_name
+     FROM exports
+     JOIN vehicles ON exports.vehicle_id = vehicles.id
+     LEFT JOIN users ON exports.created_by = users.id
+     LEFT JOIN staff as checked_staff ON exports.checked_by_staff_id = checked_staff.id
+     WHERE export_date BETWEEN ? AND ?
+     ${searchClause}
+     ORDER BY ${orderBy}`
+  ).all(...params);
+
+  const exportTotals = db.prepare(
+    `SELECT
+        COUNT(exports.id) AS total_trips,
+        COALESCE(SUM(exports.jar_count), 0) AS total_jars,
+        COALESCE(SUM(exports.bottle_case_count), 0) AS total_bottle_cases,
+        COALESCE(SUM(exports.dispenser_count), 0) AS total_dispensers,
+        COALESCE(SUM(exports.dispenser_count * exports.dispenser_unit_price), 0) AS total_dispenser_amount,
+        COALESCE(SUM(exports.return_jar_count), 0) AS total_return_jars,
+        COALESCE(SUM(exports.return_bottle_case_count), 0) AS total_return_bottles,
+        COALESCE(SUM(exports.leakage_jar_count), 0) AS total_leakage_jars,
+        COALESCE(SUM(exports.sold_jar_count), 0) AS total_sold_jars,
+        COALESCE(SUM(exports.sold_jar_amount), 0) AS total_sold_jar_amount,
+        COALESCE(SUM(exports.collection_amount), 0) AS total_collection_amount,
+        COALESCE(SUM(exports.expense_amount), 0) AS total_expense_amount,
+        COALESCE(SUM(exports.total_amount), 0) AS total_amount,
+        COALESCE(SUM(exports.paid_amount), 0) AS total_paid,
+        COALESCE(SUM(exports.credit_amount), 0) AS total_credit
+     FROM exports
+     JOIN vehicles ON exports.vehicle_id = vehicles.id
+     WHERE export_date BETWEEN ? AND ?
+     ${searchClause}`
+  ).get(...params);
+
+  const today = dayjs().format("YYYY-MM-DD");
+  const todayTotals = db.prepare(
+    `SELECT
+        COUNT(id) AS total_trips,
+        COALESCE(SUM(jar_count), 0) AS total_jars,
+        COALESCE(SUM(bottle_case_count), 0) AS total_bottle_cases,
+        COALESCE(SUM(dispenser_count), 0) AS total_dispensers,
+        COALESCE(SUM(dispenser_count * dispenser_unit_price), 0) AS total_dispenser_amount,
+        COALESCE(SUM(return_jar_count), 0) AS total_return_jars,
+        COALESCE(SUM(return_bottle_case_count), 0) AS total_return_bottles,
+        COALESCE(SUM(leakage_jar_count), 0) AS total_leakage_jars,
+        COALESCE(SUM(sold_jar_count), 0) AS total_sold_jars,
+        COALESCE(SUM(sold_jar_amount), 0) AS total_sold_jar_amount,
+        COALESCE(SUM(collection_amount), 0) AS total_collection_amount,
+        COALESCE(SUM(expense_amount), 0) AS total_expense_amount,
+        COALESCE(SUM(total_amount), 0) AS total_amount,
+        COALESCE(SUM(paid_amount), 0) AS total_paid,
+        COALESCE(SUM(credit_amount), 0) AS total_credit
+     FROM exports
+     WHERE export_date = ?`
+  ).get(today);
+  const monthStart = dayjs().startOf("month").format("YYYY-MM-DD");
+  const yearStart = dayjs().startOf("year").format("YYYY-MM-DD");
+  const topToday = db.prepare(
+    `SELECT vehicles.vehicle_number, vehicles.owner_name,
+            COALESCE(SUM(exports.total_amount), 0) as total,
+            COALESCE(SUM(exports.jar_count), 0) as jars,
+            COALESCE(SUM(exports.bottle_case_count), 0) as bottles
+     FROM exports
+     JOIN vehicles ON exports.vehicle_id = vehicles.id
+     WHERE export_date = ?
+     GROUP BY exports.vehicle_id
+     ORDER BY total DESC
+     LIMIT 1`
+  ).get(today);
+  const topMonth = db.prepare(
+    `SELECT vehicles.vehicle_number, vehicles.owner_name,
+            COALESCE(SUM(exports.total_amount), 0) as total,
+            COALESCE(SUM(exports.jar_count), 0) as jars,
+            COALESCE(SUM(exports.bottle_case_count), 0) as bottles
+     FROM exports
+     JOIN vehicles ON exports.vehicle_id = vehicles.id
+     WHERE export_date BETWEEN ? AND ?
+     GROUP BY exports.vehicle_id
+     ORDER BY total DESC
+     LIMIT 1`
+  ).get(monthStart, today);
+  const weekStart = dayjs().startOf("week").format("YYYY-MM-DD");
+  const tripVehicles = db.prepare(
+    "SELECT id, vehicle_number, owner_name, is_company FROM vehicles ORDER BY vehicle_number"
+  ).all();
+  const tripVehicleClause = tripVehicleId ? "AND exports.vehicle_id = ?" : "";
+  const tripSummaryParams = tripVehicleId ? [from, to, tripVehicleId] : [from, to];
+  const tripSummaryRows = db.prepare(
+    `SELECT
+        exports.vehicle_id,
+        vehicles.vehicle_number,
+        vehicles.owner_name,
+        vehicles.is_company,
+        COUNT(exports.id) AS trip_count,
+        COALESCE(SUM(CASE
+          WHEN (exports.jar_count - exports.return_jar_count - exports.leakage_jar_count) > 0
+          THEN (exports.jar_count - exports.return_jar_count - exports.leakage_jar_count)
+          ELSE 0
+        END), 0) AS net_jars,
+        COALESCE(SUM(exports.paid_amount), 0) AS total_paid,
+        COALESCE(SUM(exports.credit_amount), 0) AS total_credit,
+        COALESCE(SUM(exports.collection_amount), 0) AS total_collection,
+        COALESCE(SUM(exports.expense_amount), 0) AS total_expense
+     FROM exports
+     JOIN vehicles ON exports.vehicle_id = vehicles.id
+     WHERE exports.export_date BETWEEN ? AND ?
+     ${tripVehicleClause}
+     GROUP BY exports.vehicle_id
+     ORDER BY trip_count DESC, vehicles.vehicle_number ASC`
+  ).all(...tripSummaryParams);
+
+  const cumulativeVehicleSearchClause = q ? "AND (vehicles.vehicle_number LIKE ? OR vehicles.owner_name LIKE ?)" : "";
+  const cumulativeVehicleParams = q ? [`%${q}%`, `%${q}%`] : [];
+  const vehicleCumulativeCredits = db.prepare(
+    `SELECT exports.vehicle_id,
+            vehicles.vehicle_number,
+            vehicles.owner_name,
+            COUNT(exports.id) AS trip_count,
+            MAX(exports.export_date) AS last_export_date,
+            COALESCE(SUM(exports.total_amount), 0) AS total_amount,
+            COALESCE(SUM(exports.paid_amount), 0) AS total_paid,
+            COALESCE(SUM(CASE
+              WHEN (exports.total_amount - exports.paid_amount) > 0 THEN (exports.total_amount - exports.paid_amount)
+              ELSE 0
+            END), 0) AS total_remaining
+     FROM exports
+     JOIN vehicles ON exports.vehicle_id = vehicles.id
+     WHERE vehicles.is_company = 0
+     ${cumulativeVehicleSearchClause}
+     GROUP BY exports.vehicle_id, vehicles.vehicle_number, vehicles.owner_name
+     HAVING total_remaining > 0
+     ORDER BY total_remaining DESC, vehicles.vehicle_number ASC`
+  ).all(...cumulativeVehicleParams);
+
+  let dailyCreditGroups = [];
+  if (from === to) {
+    const dailyCreditTrips = db.prepare(
+      `SELECT exports.id, exports.export_date, exports.receipt_no, exports.total_amount, exports.paid_amount,
+              exports.vehicle_id, vehicles.vehicle_number, vehicles.owner_name
+       FROM exports
+       JOIN vehicles ON exports.vehicle_id = vehicles.id
+       WHERE exports.export_date = ?
+         AND vehicles.is_company = 0
+         AND (exports.total_amount - exports.paid_amount) > 0
+       ORDER BY vehicles.vehicle_number ASC, exports.id ASC`
+    ).all(from);
+
+    const grouped = new Map();
+    dailyCreditTrips.forEach((row) => {
+      const remaining = Math.max(0, Number(row.total_amount || 0) - Number(row.paid_amount || 0));
+      if (remaining <= 0) return;
+      const key = String(row.vehicle_id);
+      if (!grouped.has(key)) {
+        grouped.set(key, {
+          vehicle_id: row.vehicle_id,
+          vehicle_number: row.vehicle_number,
+          owner_name: row.owner_name,
+          total_remaining: 0,
+          trips: []
+        });
+      }
+      const entry = grouped.get(key);
+      entry.total_remaining += remaining;
+      entry.trips.push({
+        id: row.id,
+        receipt_no: row.receipt_no || `#${row.id}`,
+        total_amount: Number(row.total_amount || 0),
+        paid_amount: Number(row.paid_amount || 0),
+        remaining
+      });
+    });
+    dailyCreditGroups = Array.from(grouped.values())
+      .filter((row) => row.total_remaining > 0)
+      .sort((a, b) => a.vehicle_number.localeCompare(b.vehicle_number));
+  }
+
+  res.render("records/exports", {
+    title: req.t("exportsTitle"),
+    from,
+    to,
+    q,
+    sort,
+    success,
+    error,
+    exportsRows,
+    exportTotals,
+    todayTotals,
+    topToday,
+    topMonth,
+    today,
+    monthStart,
+    weekStart,
+    yearStart,
+    tripVehicles,
+    tripVehicleId,
+    tripSummaryRows,
+    vehicleCumulativeCredits,
+    dailyCreditGroups
+  });
+});
+
+router.get("/exports/daily-credit", (req, res) => {
+  const date = req.query.date || dayjs().format("YYYY-MM-DD");
+  const vehicleId = Number(req.query.vehicle_id || 0);
+  if (!vehicleId) {
+    return res.redirect(`/records/exports?from=${date}&to=${date}&error=dayCreditSelectVehicle`);
+  }
+  const vehicle = db.prepare(
+    "SELECT id, vehicle_number, owner_name, is_company FROM vehicles WHERE id = ?"
+  ).get(vehicleId);
+  if (!vehicle || Number(vehicle.is_company) === 1) {
+    return res.redirect(`/records/exports?from=${date}&to=${date}&error=companyVehicleNoCredit`);
+  }
+
+  const trips = db.prepare(
+    `SELECT exports.id, exports.receipt_no, exports.total_amount, exports.paid_amount
+     FROM exports
+     WHERE exports.export_date = ?
+       AND exports.vehicle_id = ?
+       AND (exports.total_amount - exports.paid_amount) > 0
+     ORDER BY exports.id ASC`
+  ).all(date, vehicleId).map((row) => ({
+    ...row,
+    receipt_no: row.receipt_no || `#${row.id}`,
+    total_amount: Number(row.total_amount || 0),
+    paid_amount: Number(row.paid_amount || 0),
+    remaining: Math.max(0, Number(row.total_amount || 0) - Number(row.paid_amount || 0))
+  }));
+
+  if (!trips.length) {
+    return res.redirect(`/records/exports?from=${date}&to=${date}&error=dayCreditNoRemaining`);
+  }
+  const totalRemaining = trips.reduce((sum, row) => sum + row.remaining, 0);
+
+  res.render("records/export_daily_credit", {
+    title: req.t("dayCreditTitle"),
+    date,
+    vehicle,
+    trips,
+    totalRemaining,
+    error: null
+  });
+});
+
+router.post("/exports/daily-credit", (req, res) => {
+  const date = req.body.date || dayjs().format("YYYY-MM-DD");
+  const vehicleId = Number(req.body.vehicle_id || 0);
+  const paymentRaw = Number(req.body.payment_amount || 0);
+  if (!vehicleId) {
+    return res.redirect(`/records/exports?from=${date}&to=${date}&error=dayCreditSelectVehicle`);
+  }
+  const vehicle = db.prepare(
+    "SELECT id, vehicle_number, owner_name, is_company FROM vehicles WHERE id = ?"
+  ).get(vehicleId);
+  if (!vehicle || Number(vehicle.is_company) === 1) {
+    return res.redirect(`/records/exports?from=${date}&to=${date}&error=companyVehicleNoCredit`);
+  }
+  const trips = db.prepare(
+    `SELECT exports.id, exports.total_amount, exports.paid_amount, exports.receipt_no
+     FROM exports
+     WHERE exports.export_date = ?
+       AND exports.vehicle_id = ?
+       AND (exports.total_amount - exports.paid_amount) > 0
+     ORDER BY exports.id ASC`
+  ).all(date, vehicleId).map((row) => ({
+    ...row,
+    total_amount: Number(row.total_amount || 0),
+    paid_amount: Number(row.paid_amount || 0),
+    remaining: Math.max(0, Number(row.total_amount || 0) - Number(row.paid_amount || 0))
+  }));
+  const totalRemaining = trips.reduce((sum, row) => sum + row.remaining, 0);
+  if (!trips.length || totalRemaining <= 0) {
+    return res.redirect(`/records/exports?from=${date}&to=${date}&error=dayCreditNoRemaining`);
+  }
+
+  if (Number.isNaN(paymentRaw) || paymentRaw <= 0) {
+    return res.render("records/export_daily_credit", {
+      title: req.t("dayCreditTitle"),
+      date,
+      vehicle,
+      trips,
+      totalRemaining,
+      error: req.t("dayCreditPaymentInvalid")
+    });
+  }
+
+  let remainingPayment = Math.min(paymentRaw, totalRemaining);
+  db.exec("BEGIN;");
+  try {
+    trips.forEach((trip) => {
+      if (remainingPayment <= 0) return;
+      const applied = Math.min(remainingPayment, trip.remaining);
+      const newPaid = Math.min(trip.total_amount, trip.paid_amount + applied);
+      const newCredit = Math.max(0, trip.total_amount - newPaid);
+      db.prepare("UPDATE exports SET paid_amount = ?, credit_amount = ? WHERE id = ?").run(
+        newPaid,
+        newCredit,
+        trip.id
+      );
+      remainingPayment -= applied;
+    });
+    db.exec("COMMIT;");
+  } catch (err) {
+    db.exec("ROLLBACK;");
+    throw err;
+  }
+
+  logActivity({
+    userId: req.session.userId,
+    action: "payment",
+    entityType: "export_day_credit",
+    entityId: `${vehicleId}:${date}`,
+    details: `date=${date}, vehicle_id=${vehicleId}, payment=${Math.min(paymentRaw, totalRemaining)}`
+  });
+
+  return res.redirect(`/records/exports?from=${date}&to=${date}&status=day_credit_paid`);
+});
+
+router.post("/exports/vehicle-credits/pay", (req, res) => {
+  const vehicleId = parseOptionalId(req.body.vehicle_id);
+  const paymentAmount = Number(req.body.payment_amount || 0);
+  if (!vehicleId || Number.isNaN(paymentAmount) || paymentAmount <= 0) {
+    return res.redirect(buildExportsListUrl({ ...req.body, error: "vehicleCumulativePaymentInvalid" }));
+  }
+
+  const vehicle = db.prepare(
+    "SELECT id, vehicle_number, owner_name, is_company FROM vehicles WHERE id = ?"
+  ).get(vehicleId);
+  if (!vehicle || Number(vehicle.is_company) === 1) {
+    return res.redirect(buildExportsListUrl({ ...req.body, error: "vehicleCumulativeNoOutstanding" }));
+  }
+
+  const rows = db.prepare(
+    `SELECT exports.id, exports.total_amount, exports.paid_amount, exports.credit_amount
+     FROM exports
+     JOIN vehicles ON exports.vehicle_id = vehicles.id
+     WHERE exports.vehicle_id = ?
+       AND vehicles.is_company = 0
+       AND (exports.total_amount - exports.paid_amount) > 0
+     ORDER BY exports.export_date ASC, exports.id ASC`
+  ).all(vehicleId);
+  if (!rows.length) {
+    return res.redirect(buildExportsListUrl({ ...req.body, error: "vehicleCumulativeNoOutstanding" }));
+  }
+
+  const totalRemaining = rows.reduce((sum, row) => {
+    const remaining = Math.max(0, Number(row.total_amount || 0) - Number(row.paid_amount || 0));
+    return sum + remaining;
+  }, 0);
+  let toApply = Math.min(paymentAmount, totalRemaining);
+  if (toApply <= 0) {
+    return res.redirect(buildExportsListUrl({ ...req.body, error: "vehicleCumulativePaymentInvalid" }));
+  }
+
+  let applied = 0;
+  let tripCount = 0;
+  db.exec("BEGIN;");
+  try {
+    rows.forEach((row) => {
+      if (toApply <= 0) return;
+      const total = Number(row.total_amount || 0);
+      const paid = Number(row.paid_amount || 0);
+      const remaining = Math.max(0, total - paid);
+      if (remaining <= 0) return;
+      const share = Math.min(toApply, remaining);
+      const newPaid = Math.min(total, paid + share);
+      const newCredit = Math.max(0, total - newPaid);
+      db.prepare("UPDATE exports SET paid_amount = ?, credit_amount = ? WHERE id = ?").run(
+        newPaid,
+        newCredit,
+        row.id
+      );
+      toApply -= share;
+      applied += share;
+      tripCount += 1;
+    });
+    db.exec("COMMIT;");
+  } catch (err) {
+    db.exec("ROLLBACK;");
+    throw err;
+  }
+
+  logActivity({
+    userId: req.session.userId,
+    action: "payment",
+    entityType: "export_vehicle_cumulative_settlement",
+    entityId: vehicleId,
+    details: `vehicle=${vehicle.owner_name} • ${vehicle.vehicle_number}; payment=${applied}; trips=${tripCount}`
+  });
+
+  return res.redirect(buildExportsListUrl({ ...req.body, status: "vehicle_cumulative_paid" }));
+});
+
+router.get("/exports/payment-history", (req, res) => {
+  const from = req.query.from || dayjs().subtract(7, "day").format("YYYY-MM-DD");
+  const to = req.query.to || dayjs().format("YYYY-MM-DD");
+  const vehicleId = Number(req.query.vehicle_id || 0);
+  if (!vehicleId) {
+    return res.redirect(`/records/exports?from=${from}&to=${to}&error=dayCreditSelectVehicle`);
+  }
+  const vehicle = db.prepare(
+    "SELECT id, vehicle_number, owner_name, is_company FROM vehicles WHERE id = ?"
+  ).get(vehicleId);
+  if (!vehicle) {
+    return res.redirect(`/records/exports?from=${from}&to=${to}`);
+  }
+
+  const tripPayments = db.prepare(
+    `SELECT activity_logs.created_at, activity_logs.details,
+            exports.export_date, exports.receipt_no, exports.id as export_id
+     FROM activity_logs
+     JOIN exports ON exports.id = CAST(activity_logs.entity_id AS INTEGER)
+     WHERE activity_logs.action = 'payment'
+       AND activity_logs.entity_type = 'export'
+       AND exports.export_date BETWEEN ? AND ?
+       AND exports.vehicle_id = ?
+     ORDER BY activity_logs.created_at DESC`
+  ).all(from, to, vehicleId).map((row) => ({
+    created_at: row.created_at,
+    export_date: row.export_date,
+    receipt_no: row.receipt_no || `#${row.export_id}`,
+    payment_amount: parsePaymentAmount(row.details),
+    details: row.details,
+    source: "trip"
+  }));
+
+  const dayLogs = db.prepare(
+    `SELECT created_at, details, entity_id
+     FROM activity_logs
+     WHERE action = 'payment'
+       AND entity_type = 'export_day_credit'
+     ORDER BY created_at DESC`
+  ).all();
+
+  const dayPayments = dayLogs.map((row) => {
+    const [logVehicleIdRaw, logDate] = String(row.entity_id || "").split(":");
+    const logVehicleId = Number(logVehicleIdRaw || 0);
+    if (!logVehicleId || !logDate) return null;
+    if (logVehicleId !== vehicleId) return null;
+    if (logDate < from || logDate > to) return null;
+    return {
+      created_at: row.created_at,
+      export_date: logDate,
+      receipt_no: logDate,
+      payment_amount: parsePaymentAmount(row.details),
+      details: row.details,
+      source: "day"
+    };
+  }).filter(Boolean);
+
+  const payments = [...tripPayments, ...dayPayments].sort((a, b) => {
+    return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+  });
+  const totalPaid = payments.reduce((sum, row) => sum + Number(row.payment_amount || 0), 0);
+
+  res.render("records/export_payment_history", {
+    title: req.t("exportPaymentHistoryTitle"),
+    from,
+    to,
+    vehicle,
+    payments,
+    totalPaid
+  });
+});
+
+router.get("/exports/print", (req, res) => {
+  const from = req.query.from || dayjs().subtract(7, "day").format("YYYY-MM-DD");
+  const to = req.query.to || dayjs().format("YYYY-MM-DD");
+  const q = (req.query.q || "").trim();
+  const sortRaw = req.query.sort || "date_desc";
+  const sortMap = {
+    date_desc: "export_date DESC, exports.created_at DESC",
+    date_asc: "export_date ASC, exports.created_at ASC",
+    total_desc: "exports.total_amount DESC",
+    total_asc: "exports.total_amount ASC",
+    jars_desc: "exports.jar_count DESC",
+    paid_desc: "exports.paid_amount DESC",
+    credit_desc: "exports.credit_amount DESC"
+  };
+  const sort = sortMap[sortRaw] ? sortRaw : "date_desc";
+  const orderBy = sortMap[sort];
+  const searchClause = q ? "AND (vehicles.vehicle_number LIKE ? OR vehicles.owner_name LIKE ?)" : "";
+  const params = q ? [from, to, `%${q}%`, `%${q}%`] : [from, to];
+  const exportsRows = db.prepare(
+    `SELECT exports.*, vehicles.vehicle_number, vehicles.owner_name,
+            users.full_name as recorded_by,
+            COALESCE(NULLIF(TRIM(exports.checked_by_staff_name), ''), checked_staff.full_name) as checked_by_name
+     FROM exports
+     JOIN vehicles ON exports.vehicle_id = vehicles.id
+     LEFT JOIN users ON exports.created_by = users.id
+     LEFT JOIN staff as checked_staff ON exports.checked_by_staff_id = checked_staff.id
+     WHERE export_date BETWEEN ? AND ?
+     ${searchClause}
+     ORDER BY ${orderBy}`
+  ).all(...params);
+
+  const exportTotals = db.prepare(
+    `SELECT
+        COUNT(exports.id) AS total_trips,
+        COALESCE(SUM(exports.jar_count), 0) AS total_jars,
+        COALESCE(SUM(exports.bottle_case_count), 0) AS total_bottle_cases,
+        COALESCE(SUM(exports.dispenser_count), 0) AS total_dispensers,
+        COALESCE(SUM(exports.dispenser_count * exports.dispenser_unit_price), 0) AS total_dispenser_amount,
+        COALESCE(SUM(exports.return_jar_count), 0) AS total_return_jars,
+        COALESCE(SUM(exports.return_bottle_case_count), 0) AS total_return_bottles,
+        COALESCE(SUM(exports.leakage_jar_count), 0) AS total_leakage_jars,
+        COALESCE(SUM(exports.sold_jar_count), 0) AS total_sold_jars,
+        COALESCE(SUM(exports.sold_jar_amount), 0) AS total_sold_jar_amount,
+        COALESCE(SUM(exports.collection_amount), 0) AS total_collection_amount,
+        COALESCE(SUM(exports.expense_amount), 0) AS total_expense_amount,
+        COALESCE(SUM(exports.total_amount), 0) AS total_amount,
+        COALESCE(SUM(exports.paid_amount), 0) AS total_paid,
+        COALESCE(SUM(exports.credit_amount), 0) AS total_credit
+     FROM exports
+     JOIN vehicles ON exports.vehicle_id = vehicles.id
+     WHERE export_date BETWEEN ? AND ?
+     ${searchClause}`
+  ).get(...params);
+
+  res.render("records/exports_print", {
+    title: req.t("exportsTitle"),
+    from,
+    to,
+    q,
+    sort,
+    exportsRows,
+    exportTotals
+  });
+});
+
+router.get("/exports/new", (req, res) => {
+  const vehicles = db.prepare("SELECT id, vehicle_number, owner_name, is_company FROM vehicles ORDER BY vehicle_number").all();
+  const staffOptions = getExportStaffOptions();
+  const nameSuggestions = getExportNameSuggestions();
+  res.render("records/export_form", {
+    title: req.t("addExportTitle"),
+    record: null,
+    vehicles,
+    staffOptions,
+    nameSuggestions,
+    formValues: null,
+    error: null,
+    defaultDate: dayjs().format("YYYY-MM-DD"),
+    selectedVehicleId: "",
+    checkedByStaffName: "",
+    forceWashStaffName: "",
+    useExternalVehicle: false,
+    externalVehicleNumber: "",
+    externalOwnerName: "",
+    externalPhone: "",
+    externalOrganization: ""
+  });
+});
+
+router.post("/exports", (req, res) => {
+  const {
+    vehicle_id,
+    use_external_vehicle,
+    external_vehicle_number,
+    external_owner_name,
+    external_phone,
+    external_organization,
+    export_date,
+    jar_count,
+    bottle_case_count,
+    dispenser_count,
+    jar_unit_price,
+    bottle_case_unit_price,
+    dispenser_unit_price,
+    return_jar_count,
+    return_bottle_case_count,
+    leakage_jar_count,
+    sold_jar_count,
+    sold_jar_price,
+    collection_amount,
+    note,
+    paid_amount,
+    route,
+    checked_by_staff_name,
+    force_wash_staff_name
+  } = req.body;
+  const vehicles = db.prepare("SELECT id, vehicle_number, owner_name, is_company FROM vehicles ORDER BY vehicle_number").all();
+  const staffOptions = getExportStaffOptions();
+  const nameSuggestions = getExportNameSuggestions();
+  const checkedByStaffNameRaw = String(checked_by_staff_name || "").trim();
+  const forceWashStaffNameRaw = String(force_wash_staff_name || "").trim();
+  const useExternalVehicleRaw = parseCheckbox(use_external_vehicle);
+  const externalVehicleNumberRaw = String(external_vehicle_number || "").trim();
+  const externalOwnerNameRaw = String(external_owner_name || "").trim();
+  const externalPhoneRaw = String(external_phone || "").trim();
+  const externalOrganizationRaw = String(external_organization || "").trim();
+  if (!export_date) {
+    return res.render("records/export_form", {
+      title: req.t("addExportTitle"),
+      record: null,
+      vehicles,
+      staffOptions,
+      nameSuggestions,
+      formValues: req.body,
+      error: req.t("salesRequired"),
+      defaultDate: dayjs().format("YYYY-MM-DD"),
+      selectedVehicleId: vehicle_id || "",
+      checkedByStaffName: checkedByStaffNameRaw,
+      forceWashStaffName: forceWashStaffNameRaw,
+      useExternalVehicle: useExternalVehicleRaw,
+      externalVehicleNumber: externalVehicleNumberRaw,
+      externalOwnerName: externalOwnerNameRaw,
+      externalPhone: externalPhoneRaw,
+      externalOrganization: externalOrganizationRaw
+    });
+  }
+  const vehicleResolution = resolveExportVehicleInput({
+    vehicleId: vehicle_id,
+    useExternalVehicle: useExternalVehicleRaw,
+    externalVehicleNumber: externalVehicleNumberRaw,
+    externalOwnerName: externalOwnerNameRaw,
+    externalPhone: externalPhoneRaw
+  });
+  if (vehicleResolution.errorKey) {
+    return res.render("records/export_form", {
+      title: req.t("addExportTitle"),
+      record: null,
+      vehicles,
+      staffOptions,
+      nameSuggestions,
+      formValues: req.body,
+      error: req.t(vehicleResolution.errorKey),
+      defaultDate: export_date || dayjs().format("YYYY-MM-DD"),
+      selectedVehicleId: vehicle_id || "",
+      checkedByStaffName: checkedByStaffNameRaw,
+      forceWashStaffName: forceWashStaffNameRaw,
+      useExternalVehicle: useExternalVehicleRaw,
+      externalVehicleNumber: externalVehicleNumberRaw,
+      externalOwnerName: externalOwnerNameRaw,
+      externalPhone: externalPhoneRaw,
+      externalOrganization: externalOrganizationRaw
+    });
+  }
+  const checkedByStaff = checkedByStaffNameRaw ? getExportStaffByName(checkedByStaffNameRaw) : null;
+  const checkedByStaffId = checkedByStaff ? checkedByStaff.id : null;
+  const checkedByStaffName = checkedByStaffNameRaw || (checkedByStaff ? checkedByStaff.full_name : null);
+  const forceWashStaffName = forceWashStaffNameRaw || null;
+  const forceWashRequired = forceWashStaffName ? 1 : 0;
+
+  const jarCount = Number(jar_count || 0);
+  const bottleCount = Number(bottle_case_count || 0);
+  const dispenserCountRaw = Number(dispenser_count || 0);
+  const dispenserCount = Number.isNaN(dispenserCountRaw) || dispenserCountRaw < 0 ? 0 : dispenserCountRaw;
+  let jarUnitPrice = Number(jar_unit_price || 0);
+  let bottleCaseUnitPrice = Number(bottle_case_unit_price || 0);
+  let dispenserUnitPrice = Number(dispenser_unit_price || 0);
+  const returnJars = Number(return_jar_count || 0);
+  const returnBottles = Number(return_bottle_case_count || 0);
+  const leakageJars = Number(leakage_jar_count || 0);
+  let soldJars = Number(sold_jar_count || 0);
+  let soldJarPrice = Number(sold_jar_price || 0);
+  if (Number.isNaN(jarUnitPrice) || jarUnitPrice < 0) jarUnitPrice = 0;
+  if (Number.isNaN(bottleCaseUnitPrice) || bottleCaseUnitPrice < 0) bottleCaseUnitPrice = 0;
+  if (Number.isNaN(dispenserUnitPrice) || dispenserUnitPrice < 0) dispenserUnitPrice = 0;
+  if (Number.isNaN(soldJars) || soldJars < 0) soldJars = 0;
+  if (Number.isNaN(soldJarPrice) || soldJarPrice < 0) soldJarPrice = 0;
+  const netJars = Math.max(0, jarCount - returnJars - leakageJars);
+  const netBottles = Math.max(0, bottleCount - returnBottles);
+  const resolvedVehicleId = Number(vehicleResolution.vehicleId);
+  const vehicleRow = db.prepare("SELECT is_company FROM vehicles WHERE id = ?").get(resolvedVehicleId);
+  const isCompany = vehicleRow && Number(vehicleRow.is_company) === 1;
+  if (isCompany) {
+    jarUnitPrice = 0;
+    bottleCaseUnitPrice = 0;
+    dispenserUnitPrice = 0;
+  }
+  const dispenserAmount = Math.max(0, dispenserCount) * Math.max(0, dispenserUnitPrice);
+  if (!isCompany) {
+    soldJars = 0;
+    soldJarPrice = 0;
+  }
+  const soldJarAmount = Math.max(0, soldJars) * Math.max(0, soldJarPrice);
+  let totalAmount = netJars * jarUnitPrice + netBottles * bottleCaseUnitPrice + dispenserAmount + soldJarAmount;
+  let paidAmount = Number(paid_amount || 0);
+  let collectionAmount = Number(collection_amount || 0);
+  const expenseAmount = 0;
+  if (Number.isNaN(paidAmount) || paidAmount < 0) paidAmount = 0;
+  if (Number.isNaN(collectionAmount) || collectionAmount < 0) collectionAmount = 0;
+  if (!isCompany) paidAmount = Math.min(paidAmount, totalAmount);
+  if (!isCompany) {
+    collectionAmount = 0;
+  }
+  if (isCompany) totalAmount = collectionAmount;
+  const effectivePaid = isCompany ? collectionAmount : paidAmount;
+  const creditAmount = isCompany ? 0 : Math.max(0, totalAmount - effectivePaid);
+  const expenseNoteValue = null;
+  const externalVehicleNote = buildExternalVehicleNote({
+    useExternalVehicle: vehicleResolution.useExternalVehicle,
+    externalOwnerName: vehicleResolution.externalOwnerName,
+    externalPhone: vehicleResolution.externalPhone,
+    externalOrganization: externalOrganizationRaw
+  });
+  const noteValue = mergeNoteWithExternalVehicle(note, externalVehicleNote);
+
+  const exportResult = db.prepare(
+    "INSERT INTO exports (vehicle_id, export_date, jar_count, bottle_case_count, dispenser_count, jar_unit_price, bottle_case_unit_price, dispenser_unit_price, return_jar_count, return_bottle_case_count, leakage_jar_count, sold_jar_count, sold_jar_price, sold_jar_amount, collection_amount, expense_amount, expense_note, total_amount, paid_amount, credit_amount, note, route, checked_by_staff_id, checked_by_staff_name, force_wash_required, force_wash_staff_name, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+  ).run(
+    resolvedVehicleId,
+    export_date,
+    jarCount,
+    bottleCount,
+    dispenserCount,
+    jarUnitPrice,
+    bottleCaseUnitPrice,
+    dispenserUnitPrice,
+    returnJars,
+    returnBottles,
+    leakageJars,
+    soldJars,
+    soldJarPrice,
+    soldJarAmount,
+    collectionAmount,
+    expenseAmount,
+    expenseNoteValue,
+    totalAmount,
+    effectivePaid,
+    creditAmount,
+    noteValue,
+    route || null,
+    checkedByStaffId,
+    checkedByStaffName,
+    forceWashRequired,
+    forceWashStaffName,
+    req.session.userId
+  );
+  const exportId = Number(exportResult.lastInsertRowid);
+  const exportReceiptNo = buildReceiptNo("EXP", export_date, exportId);
+  db.prepare("UPDATE exports SET receipt_no = ? WHERE id = ?").run(exportReceiptNo, exportId);
+  logActivity({
+    userId: req.session.userId,
+    action: "create",
+    entityType: "export",
+    entityId: exportId,
+    details: `receipt=${exportReceiptNo}, export_date=${export_date}, vehicle_id=${resolvedVehicleId}, external_vehicle=${vehicleResolution.useExternalVehicle ? 1 : 0}, external_vehicle_number=${vehicleResolution.externalVehicleNumber || ''}, external_owner=${vehicleResolution.externalOwnerName || ''}, external_phone=${vehicleResolution.externalPhone || ''}, external_org=${externalOrganizationRaw || ''}, jars=${jarCount}, jar_price=${jarUnitPrice}, bottles=${bottleCount}, bottle_price=${bottleCaseUnitPrice}, dispensers=${dispenserCount}, dispenser_price=${dispenserUnitPrice}, return_jars=${returnJars}, return_bottles=${returnBottles}, leakage_jars=${leakageJars}, sold_jars=${soldJars}, sold_price=${soldJarPrice}, collection=${collectionAmount}, expense=${expenseAmount}, route=${route || ''}, checked_staff=${checkedByStaffId || ''}, checked_staff_name=${checkedByStaffName || ''}, force_wash=${forceWashRequired}, force_wash_by=${forceWashStaffName || ''}`
+  });
+
+  res.redirect(`/records/exports/${exportId}/saved`);
+});
+
+router.get("/exports/:id/saved", (req, res) => {
+  const record = db.prepare(
+    `SELECT exports.id, exports.export_date, exports.receipt_no, exports.vehicle_id, vehicles.vehicle_number, vehicles.owner_name, vehicles.is_company
+     FROM exports
+     JOIN vehicles ON exports.vehicle_id = vehicles.id
+     WHERE exports.id = ?`
+  ).get(req.params.id);
+  if (!record) return res.redirect("/records/exports");
+  res.render("records/export_saved", {
+    title: req.t("exportSavedTitle"),
+    record
+  });
+});
+
+router.get("/exports/:id/pay-credit", (req, res) => {
+  const record = db.prepare(
+    `SELECT exports.id, exports.export_date, exports.receipt_no, exports.total_amount, exports.paid_amount, exports.credit_amount,
+            exports.vehicle_id, vehicles.vehicle_number, vehicles.owner_name, vehicles.is_company
+     FROM exports
+     JOIN vehicles ON exports.vehicle_id = vehicles.id
+     WHERE exports.id = ?`
+  ).get(req.params.id);
+  if (!record) return res.redirect("/records/exports");
+  if (Number(record.is_company) === 1) {
+    return res.redirect("/records/exports?error=companyVehicleNoCredit");
+  }
+  const remaining = Math.max(0, Number(record.total_amount || 0) - Number(record.paid_amount || 0));
+  if (remaining <= 0) {
+    return res.redirect(`/records/exports?from=${record.export_date}&to=${record.export_date}&error=exportCreditPaymentNoRemaining`);
+  }
+  res.render("records/export_credit_payment", {
+    title: req.t("payExportCreditTitle"),
+    record,
+    remaining,
+    error: null
+  });
+});
+
+router.post("/exports/:id/pay-credit", (req, res) => {
+  const record = db.prepare(
+    `SELECT exports.id, exports.export_date, exports.total_amount, exports.paid_amount, exports.credit_amount,
+            exports.vehicle_id, vehicles.vehicle_number, vehicles.owner_name, vehicles.is_company
+     FROM exports
+     JOIN vehicles ON exports.vehicle_id = vehicles.id
+     WHERE exports.id = ?`
+  ).get(req.params.id);
+  if (!record) return res.redirect("/records/exports");
+  if (Number(record.is_company) === 1) {
+    return res.redirect("/records/exports?error=companyVehicleNoCredit");
+  }
+
+  const remaining = Math.max(0, Number(record.total_amount || 0) - Number(record.paid_amount || 0));
+  if (remaining <= 0) {
+    return res.redirect(`/records/exports?from=${record.export_date}&to=${record.export_date}&error=exportCreditPaymentNoRemaining`);
+  }
+
+  const paymentAmountRaw = Number(req.body.payment_amount || 0);
+  if (Number.isNaN(paymentAmountRaw) || paymentAmountRaw <= 0) {
+    return res.render("records/export_credit_payment", {
+      title: req.t("payExportCreditTitle"),
+      record,
+      remaining,
+      error: req.t("exportCreditPaymentInvalid")
+    });
+  }
+
+  const appliedPayment = Math.min(paymentAmountRaw, remaining);
+  const newPaidAmount = Math.min(
+    Number(record.total_amount || 0),
+    Number(record.paid_amount || 0) + appliedPayment
+  );
+  const newCreditAmount = Math.max(0, Number(record.total_amount || 0) - newPaidAmount);
+
+  db.prepare("UPDATE exports SET paid_amount = ?, credit_amount = ? WHERE id = ?").run(
+    newPaidAmount,
+    newCreditAmount,
+    req.params.id
+  );
+
+  logActivity({
+    userId: req.session.userId,
+    action: "payment",
+    entityType: "export",
+    entityId: req.params.id,
+    details: `payment=${appliedPayment}; paid_amount: ${formatDiffValue(record.paid_amount)} -> ${formatDiffValue(newPaidAmount)}; credit_amount: ${formatDiffValue(record.credit_amount)} -> ${formatDiffValue(newCreditAmount)}`
+  });
+
+  return res.redirect(`/records/exports?from=${record.export_date}&to=${record.export_date}&status=credit_paid`);
+});
+
+router.get("/exports/:id(\\d+)", (req, res) => {
+  const record = db.prepare(
+    `SELECT exports.*, vehicles.vehicle_number, vehicles.owner_name, vehicles.phone, vehicles.is_company,
+            users.full_name as recorded_by,
+            COALESCE(NULLIF(TRIM(exports.checked_by_staff_name), ''), checked_staff.full_name) as checked_by_name
+     FROM exports
+     JOIN vehicles ON exports.vehicle_id = vehicles.id
+     LEFT JOIN users ON exports.created_by = users.id
+     LEFT JOIN staff as checked_staff ON exports.checked_by_staff_id = checked_staff.id
+     WHERE exports.id = ?`
+  ).get(req.params.id);
+  if (!record) return res.redirect("/records/exports");
+  res.render("records/export_details", {
+    title: req.t("exportsTitle"),
+    record
+  });
+});
+
+router.get("/exports/:id/edit", (req, res) => {
+  const record = db.prepare("SELECT * FROM exports WHERE id = ?").get(req.params.id);
+  if (!record) return res.redirect("/records/exports");
+  const vehicles = db.prepare("SELECT id, vehicle_number, owner_name, is_company FROM vehicles ORDER BY vehicle_number").all();
+  const staffOptions = getExportStaffOptions();
+  const nameSuggestions = getExportNameSuggestions();
+  res.render("records/export_form", {
+    title: req.t("editExportTitle"),
+    record,
+    vehicles,
+    staffOptions,
+    nameSuggestions,
+    formValues: null,
+    error: null,
+    defaultDate: record.export_date,
+    selectedVehicleId: record.vehicle_id,
+    checkedByStaffName: record.checked_by_staff_name || "",
+    forceWashStaffName: record.force_wash_staff_name || "",
+    useExternalVehicle: false,
+    externalVehicleNumber: "",
+    externalOwnerName: "",
+    externalPhone: "",
+    externalOrganization: ""
+  });
+});
+
+router.post("/exports/:id", (req, res) => {
+  const {
+    vehicle_id,
+    use_external_vehicle,
+    external_vehicle_number,
+    external_owner_name,
+    external_phone,
+    external_organization,
+    export_date,
+    jar_count,
+    bottle_case_count,
+    dispenser_count,
+    jar_unit_price,
+    bottle_case_unit_price,
+    dispenser_unit_price,
+    return_jar_count,
+    return_bottle_case_count,
+    leakage_jar_count,
+    sold_jar_count,
+    sold_jar_price,
+    collection_amount,
+    note,
+    paid_amount,
+    route,
+    checked_by_staff_name,
+    force_wash_staff_name
+  } = req.body;
+  const record = db.prepare("SELECT * FROM exports WHERE id = ?").get(req.params.id);
+  const vehicles = db.prepare("SELECT id, vehicle_number, owner_name, is_company FROM vehicles ORDER BY vehicle_number").all();
+  const staffOptions = getExportStaffOptions();
+  const nameSuggestions = getExportNameSuggestions();
+  const checkedByStaffNameRaw = String(checked_by_staff_name || "").trim();
+  const forceWashStaffNameRaw = String(force_wash_staff_name || "").trim();
+  if (!record) return res.redirect("/records/exports");
+  const useExternalVehicleRaw = parseCheckbox(use_external_vehicle);
+  const externalVehicleNumberRaw = String(external_vehicle_number || "").trim();
+  const externalOwnerNameRaw = String(external_owner_name || "").trim();
+  const externalPhoneRaw = String(external_phone || "").trim();
+  const externalOrganizationRaw = String(external_organization || "").trim();
+  if (!export_date) {
+    return res.render("records/export_form", {
+      title: req.t("editExportTitle"),
+      record,
+      vehicles,
+      staffOptions,
+      nameSuggestions,
+      formValues: req.body,
+      error: req.t("salesRequired"),
+      defaultDate: record.export_date,
+      selectedVehicleId: vehicle_id || record.vehicle_id,
+      checkedByStaffName: checkedByStaffNameRaw,
+      forceWashStaffName: forceWashStaffNameRaw,
+      useExternalVehicle: useExternalVehicleRaw,
+      externalVehicleNumber: externalVehicleNumberRaw,
+      externalOwnerName: externalOwnerNameRaw,
+      externalPhone: externalPhoneRaw,
+      externalOrganization: externalOrganizationRaw
+    });
+  }
+  const vehicleResolution = resolveExportVehicleInput({
+    vehicleId: vehicle_id,
+    useExternalVehicle: useExternalVehicleRaw,
+    externalVehicleNumber: externalVehicleNumberRaw,
+    externalOwnerName: externalOwnerNameRaw,
+    externalPhone: externalPhoneRaw
+  });
+
+  if (vehicleResolution.errorKey) {
+    return res.render("records/export_form", {
+      title: req.t("editExportTitle"),
+      record,
+      vehicles,
+      staffOptions,
+      nameSuggestions,
+      formValues: req.body,
+      error: req.t(vehicleResolution.errorKey),
+      defaultDate: export_date || record.export_date,
+      selectedVehicleId: vehicle_id || record.vehicle_id,
+      checkedByStaffName: checkedByStaffNameRaw,
+      forceWashStaffName: forceWashStaffNameRaw,
+      useExternalVehicle: useExternalVehicleRaw,
+      externalVehicleNumber: externalVehicleNumberRaw,
+      externalOwnerName: externalOwnerNameRaw,
+      externalPhone: externalPhoneRaw,
+      externalOrganization: externalOrganizationRaw
+    });
+  }
+  const checkedByStaff = checkedByStaffNameRaw ? getExportStaffByName(checkedByStaffNameRaw) : null;
+  const checkedByStaffId = checkedByStaff ? checkedByStaff.id : null;
+  const checkedByStaffName = checkedByStaffNameRaw || (checkedByStaff ? checkedByStaff.full_name : null);
+  const forceWashStaffName = forceWashStaffNameRaw || null;
+  const forceWashRequired = forceWashStaffName ? 1 : 0;
+
+  const jarCount = Number(jar_count || 0);
+  const bottleCount = Number(bottle_case_count || 0);
+  const dispenserCountRaw = Number(dispenser_count || 0);
+  const dispenserCount = Number.isNaN(dispenserCountRaw) || dispenserCountRaw < 0 ? 0 : dispenserCountRaw;
+  let jarUnitPrice = Number(jar_unit_price || 0);
+  let bottleCaseUnitPrice = Number(bottle_case_unit_price || 0);
+  let dispenserUnitPrice = Number(dispenser_unit_price || 0);
+  const returnJars = Number(return_jar_count || 0);
+  const returnBottles = Number(return_bottle_case_count || 0);
+  const leakageJars = Number(leakage_jar_count || 0);
+  let soldJars = Number(sold_jar_count || 0);
+  let soldJarPrice = Number(sold_jar_price || 0);
+  if (Number.isNaN(jarUnitPrice) || jarUnitPrice < 0) jarUnitPrice = 0;
+  if (Number.isNaN(bottleCaseUnitPrice) || bottleCaseUnitPrice < 0) bottleCaseUnitPrice = 0;
+  if (Number.isNaN(dispenserUnitPrice) || dispenserUnitPrice < 0) dispenserUnitPrice = 0;
+  if (Number.isNaN(soldJars) || soldJars < 0) soldJars = 0;
+  if (Number.isNaN(soldJarPrice) || soldJarPrice < 0) soldJarPrice = 0;
+  const netJars = Math.max(0, jarCount - returnJars - leakageJars);
+  const netBottles = Math.max(0, bottleCount - returnBottles);
+  const resolvedVehicleId = Number(vehicleResolution.vehicleId);
+  const vehicleRow = db.prepare("SELECT is_company FROM vehicles WHERE id = ?").get(resolvedVehicleId);
+  const isCompany = vehicleRow && Number(vehicleRow.is_company) === 1;
+  if (isCompany) {
+    jarUnitPrice = 0;
+    bottleCaseUnitPrice = 0;
+    dispenserUnitPrice = 0;
+  }
+  const dispenserAmount = Math.max(0, dispenserCount) * Math.max(0, dispenserUnitPrice);
+  if (!isCompany) {
+    soldJars = 0;
+    soldJarPrice = 0;
+  }
+  const soldJarAmount = Math.max(0, soldJars) * Math.max(0, soldJarPrice);
+  let totalAmount = netJars * jarUnitPrice + netBottles * bottleCaseUnitPrice + dispenserAmount + soldJarAmount;
+  let paidAmount = Number(paid_amount || 0);
+  let collectionAmount = Number(collection_amount || 0);
+  const expenseAmount = 0;
+  if (Number.isNaN(paidAmount) || paidAmount < 0) paidAmount = 0;
+  if (Number.isNaN(collectionAmount) || collectionAmount < 0) collectionAmount = 0;
+  if (!isCompany) paidAmount = Math.min(paidAmount, totalAmount);
+  if (!isCompany) {
+    collectionAmount = 0;
+  }
+  if (isCompany) totalAmount = collectionAmount;
+  const effectivePaid = isCompany ? collectionAmount : paidAmount;
+  const creditAmount = isCompany ? 0 : Math.max(0, totalAmount - effectivePaid);
+  const expenseNoteValue = null;
+  const externalVehicleNote = buildExternalVehicleNote({
+    useExternalVehicle: vehicleResolution.useExternalVehicle,
+    externalOwnerName: vehicleResolution.externalOwnerName,
+    externalPhone: vehicleResolution.externalPhone,
+    externalOrganization: externalOrganizationRaw
+  });
+  const noteValue = mergeNoteWithExternalVehicle(note, externalVehicleNote);
+
+  db.prepare(
+    "UPDATE exports SET vehicle_id = ?, export_date = ?, jar_count = ?, bottle_case_count = ?, dispenser_count = ?, jar_unit_price = ?, bottle_case_unit_price = ?, dispenser_unit_price = ?, return_jar_count = ?, return_bottle_case_count = ?, leakage_jar_count = ?, sold_jar_count = ?, sold_jar_price = ?, sold_jar_amount = ?, collection_amount = ?, expense_amount = ?, expense_note = ?, total_amount = ?, paid_amount = ?, credit_amount = ?, note = ?, route = ?, checked_by_staff_id = ?, checked_by_staff_name = ?, force_wash_required = ?, force_wash_staff_name = ? WHERE id = ?"
+  ).run(
+    resolvedVehicleId,
+    export_date,
+    jarCount,
+    bottleCount,
+    dispenserCount,
+    jarUnitPrice,
+    bottleCaseUnitPrice,
+    dispenserUnitPrice,
+    returnJars,
+    returnBottles,
+    leakageJars,
+    soldJars,
+    soldJarPrice,
+    soldJarAmount,
+    collectionAmount,
+    expenseAmount,
+    expenseNoteValue,
+    totalAmount,
+    effectivePaid,
+    creditAmount,
+    noteValue,
+    route || null,
+    checkedByStaffId,
+    checkedByStaffName,
+    forceWashRequired,
+    forceWashStaffName,
+    req.params.id
+  );
+  logActivity({
+    userId: req.session.userId,
+    action: "update",
+    entityType: "export",
+    entityId: req.params.id,
+    details: buildDiffDetails(
+      record,
+      {
+        vehicle_id: Number(resolvedVehicleId),
+        export_date,
+        jar_count: jarCount,
+        bottle_case_count: bottleCount,
+        dispenser_count: dispenserCount,
+        jar_unit_price: jarUnitPrice,
+        bottle_case_unit_price: bottleCaseUnitPrice,
+        dispenser_unit_price: dispenserUnitPrice,
+        return_jar_count: returnJars,
+        return_bottle_case_count: returnBottles,
+        leakage_jar_count: leakageJars,
+        sold_jar_count: soldJars,
+        sold_jar_price: soldJarPrice,
+        sold_jar_amount: soldJarAmount,
+        collection_amount: collectionAmount,
+        expense_amount: expenseAmount,
+        expense_note: expenseNoteValue,
+        total_amount: totalAmount,
+        paid_amount: effectivePaid,
+        credit_amount: creditAmount,
+        note: noteValue,
+        route: route || null,
+        checked_by_staff_id: checkedByStaffId,
+        checked_by_staff_name: checkedByStaffName,
+        force_wash_required: forceWashRequired,
+        force_wash_staff_name: forceWashStaffName
+      },
+      [
+        "vehicle_id",
+        "export_date",
+        "jar_count",
+        "bottle_case_count",
+        "dispenser_count",
+        "jar_unit_price",
+        "bottle_case_unit_price",
+        "dispenser_unit_price",
+        "return_jar_count",
+        "return_bottle_case_count",
+        "leakage_jar_count",
+        "sold_jar_count",
+        "sold_jar_price",
+        "sold_jar_amount",
+        "collection_amount",
+        "expense_amount",
+        "expense_note",
+        "total_amount",
+        "paid_amount",
+        "credit_amount",
+        "note",
+        "route",
+        "checked_by_staff_id",
+        "checked_by_staff_name",
+        "force_wash_required",
+        "force_wash_staff_name"
+      ]
+    )
+  });
+
+  res.redirect(`/records/exports?from=${export_date}&to=${export_date}`);
+});
+
+router.post("/exports/:id/delete", (req, res) => {
+  const record = db.prepare("SELECT * FROM exports WHERE id = ?").get(req.params.id);
+  if (!record) return res.redirect("/records/exports");
+  const recycleId = createRecycleEntry({
+    entityType: "export",
+    entityId: req.params.id,
+    payload: { export: record },
+    deletedBy: req.session.userId,
+    note: `date=${record.export_date || ""}`
+  });
+  logActivity({
+    userId: req.session.userId,
+    action: "delete",
+    entityType: "export",
+    entityId: req.params.id,
+    details: `recycle_id=${recycleId}`
+  });
+  db.prepare("DELETE FROM exports WHERE id = ?").run(req.params.id);
+  res.redirect("/records/exports");
+});
+
+router.get("/exports/:id/print", (req, res) => {
+  const record = db.prepare(
+    `SELECT exports.*, vehicles.vehicle_number, vehicles.owner_name, vehicles.phone,
+            COALESCE(NULLIF(TRIM(exports.checked_by_staff_name), ''), checked_staff.full_name) as checked_by_name
+     FROM exports
+     JOIN vehicles ON exports.vehicle_id = vehicles.id
+     LEFT JOIN staff as checked_staff ON exports.checked_by_staff_id = checked_staff.id
+     WHERE exports.id = ?`
+  ).get(req.params.id);
+  if (!record) return res.redirect("/records/exports");
+  res.render("records/export_print", { title: req.t("exportsTitle"), record });
+});
+
+router.get("/exports/export", (req, res) => {
+  const from = req.query.from || dayjs().subtract(7, "day").format("YYYY-MM-DD");
+  const to = req.query.to || dayjs().format("YYYY-MM-DD");
+  const q = (req.query.q || "").trim();
+  const sortRaw = req.query.sort || "date_desc";
+  const sortMap = {
+    date_desc: "export_date DESC, exports.created_at DESC",
+    date_asc: "export_date ASC, exports.created_at ASC",
+    total_desc: "exports.total_amount DESC",
+    total_asc: "exports.total_amount ASC",
+    jars_desc: "exports.jar_count DESC",
+    paid_desc: "exports.paid_amount DESC",
+    credit_desc: "exports.credit_amount DESC"
+  };
+  const sort = sortMap[sortRaw] ? sortRaw : "date_desc";
+  const orderBy = sortMap[sort];
+  const searchClause = q ? "AND (vehicles.vehicle_number LIKE ? OR vehicles.owner_name LIKE ?)" : "";
+  const params = q ? [from, to, `%${q}%`, `%${q}%`] : [from, to];
+  const exportsRows = db.prepare(
+    `SELECT exports.export_date, exports.receipt_no, vehicles.vehicle_number, vehicles.owner_name,
+            exports.jar_count, exports.bottle_case_count, exports.dispenser_count,
+            exports.jar_unit_price, exports.bottle_case_unit_price, exports.dispenser_unit_price,
+            exports.return_jar_count, exports.return_bottle_case_count, exports.leakage_jar_count,
+            exports.sold_jar_count, exports.sold_jar_price, exports.sold_jar_amount,
+            exports.collection_amount, exports.expense_amount, exports.expense_note,
+            exports.total_amount, exports.paid_amount, exports.credit_amount,
+            exports.note, exports.route,
+            COALESCE(NULLIF(TRIM(exports.checked_by_staff_name), ''), checked_staff.full_name) as checked_by_name,
+            exports.force_wash_required,
+            exports.force_wash_staff_name
+     FROM exports
+     JOIN vehicles ON exports.vehicle_id = vehicles.id
+     LEFT JOIN staff as checked_staff ON exports.checked_by_staff_id = checked_staff.id
+     WHERE export_date BETWEEN ? AND ?
+     ${searchClause}
+     ORDER BY ${orderBy}`
+  ).all(...params);
+
+  const header = "Date,Receipt No,Vehicle Number,Owner Name,Checked By Staff,Force Wash,Force Wash By,Jars,Bottle Cases,Dispensers,Jar Unit Price,Bottle Case Unit Price,Dispenser Unit Price,Return Jars,Return Bottle Cases,Leakage Jars,Sold Jars,Sold Jar Price,Sold Jar Amount,Collection Amount,Expense Amount,Expense Note,Total Amount,Paid Amount,Credit Amount,Note,Route";
+  const lines = exportsRows.map((row) => {
+    const safe = [
+      row.export_date,
+      row.receipt_no || "",
+      row.vehicle_number,
+      row.owner_name,
+      row.checked_by_name || "",
+      Number(row.force_wash_required || 0) === 1 ? "Yes" : "No",
+      row.force_wash_staff_name || "",
+      row.jar_count,
+      row.bottle_case_count,
+      row.dispenser_count || 0,
+      row.jar_unit_price || 0,
+      row.bottle_case_unit_price || 0,
+      row.dispenser_unit_price || 0,
+      row.return_jar_count,
+      row.return_bottle_case_count,
+      row.leakage_jar_count,
+      row.sold_jar_count,
+      row.sold_jar_price,
+      row.sold_jar_amount,
+      row.collection_amount,
+      row.expense_amount || 0,
+      row.expense_note || "",
+      row.total_amount,
+      row.paid_amount,
+      row.credit_amount,
+      row.note || "",
+      row.route || ""
+    ].map((val) => {
+      const str = String(val ?? "").replace(/\"/g, "\"\"");
+      return `"${str}"`;
+    });
+    return safe.join(",");
+  });
+
+  const csv = [header, ...lines].join("\n");
+  res.setHeader("Content-Type", "text/csv");
+  res.setHeader("Content-Disposition", `attachment; filename="exports_${from}_to_${to}.csv"`);
+  res.send(csv);
+});
+
+router.get("/imports", (req, res) => {
+  const from = req.query.from || dayjs().startOf("month").format("YYYY-MM-DD");
+  const to = req.query.to || dayjs().format("YYYY-MM-DD");
+  const q = String(req.query.q || "").trim();
+  const itemTypes = getImportItemsForUi(req.t);
+  const itemCodes = new Set(itemTypes.map((row) => row.code));
+  const rawItem = req.query.item || "all";
+  const item = rawItem === "all" || itemCodes.has(rawItem) ? rawItem : "all";
+  const itemClause = item === "all" ? "" : "AND import_entries.item_type = ?";
+  const searchClause = q
+    ? "AND (COALESCE(import_entries.seller_name, '') LIKE ? OR COALESCE(import_entries.note, '') LIKE ?)"
+    : "";
+  const params = [from, to];
+  if (item !== "all") params.push(item);
+  if (q) params.push(`%${q}%`, `%${q}%`);
+
+  const entries = db.prepare(
+    `SELECT import_entries.*, jar_types.name as jar_type_name, jar_cap_types.name as jar_cap_type_name,
+            import_item_types.name as item_type_name, import_item_types.unit_label as item_unit_label,
+            users.full_name as recorded_by
+     FROM import_entries
+     LEFT JOIN jar_types ON import_entries.jar_type_id = jar_types.id
+     LEFT JOIN jar_cap_types ON import_entries.jar_cap_type_id = jar_cap_types.id
+     LEFT JOIN import_item_types ON import_entries.item_type = import_item_types.code
+     LEFT JOIN users ON import_entries.created_by = users.id
+     WHERE entry_date BETWEEN ? AND ?
+     ${itemClause}
+     ${searchClause}
+     ORDER BY entry_date DESC, created_at DESC`
+  ).all(...params);
+
+  const totals = entries.reduce((acc, row) => {
+    const qty = Number(row.quantity || 0);
+    const sign = row.direction === "OUT" ? -1 : 1;
+    acc.incoming += row.direction === "OUT" ? 0 : qty;
+    acc.outgoing += row.direction === "OUT" ? qty : 0;
+    acc.total += sign * qty;
+    acc.byItem[row.item_type] = (acc.byItem[row.item_type] || 0) + (sign * qty);
+    return acc;
+  }, { total: 0, incoming: 0, outgoing: 0, byItem: {} });
+  const payableTotals = entries.reduce(
+    (acc, row) => {
+      const total = parseMoneyValue(row.total_amount || 0);
+      const paid = parseMoneyValue(row.paid_amount || 0);
+      const due = Math.max(0, total - paid);
+      acc.total += total;
+      acc.paid += paid;
+      acc.due += due;
+      if (due > 0) acc.open_count += 1;
+      return acc;
+    },
+    { total: 0, paid: 0, due: 0, open_count: 0 }
+  );
+
+  const jarTypes = db.prepare("SELECT id, name, default_qty FROM jar_types WHERE active = 1 ORDER BY name").all();
+  const jarCapTypes = db.prepare("SELECT id, name, default_qty FROM jar_cap_types WHERE active = 1 ORDER BY name").all();
+  const jarImportTotals = db.prepare(
+    `SELECT jar_type_id, COALESCE(SUM(quantity), 0) as qty
+     FROM import_entries
+     WHERE item_type = 'JAR_CONTAINER' AND direction = 'IN' AND jar_type_id IS NOT NULL
+     GROUP BY jar_type_id`
+  ).all();
+  const jarSalesTotals = db.prepare(
+    `SELECT jar_type_id, COALESCE(SUM(quantity), 0) as qty
+     FROM jar_sales
+     GROUP BY jar_type_id`
+  ).all();
+  const importMap = jarImportTotals.reduce((acc, row) => {
+    acc[row.jar_type_id] = Number(row.qty || 0);
+    return acc;
+  }, {});
+  const salesMap = jarSalesTotals.reduce((acc, row) => {
+    acc[row.jar_type_id] = Number(row.qty || 0);
+    return acc;
+  }, {});
+  const jarTypeBalances = {};
+  let jarContainerBalance = 0;
+  jarTypes.forEach((type) => {
+    const balance = (importMap[type.id] || 0) - (salesMap[type.id] || 0);
+    jarTypeBalances[type.id] = balance;
+    jarContainerBalance += balance;
+  });
+
+  const bottleCaseImportRow = db.prepare(
+    `SELECT COALESCE(SUM(CASE WHEN direction = 'OUT' THEN -quantity ELSE quantity END), 0) as qty
+     FROM import_entries
+     WHERE item_type = 'BOTTLE_CASE'`
+  ).get();
+  const bottleCaseExportRow = db.prepare(
+    `SELECT COALESCE(SUM(bottle_case_count), 0) as exported,
+            COALESCE(SUM(return_bottle_case_count), 0) as returned
+     FROM exports`
+  ).get();
+  const bottleCaseImported = Number(bottleCaseImportRow?.qty || 0);
+  const bottleCaseExported = Number(bottleCaseExportRow?.exported || 0);
+  const bottleCaseReturned = Number(bottleCaseExportRow?.returned || 0);
+  const bottleCaseNetExport = Math.max(0, bottleCaseExported - bottleCaseReturned);
+  const bottleCaseBalance = bottleCaseImported - bottleCaseNetExport;
+
+  const itemMetaByCode = itemTypes.reduce((acc, row) => {
+    acc[row.code] = {
+      label: row.label,
+      unit: row.unit,
+      usesDirection: Boolean(row.uses_direction)
+    };
+    return acc;
+  }, {});
+
+  const paymentItemClause = item === "all" ? "" : "AND import_entries.item_type = ?";
+  const paymentSearchClause = q
+    ? "AND (COALESCE(import_entries.seller_name, '') LIKE ? OR COALESCE(import_payments.note, '') LIKE ?)"
+    : "";
+  const paymentParams = [from, to];
+  if (item !== "all") paymentParams.push(item);
+  if (q) paymentParams.push(`%${q}%`, `%${q}%`);
+  const paymentRows = db.prepare(
+    `SELECT import_payments.*, import_entries.item_type, import_entries.entry_date, import_entries.seller_name,
+            import_entries.total_amount, import_entries.paid_amount,
+            import_item_types.name as item_type_name, import_item_types.unit_label as item_unit_label,
+            users.full_name as recorded_by
+     FROM import_payments
+     JOIN import_entries ON import_payments.import_entry_id = import_entries.id
+     LEFT JOIN import_item_types ON import_entries.item_type = import_item_types.code
+     LEFT JOIN users ON import_payments.created_by = users.id
+     WHERE import_payments.payment_date BETWEEN ? AND ?
+     ${paymentItemClause}
+     ${paymentSearchClause}
+     ORDER BY import_payments.payment_date DESC, import_payments.id DESC`
+  ).all(...paymentParams);
+  const errorKey = String(req.query.error || "").trim();
+  const status = String(req.query.status || "").trim();
+  const error = errorKey ? req.t(errorKey) : null;
+  const success = status === "payment_saved"
+    ? req.t("paymentSaved")
+    : status === "payment_deleted"
+      ? req.t("paymentDeleted")
+      : null;
+
+  res.render("records/imports", {
+    title: req.t("importsTitle"),
+    from,
+    to,
+    q,
+    item,
+    entries,
+    totals,
+    payableTotals,
+    paymentRows,
+    error,
+    success,
+    jarContainerBalance,
+    bottleCaseBalance,
+    jarTypeBalances,
+    itemTypes,
+    itemMetaByCode,
+    resolveImportItemLabel,
+    resolveImportItemUnit,
+    jarTypes,
+    jarCapTypes
+  });
+});
+
+router.post("/imports", (req, res) => {
+  const {
+    item_type,
+    quantity,
+    entry_date,
+    note,
+    direction,
+    jar_type_id,
+    jar_cap_type_id,
+    seller_name,
+    total_amount,
+    paid_amount,
+    is_credit
+  } = req.body;
+  const itemRow = getImportItemTypeByCode(item_type);
+  if (!item_type || !entry_date || !itemRow || Number(itemRow.is_active) !== 1) {
+    return res.redirect("/records/imports");
+  }
+  let qty = Number(quantity || 0);
+  if (Number.isNaN(qty) || qty <= 0) {
+    qty = 0;
+  }
+  let entryDirection = direction === "OUT" ? "OUT" : "IN";
+  if (item_type === "JAR_CONTAINER") {
+    entryDirection = "IN";
+    if (!jar_type_id) {
+      return res.redirect("/records/imports");
+    }
+    const typeRow = db.prepare("SELECT default_qty FROM jar_types WHERE id = ?").get(jar_type_id);
+    if (!typeRow) {
+      return res.redirect("/records/imports");
+    }
+    const defaultQty = Number(typeRow.default_qty || 0);
+    if (defaultQty > 0) {
+      qty = defaultQty;
+    }
+  }
+  if (item_type === "JAR_CAP") {
+    if (!jar_cap_type_id) {
+      return res.redirect("/records/imports");
+    }
+    const capRow = db.prepare("SELECT default_qty FROM jar_cap_types WHERE id = ?").get(jar_cap_type_id);
+    if (!capRow) {
+      return res.redirect("/records/imports");
+    }
+    const defaultQty = Number(capRow.default_qty || 0);
+    if (qty <= 0 && defaultQty > 0) {
+      qty = defaultQty;
+    }
+  }
+  if (item_type !== "JAR_CONTAINER" && Number(itemRow.uses_direction) !== 1) {
+    entryDirection = "IN";
+  }
+  if (qty <= 0) {
+    return res.redirect("/records/imports");
+  }
+
+  const sellerName = String(seller_name || "").trim();
+  let totalAmount = parseMoneyValue(total_amount);
+  let paidAmount = parseMoneyValue(paid_amount);
+  const wantsCredit = parseCheckbox(is_credit);
+  if (totalAmount <= 0) {
+    totalAmount = 0;
+    paidAmount = 0;
+  }
+  if (paidAmount > totalAmount) {
+    return res.redirect(`/records/imports?from=${entry_date}&to=${entry_date}&error=paidMoreThanTotal`);
+  }
+  if (!wantsCredit && totalAmount > 0 && paidAmount < totalAmount) {
+    paidAmount = totalAmount;
+  }
+  const isCreditFinal = totalAmount > paidAmount ? 1 : 0;
+  if (isCreditFinal === 1 && !sellerName) {
+    return res.redirect(`/records/imports?from=${entry_date}&to=${entry_date}&error=sellerRequiredForCredit`);
+  }
+
+  const entryId = db.prepare(
+    `INSERT INTO import_entries (
+      item_type, quantity, direction, jar_type_id, jar_cap_type_id, entry_date,
+      seller_name, total_amount, paid_amount, is_credit, note, created_by
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    item_type,
+    qty,
+    entryDirection,
+    item_type === "JAR_CONTAINER" ? jar_type_id : null,
+    item_type === "JAR_CAP" ? jar_cap_type_id : null,
+    entry_date,
+    sellerName || null,
+    totalAmount,
+    paidAmount,
+    isCreditFinal,
+    note || null,
+    req.session.userId
+  ).lastInsertRowid;
+
+  if (paidAmount > 0) {
+    db.prepare(
+      "INSERT INTO import_payments (import_entry_id, payment_date, amount, note, created_by) VALUES (?, ?, ?, ?, ?)"
+    ).run(
+      entryId,
+      entry_date,
+      paidAmount,
+      req.t("openingPaymentNote"),
+      req.session.userId || null
+    );
+  }
+
+  logActivity({
+    userId: req.session.userId,
+    action: "create",
+    entityType: "import_entry",
+    entityId: `${entryId}`,
+    details: `direction=${entryDirection}, qty=${qty}, total=${totalAmount}, paid=${paidAmount}`
+  });
+
+  res.redirect(`/records/imports?from=${entry_date}&to=${entry_date}`);
+});
+
+router.get("/imports/:id/edit", (req, res) => {
+  const entry = db.prepare("SELECT * FROM import_entries WHERE id = ?").get(req.params.id);
+  if (!entry) return res.redirect("/records/imports");
+  const from = dayjs(entry.entry_date).startOf("month").format("YYYY-MM-DD");
+  const to = dayjs(entry.entry_date).format("YYYY-MM-DD");
+  let itemTypes = getImportItemsForUi(req.t, true);
+  if (!itemTypes.find((row) => row.code === entry.item_type)) {
+    itemTypes = [
+      ...itemTypes,
+      {
+        id: 0,
+        code: entry.item_type,
+        name: entry.item_type,
+        unit_label: "",
+        label: entry.item_type,
+        unit: "",
+        uses_direction: true,
+        is_predefined: 0,
+        is_active: 0
+      }
+    ];
+  }
+  const itemMetaByCode = itemTypes.reduce((acc, row) => {
+    acc[row.code] = {
+      label: row.label,
+      unit: row.unit,
+      usesDirection: Boolean(row.uses_direction)
+    };
+    return acc;
+  }, {});
+  const jarTypes = db.prepare("SELECT id, name, default_qty FROM jar_types WHERE active = 1 ORDER BY name").all();
+  const jarCapTypes = db.prepare("SELECT id, name, default_qty FROM jar_cap_types WHERE active = 1 ORDER BY name").all();
+  const payments = db.prepare(
+    `SELECT import_payments.*, users.full_name as recorded_by
+     FROM import_payments
+     LEFT JOIN users ON import_payments.created_by = users.id
+     WHERE import_payments.import_entry_id = ?
+     ORDER BY import_payments.payment_date DESC, import_payments.id DESC`
+  ).all(req.params.id);
+  const paymentTotals = payments.reduce(
+    (acc, row) => {
+      acc.paid += parseMoneyValue(row.amount || 0);
+      return acc;
+    },
+    { paid: 0 }
+  );
+  const totalAmount = parseMoneyValue(entry.total_amount || 0);
+  const dueAmount = Math.max(0, totalAmount - paymentTotals.paid);
+  const errorKey = String(req.query.error || "").trim();
+  const status = String(req.query.status || "").trim();
+  const error = errorKey ? req.t(errorKey) : null;
+  const success = status === "payment_saved"
+    ? req.t("paymentSaved")
+    : status === "payment_deleted"
+      ? req.t("paymentDeleted")
+      : null;
+
+  res.render("records/imports_edit", {
+    title: req.t("editImportEntryTitle"),
+    entry,
+    itemTypes,
+    itemMetaByCode,
+    resolveImportItemLabel,
+    resolveImportItemUnit,
+    jarTypes,
+    jarCapTypes,
+    payments,
+    paymentTotals,
+    dueAmount,
+    error,
+    success,
+    from,
+    to
+  });
+});
+
+router.post("/imports/:id", (req, res) => {
+  const entry = db.prepare("SELECT * FROM import_entries WHERE id = ?").get(req.params.id);
+  if (!entry) return res.redirect("/records/imports");
+  const {
+    item_type,
+    quantity,
+    entry_date,
+    note,
+    direction,
+    jar_type_id,
+    jar_cap_type_id,
+    seller_name,
+    total_amount,
+    is_credit
+  } = req.body;
+  const itemRow = getImportItemTypeByCode(item_type);
+  if (!item_type || !entry_date || !itemRow) {
+    return res.redirect(`/records/imports/${req.params.id}/edit`);
+  }
+  let qty = Number(quantity || 0);
+  if (Number.isNaN(qty) || qty <= 0) {
+    qty = 0;
+  }
+  let entryDirection = direction === "OUT" ? "OUT" : "IN";
+  if (item_type === "JAR_CONTAINER") {
+    entryDirection = "IN";
+    if (!jar_type_id) {
+      return res.redirect(`/records/imports/${req.params.id}/edit`);
+    }
+    const typeRow = db.prepare("SELECT default_qty FROM jar_types WHERE id = ?").get(jar_type_id);
+    if (!typeRow) {
+      return res.redirect(`/records/imports/${req.params.id}/edit`);
+    }
+    const defaultQty = Number(typeRow.default_qty || 0);
+    if (defaultQty > 0 && qty <= 0) {
+      qty = defaultQty;
+    }
+  }
+  if (item_type === "JAR_CAP") {
+    if (!jar_cap_type_id) {
+      return res.redirect(`/records/imports/${req.params.id}/edit`);
+    }
+    const capRow = db.prepare("SELECT default_qty FROM jar_cap_types WHERE id = ?").get(jar_cap_type_id);
+    if (!capRow) {
+      return res.redirect(`/records/imports/${req.params.id}/edit`);
+    }
+    const defaultQty = Number(capRow.default_qty || 0);
+    if (qty <= 0 && defaultQty > 0) {
+      qty = defaultQty;
+    }
+  }
+  if (item_type !== "JAR_CONTAINER" && Number(itemRow.uses_direction) !== 1) {
+    entryDirection = "IN";
+  }
+  if (qty <= 0) {
+    return res.redirect(`/records/imports/${req.params.id}/edit`);
+  }
+
+  const sellerName = String(seller_name || "").trim();
+  let totalAmount = parseMoneyValue(total_amount);
+  if (totalAmount < 0) totalAmount = 0;
+  const paidRow = db.prepare(
+    "SELECT COALESCE(SUM(amount), 0) as paid FROM import_payments WHERE import_entry_id = ?"
+  ).get(req.params.id);
+  const existingPaid = parseMoneyValue(paidRow?.paid || 0);
+  if (totalAmount < existingPaid) {
+    return res.redirect(`/records/imports/${req.params.id}/edit?error=totalBelowPaid`);
+  }
+  const wantsCredit = parseCheckbox(is_credit);
+  let finalPaidAmount = existingPaid;
+  if (!wantsCredit && totalAmount > existingPaid) {
+    const remaining = parseMoneyValue(totalAmount - existingPaid);
+    if (remaining > 0) {
+      db.prepare(
+        "INSERT INTO import_payments (import_entry_id, payment_date, amount, note, created_by) VALUES (?, ?, ?, ?, ?)"
+      ).run(
+        req.params.id,
+        entry_date,
+        remaining,
+        req.t("autoSettledOnEdit"),
+        req.session.userId || null
+      );
+      finalPaidAmount = parseMoneyValue(existingPaid + remaining);
+    }
+  }
+  const isCreditFinal = totalAmount > finalPaidAmount ? 1 : 0;
+  if (isCreditFinal === 1 && !sellerName) {
+    return res.redirect(`/records/imports/${req.params.id}/edit?error=sellerRequiredForCredit`);
+  }
+
+  db.prepare(
+    `UPDATE import_entries
+     SET item_type = ?, quantity = ?, direction = ?, jar_type_id = ?, jar_cap_type_id = ?, entry_date = ?,
+         seller_name = ?, total_amount = ?, paid_amount = ?, is_credit = ?, note = ?
+     WHERE id = ?`
+  ).run(
+    item_type,
+    qty,
+    entryDirection,
+    item_type === "JAR_CONTAINER" ? jar_type_id : null,
+    item_type === "JAR_CAP" ? jar_cap_type_id : null,
+    entry_date,
+    sellerName || null,
+    totalAmount,
+    finalPaidAmount,
+    isCreditFinal,
+    note || null,
+    req.params.id
+  );
+
+  logActivity({
+    userId: req.session.userId,
+    action: "update",
+    entityType: "import_entry",
+    entityId: req.params.id,
+    details: buildDiffDetails(
+      entry,
+      {
+        item_type,
+        quantity: qty,
+        direction: entryDirection,
+        jar_type_id: item_type === "JAR_CONTAINER" ? Number(jar_type_id) : null,
+        jar_cap_type_id: item_type === "JAR_CAP" ? Number(jar_cap_type_id) : null,
+        entry_date,
+        seller_name: sellerName || null,
+        total_amount: totalAmount,
+        paid_amount: finalPaidAmount,
+        is_credit: isCreditFinal,
+        note: note || null
+      },
+      [
+        "item_type",
+        "quantity",
+        "direction",
+        "jar_type_id",
+        "jar_cap_type_id",
+        "entry_date",
+        "seller_name",
+        "total_amount",
+        "paid_amount",
+        "is_credit",
+        "note"
+      ]
+    )
+  });
+
+  res.redirect(`/records/imports?from=${entry_date}&to=${entry_date}`);
+});
+
+router.post("/imports/:id/payments", (req, res) => {
+  const entry = db.prepare("SELECT * FROM import_entries WHERE id = ?").get(req.params.id);
+  if (!entry) return res.redirect("/records/imports");
+  const paymentDate = String(req.body.payment_date || "").trim() || dayjs().format("YYYY-MM-DD");
+  const amount = parseMoneyValue(req.body.amount);
+  const note = String(req.body.note || "").trim();
+  if (!paymentDate || amount <= 0) {
+    return res.redirect(`/records/imports/${req.params.id}/edit?error=invalidPaymentAmount`);
+  }
+  const totalAmount = parseMoneyValue(entry.total_amount || 0);
+  const paidAmount = parseMoneyValue(entry.paid_amount || 0);
+  const remaining = Math.max(0, totalAmount - paidAmount);
+  if (remaining <= 0) {
+    return res.redirect(`/records/imports/${req.params.id}/edit?error=noBalanceDue`);
+  }
+  if (amount > remaining) {
+    return res.redirect(`/records/imports/${req.params.id}/edit?error=paidMoreThanDue`);
+  }
+
+  const paymentId = db.prepare(
+    "INSERT INTO import_payments (import_entry_id, payment_date, amount, note, created_by) VALUES (?, ?, ?, ?, ?)"
+  ).run(
+    req.params.id,
+    paymentDate,
+    amount,
+    note || null,
+    req.session.userId || null
+  ).lastInsertRowid;
+
+  const updatedPaid = parseMoneyValue(paidAmount + amount);
+  const updatedCredit = updatedPaid < totalAmount ? 1 : 0;
+  db.prepare("UPDATE import_entries SET paid_amount = ?, is_credit = ? WHERE id = ?").run(
+    updatedPaid,
+    updatedCredit,
+    req.params.id
+  );
+
+  logActivity({
+    userId: req.session.userId,
+    action: "create",
+    entityType: "import_payment",
+    entityId: paymentId,
+    details: `entry=${req.params.id}, amount=${amount}, date=${paymentDate}`
+  });
+
+  return res.redirect(`/records/imports/${req.params.id}/edit?status=payment_saved`);
+});
+
+router.post("/imports/payments/:id/delete", (req, res) => {
+  const payment = db.prepare("SELECT * FROM import_payments WHERE id = ?").get(req.params.id);
+  if (!payment) return res.redirect("/records/imports");
+  const entry = db.prepare("SELECT * FROM import_entries WHERE id = ?").get(payment.import_entry_id);
+  if (!entry) {
+    db.prepare("DELETE FROM import_payments WHERE id = ?").run(req.params.id);
+    return res.redirect("/records/imports");
+  }
+
+  db.prepare("DELETE FROM import_payments WHERE id = ?").run(req.params.id);
+  const paidRow = db.prepare(
+    "SELECT COALESCE(SUM(amount), 0) as paid FROM import_payments WHERE import_entry_id = ?"
+  ).get(payment.import_entry_id);
+  const newPaid = parseMoneyValue(paidRow?.paid || 0);
+  const totalAmount = parseMoneyValue(entry.total_amount || 0);
+  db.prepare("UPDATE import_entries SET paid_amount = ?, is_credit = ? WHERE id = ?").run(
+    newPaid,
+    newPaid < totalAmount ? 1 : 0,
+    payment.import_entry_id
+  );
+
+  logActivity({
+    userId: req.session.userId,
+    action: "delete",
+    entityType: "import_payment",
+    entityId: req.params.id,
+    details: `entry=${payment.import_entry_id}, amount=${payment.amount || 0}`
+  });
+
+  return res.redirect(`/records/imports/${payment.import_entry_id}/edit?status=payment_deleted`);
+});
+
+router.post("/imports/:id/delete", (req, res) => {
+  const entry = db.prepare("SELECT * FROM import_entries WHERE id = ?").get(req.params.id);
+  if (!entry) return res.redirect("/records/imports");
+  const payments = db.prepare(
+    "SELECT * FROM import_payments WHERE import_entry_id = ? ORDER BY payment_date ASC, id ASC"
+  ).all(req.params.id);
+  const recycleId = createRecycleEntry({
+    entityType: "import_entry",
+    entityId: req.params.id,
+    payload: { import_entry: entry, import_payments: payments },
+    deletedBy: req.session.userId,
+    note: `date=${entry.entry_date || ""}; item=${entry.item_type || ""}`
+  });
+  logActivity({
+    userId: req.session.userId,
+    action: "delete",
+    entityType: "import_entry",
+    entityId: req.params.id,
+    details: `recycle_id=${recycleId}`
+  });
+  db.prepare("DELETE FROM import_payments WHERE import_entry_id = ?").run(req.params.id);
+  db.prepare("DELETE FROM import_entries WHERE id = ?").run(req.params.id);
+  const back = req.get("referer");
+  res.redirect(back || "/records/imports");
+});
+
+router.get("/staffs", (req, res) => {
+  const rows = db.prepare(
+    `SELECT staff.*, staff_roles.name as role_name, COALESCE(SUM(staff_salary_payments.amount), 0) AS paid_total
+     FROM staff
+     LEFT JOIN staff_roles ON staff_roles.code = staff.staff_role
+     LEFT JOIN staff_salary_payments ON staff_salary_payments.staff_id = staff.id
+     GROUP BY staff.id
+     ORDER BY staff.created_at DESC`
+  ).all();
+
+  const today = dayjs().format("YYYY-MM-DD");
+  const staffs = rows.map((row) => ({
+    ...row,
+    role_label: resolveStaffRoleLabel(row.staff_role, row.role_name, req.t),
+    due_salary: computeSalaryDue(row, row.paid_total, today)
+  }));
+
+  res.render("admin/staffs", { title: req.t("staffsTitle"), staffs, basePath: "/records/staffs" });
+});
+
+router.get("/staffs/new", (req, res) => {
+  res.render("admin/staff_form", {
+    title: req.t("addStaffTitle"),
+    staff: null,
+    document: null,
+    error: null,
+    staffRoles: getStaffRoleChoices(req.t),
+    basePath: "/records/staffs"
+  });
+});
+
+router.post("/staffs", (req, res) => {
+  const upload = staffUpload.fields([
+    { name: "photo", maxCount: 1 },
+    { name: "doc_front", maxCount: 1 },
+    { name: "doc_back", maxCount: 1 },
+    { name: "doc_single", maxCount: 1 }
+  ]);
+
+  upload(req, res, (err) => {
+    if (err) {
+      return res.render("admin/staff_form", {
+        title: req.t("addStaffTitle"),
+        staff: null,
+        document: null,
+        error: err.message || req.t("uploadError"),
+        staffRoles: getStaffRoleChoices(req.t, req.body ? req.body.staff_role : null),
+        basePath: "/records/staffs"
+      });
+    }
+
+    const { full_name, phone, fingerprint_id, start_date, monthly_salary, doc_type, staff_role } = req.body;
+    if (!full_name) {
+      return res.render("admin/staff_form", {
+        title: req.t("addStaffTitle"),
+        staff: null,
+        document: null,
+        error: req.t("staffRequired"),
+        staffRoles: getStaffRoleChoices(req.t, staff_role),
+        basePath: "/records/staffs"
+      });
+    }
+    const salary = Number(monthly_salary || 0);
+    if (Number.isNaN(salary) || salary < 0) {
+      return res.render("admin/staff_form", {
+        title: req.t("addStaffTitle"),
+        staff: null,
+        document: null,
+        error: req.t("salaryInvalid"),
+        staffRoles: getStaffRoleChoices(req.t, staff_role),
+        basePath: "/records/staffs"
+      });
+    }
+    const fingerprintId = normalizeFingerprintId(fingerprint_id);
+    const fpConflict = findFingerprintConflict({ fingerprintId });
+    if (fpConflict) {
+      return res.render("admin/staff_form", {
+        title: req.t("addStaffTitle"),
+        staff: null,
+        document: null,
+        error: req.t("fingerprintIdAlreadyUsed"),
+        staffRoles: getStaffRoleChoices(req.t, staff_role),
+        basePath: "/records/staffs"
+      });
+    }
+    const staffRole = normalizeStaffRole(staff_role);
+
+    const photoFile = req.files && req.files.photo ? req.files.photo[0] : null;
+    const photoPath = photoFile ? `/uploads/${photoFile.filename}` : null;
+
+    const staffId = db.prepare(
+      "INSERT INTO staff (full_name, staff_role, phone, fingerprint_id, photo_path, start_date, monthly_salary) VALUES (?, ?, ?, ?, ?, ?, ?)"
+    ).run(full_name.trim(), staffRole, phone || null, fingerprintId, photoPath, start_date || null, salary).lastInsertRowid;
+
+    if (doc_type) {
+      let frontPath = null;
+      let backPath = null;
+      if (doc_type === "CITIZENSHIP") {
+        const front = req.files && req.files.doc_front ? req.files.doc_front[0] : null;
+        const back = req.files && req.files.doc_back ? req.files.doc_back[0] : null;
+        if (front) frontPath = `/uploads/${front.filename}`;
+        if (back) backPath = `/uploads/${back.filename}`;
+      } else {
+        const single = req.files && req.files.doc_single ? req.files.doc_single[0] : null;
+        if (single) frontPath = `/uploads/${single.filename}`;
+      }
+      if (frontPath || backPath) {
+        db.prepare(
+          "INSERT INTO staff_documents (staff_id, doc_type, front_path, back_path) VALUES (?, ?, ?, ?)"
+        ).run(staffId, doc_type, frontPath, backPath);
+      }
+    }
+
+    logActivity({
+      userId: req.session.userId,
+      action: "create",
+      entityType: "staff",
+      entityId: staffId,
+      details: `name=${full_name}`
+    });
+
+    res.redirect("/records/staffs");
+  });
+});
+
+router.get("/staffs/:id", (req, res) => {
+  const staffRow = db.prepare(
+    `SELECT staff.*, staff_roles.name as role_name
+     FROM staff
+     LEFT JOIN staff_roles ON staff_roles.code = staff.staff_role
+     WHERE staff.id = ?`
+  ).get(req.params.id);
+  const staff = staffRow
+    ? { ...staffRow, role_label: resolveStaffRoleLabel(staffRow.staff_role, staffRow.role_name, req.t) }
+    : null;
+  if (!staff) return res.redirect("/records/staffs");
+  const document = db.prepare("SELECT * FROM staff_documents WHERE staff_id = ?").get(req.params.id);
+  const payments = db.prepare(
+    `SELECT staff_salary_payments.*, users.full_name as recorded_by
+     FROM staff_salary_payments
+     LEFT JOIN users ON staff_salary_payments.created_by = users.id
+     WHERE staff_salary_payments.staff_id = ?
+     ORDER BY staff_salary_payments.payment_date DESC, staff_salary_payments.id DESC`
+  ).all(req.params.id);
+  const totals = payments.reduce(
+    (acc, row) => {
+      const amt = Number(row.amount || 0);
+      acc.total += amt;
+      if (row.payment_type === "SALARY") acc.salary += amt;
+      if (row.payment_type === "ADVANCE") acc.advance += amt;
+      return acc;
+    },
+    { total: 0, salary: 0, advance: 0 }
+  );
+  const dueSalary = computeSalaryDue(staff, totals.total, dayjs().format("YYYY-MM-DD"));
+  const attendanceSummary = db.prepare(
+    `SELECT
+      COALESCE(SUM(CASE WHEN status = 'PRESENT' THEN 1 ELSE 0 END), 0) AS present_days,
+      COALESCE(SUM(CASE WHEN status = 'ABSENT' THEN 1 ELSE 0 END), 0) AS absent_days,
+      COUNT(*) AS marked_days
+     FROM staff_attendance
+     WHERE staff_id = ?`
+  ).get(req.params.id);
+
+  res.render("admin/staff_detail", {
+    title: req.t("staffDetailTitle"),
+    staff,
+    document,
+    payments,
+    totals,
+    dueSalary,
+    attendanceSummary,
+    basePath: "/records/staffs"
+  });
+});
+
+router.get("/staffs/:id/print", (req, res) => {
+  const staffRow = db.prepare(
+    `SELECT staff.*, staff_roles.name as role_name
+     FROM staff
+     LEFT JOIN staff_roles ON staff_roles.code = staff.staff_role
+     WHERE staff.id = ?`
+  ).get(req.params.id);
+  const staff = staffRow
+    ? { ...staffRow, role_label: resolveStaffRoleLabel(staffRow.staff_role, staffRow.role_name, req.t) }
+    : null;
+  if (!staff) return res.redirect("/records/staffs");
+  const document = db.prepare("SELECT * FROM staff_documents WHERE staff_id = ?").get(req.params.id);
+  const payments = db.prepare(
+    `SELECT staff_salary_payments.*, users.full_name as recorded_by
+     FROM staff_salary_payments
+     LEFT JOIN users ON staff_salary_payments.created_by = users.id
+     WHERE staff_salary_payments.staff_id = ?
+     ORDER BY staff_salary_payments.payment_date DESC, staff_salary_payments.id DESC`
+  ).all(req.params.id);
+  const totals = payments.reduce(
+    (acc, row) => {
+      const amt = Number(row.amount || 0);
+      acc.total += amt;
+      if (row.payment_type === "SALARY") acc.salary += amt;
+      if (row.payment_type === "ADVANCE") acc.advance += amt;
+      return acc;
+    },
+    { total: 0, salary: 0, advance: 0 }
+  );
+  const dueSalary = computeSalaryDue(staff, totals.total, dayjs().format("YYYY-MM-DD"));
+  const attendanceSummary = db.prepare(
+    `SELECT
+      COALESCE(SUM(CASE WHEN status = 'PRESENT' THEN 1 ELSE 0 END), 0) AS present_days,
+      COALESCE(SUM(CASE WHEN status = 'ABSENT' THEN 1 ELSE 0 END), 0) AS absent_days,
+      COUNT(*) AS marked_days
+     FROM staff_attendance
+     WHERE staff_id = ?`
+  ).get(req.params.id);
+
+  res.render("admin/staff_detail_print", {
+    title: req.t("staffDetailPrintTitle"),
+    staff,
+    document,
+    payments,
+    totals,
+    dueSalary,
+    attendanceSummary
+  });
+});
+
+router.get("/staffs/:id/edit", (req, res) => {
+  const staff = db.prepare("SELECT * FROM staff WHERE id = ?").get(req.params.id);
+  if (!staff) return res.redirect("/records/staffs");
+  const document = db.prepare("SELECT * FROM staff_documents WHERE staff_id = ?").get(req.params.id);
+  res.render("admin/staff_form", {
+    title: req.t("editStaffTitle"),
+    staff,
+    document,
+    error: null,
+    staffRoles: getStaffRoleChoices(req.t, staff.staff_role),
+    basePath: "/records/staffs"
+  });
+});
+
+router.post("/staffs/:id", (req, res) => {
+  const upload = staffUpload.fields([
+    { name: "photo", maxCount: 1 },
+    { name: "doc_front", maxCount: 1 },
+    { name: "doc_back", maxCount: 1 },
+    { name: "doc_single", maxCount: 1 }
+  ]);
+
+  upload(req, res, (err) => {
+    const staff = db.prepare("SELECT * FROM staff WHERE id = ?").get(req.params.id);
+    if (!staff) return res.redirect("/records/staffs");
+    const document = db.prepare("SELECT * FROM staff_documents WHERE staff_id = ?").get(req.params.id);
+    if (err) {
+      return res.render("admin/staff_form", {
+        title: req.t("editStaffTitle"),
+        staff,
+        document,
+        error: err.message || req.t("uploadError"),
+        staffRoles: getStaffRoleChoices(req.t, req.body ? req.body.staff_role : staff.staff_role),
+        basePath: "/records/staffs"
+      });
+    }
+
+    const { full_name, phone, fingerprint_id, start_date, monthly_salary, doc_type, staff_role } = req.body;
+    if (!full_name) {
+      return res.render("admin/staff_form", {
+        title: req.t("editStaffTitle"),
+        staff,
+        document,
+        error: req.t("staffRequired"),
+        staffRoles: getStaffRoleChoices(req.t, staff_role || staff.staff_role),
+        basePath: "/records/staffs"
+      });
+    }
+    const salary = Number(monthly_salary || 0);
+    if (Number.isNaN(salary) || salary < 0) {
+      return res.render("admin/staff_form", {
+        title: req.t("editStaffTitle"),
+        staff,
+        document,
+        error: req.t("salaryInvalid"),
+        staffRoles: getStaffRoleChoices(req.t, staff_role || staff.staff_role),
+        basePath: "/records/staffs"
+      });
+    }
+    const fingerprintId = normalizeFingerprintId(fingerprint_id);
+    const fpConflict = findFingerprintConflict({ fingerprintId, skipStaffId: req.params.id });
+    if (fpConflict) {
+      return res.render("admin/staff_form", {
+        title: req.t("editStaffTitle"),
+        staff,
+        document,
+        error: req.t("fingerprintIdAlreadyUsed"),
+        staffRoles: getStaffRoleChoices(req.t, staff_role || staff.staff_role),
+        basePath: "/records/staffs"
+      });
+    }
+    const staffRole = normalizeStaffRole(staff_role, { allowInactive: true });
+
+    let photoPath = staff.photo_path;
+    const photoFile = req.files && req.files.photo ? req.files.photo[0] : null;
+    if (photoFile) photoPath = `/uploads/${photoFile.filename}`;
+
+    db.prepare(
+      "UPDATE staff SET full_name = ?, staff_role = ?, phone = ?, fingerprint_id = ?, photo_path = ?, start_date = ?, monthly_salary = ?, updated_at = datetime('now') WHERE id = ?"
+    ).run(full_name.trim(), staffRole, phone || null, fingerprintId, photoPath, start_date || null, salary, req.params.id);
+
+    if (doc_type) {
+      let frontPath = document ? document.front_path : null;
+      let backPath = document ? document.back_path : null;
+      if (doc_type === "CITIZENSHIP") {
+        const front = req.files && req.files.doc_front ? req.files.doc_front[0] : null;
+        const back = req.files && req.files.doc_back ? req.files.doc_back[0] : null;
+        if (front) frontPath = `/uploads/${front.filename}`;
+        if (back) backPath = `/uploads/${back.filename}`;
+      } else {
+        const single = req.files && req.files.doc_single ? req.files.doc_single[0] : null;
+        if (single) {
+          frontPath = `/uploads/${single.filename}`;
+          backPath = null;
+        }
+      }
+
+      if (document) {
+        db.prepare(
+          "UPDATE staff_documents SET doc_type = ?, front_path = ?, back_path = ? WHERE staff_id = ?"
+        ).run(doc_type, frontPath, backPath, req.params.id);
+      } else if (frontPath || backPath) {
+        db.prepare(
+          "INSERT INTO staff_documents (staff_id, doc_type, front_path, back_path) VALUES (?, ?, ?, ?)"
+        ).run(req.params.id, doc_type, frontPath, backPath);
+      }
+    }
+
+    logActivity({
+      userId: req.session.userId,
+      action: "update",
+      entityType: "staff",
+      entityId: req.params.id,
+      details: `name=${full_name}`
+    });
+
+    res.redirect(`/records/staffs/${req.params.id}`);
+  });
+});
+
+router.post("/staffs/:id/delete", (req, res) => {
+  const staff = db.prepare("SELECT * FROM staff WHERE id = ?").get(req.params.id);
+  if (!staff) return res.redirect("/records/staffs");
+  const documents = db.prepare("SELECT * FROM staff_documents WHERE staff_id = ?").all(req.params.id);
+  const payments = db.prepare("SELECT * FROM staff_salary_payments WHERE staff_id = ?").all(req.params.id);
+  const attendance = db.prepare("SELECT * FROM staff_attendance WHERE staff_id = ?").all(req.params.id);
+  const recycleId = createRecycleEntry({
+    entityType: "staff",
+    entityId: req.params.id,
+    payload: { staff, documents, payments, attendance },
+    deletedBy: req.session.userId,
+    note: `name=${staff.full_name || ""}`
+  });
+  logActivity({
+    userId: req.session.userId,
+    action: "delete",
+    entityType: "staff",
+    entityId: req.params.id,
+    details: `recycle_id=${recycleId}`
+  });
+  db.prepare("DELETE FROM staff WHERE id = ?").run(req.params.id);
+  res.redirect("/records/staffs");
+});
+
+router.post("/staffs/:id/payments", (req, res) => {
+  const staff = db.prepare("SELECT * FROM staff WHERE id = ?").get(req.params.id);
+  if (!staff) return res.redirect("/records/staffs");
+  const { payment_date, amount, payment_type, note, print } = req.body;
+  const amt = Number(amount || 0);
+  if (!payment_date || Number.isNaN(amt) || amt <= 0) {
+    return res.redirect(`/records/staffs/${req.params.id}`);
+  }
+  const type = payment_type === "ADVANCE" ? "ADVANCE" : "SALARY";
+
+  const paymentResult = db.prepare(
+    "INSERT INTO staff_salary_payments (staff_id, payment_date, amount, payment_type, note, created_by) VALUES (?, ?, ?, ?, ?, ?)"
+  ).run(req.params.id, payment_date, amt, type, note || null, req.session.userId);
+  const paymentId = Number(paymentResult.lastInsertRowid);
+  const receiptNo = buildReceiptNo("STF", payment_date, paymentId);
+  db.prepare("UPDATE staff_salary_payments SET receipt_no = ? WHERE id = ?").run(receiptNo, paymentId);
+
+  logActivity({
+    userId: req.session.userId,
+    action: "payment",
+    entityType: "staff_salary",
+    entityId: paymentId,
+    details: `receipt=${receiptNo}, type=${type}, amount=${amt}`
+  });
+
+  if (print) {
+    return res.redirect(`/records/staffs/payments/${paymentId}/print`);
+  }
+  res.redirect(`/records/staffs/${req.params.id}`);
+});
+
+router.get("/staffs/payments/:id/edit", (req, res) => {
+  const payment = db.prepare(
+    `SELECT staff_salary_payments.*, staff.full_name
+     FROM staff_salary_payments
+     JOIN staff ON staff_salary_payments.staff_id = staff.id
+     WHERE staff_salary_payments.id = ?`
+  ).get(req.params.id);
+  if (!payment) return res.redirect("/records/staffs");
+  res.render("admin/staff_payment_form", {
+    title: req.t("editSalaryPaymentTitle"),
+    payment,
+    staff: { id: payment.staff_id, full_name: payment.full_name },
+    basePath: "/records/staffs"
+  });
+});
+
+router.post("/staffs/payments/:id", (req, res) => {
+  const payment = db.prepare("SELECT * FROM staff_salary_payments WHERE id = ?").get(req.params.id);
+  if (!payment) return res.redirect("/records/staffs");
+  const { payment_date, amount, payment_type, note, print } = req.body;
+  const amt = Number(amount || 0);
+  if (!payment_date || Number.isNaN(amt) || amt <= 0) {
+    return res.redirect(`/records/staffs/payments/${req.params.id}/edit`);
+  }
+  const type = payment_type === "ADVANCE" ? "ADVANCE" : "SALARY";
+
+  db.prepare(
+    "UPDATE staff_salary_payments SET payment_date = ?, amount = ?, payment_type = ?, note = ? WHERE id = ?"
+  ).run(payment_date, amt, type, note || null, req.params.id);
+
+  logActivity({
+    userId: req.session.userId,
+    action: "update",
+    entityType: "staff_salary",
+    entityId: req.params.id,
+    details: buildDiffDetails(
+      payment,
+      {
+        payment_date,
+        amount: amt,
+        payment_type: type,
+        note: note || null
+      },
+      ["payment_date", "amount", "payment_type", "note"]
+    )
+  });
+
+  if (print) {
+    return res.redirect(`/records/staffs/payments/${req.params.id}/print`);
+  }
+  res.redirect(`/records/staffs/${payment.staff_id}`);
+});
+
+router.post("/staffs/payments/:id/delete", (req, res) => {
+  const payment = db.prepare("SELECT * FROM staff_salary_payments WHERE id = ?").get(req.params.id);
+  if (!payment) return res.redirect("/records/staffs");
+  const recycleId = createRecycleEntry({
+    entityType: "staff_salary_payment",
+    entityId: req.params.id,
+    payload: { staff_salary_payment: payment },
+    deletedBy: req.session.userId,
+    note: `staff_id=${payment.staff_id}; receipt=${payment.receipt_no || ""}`
+  });
+  logActivity({
+    userId: req.session.userId,
+    action: "delete",
+    entityType: "staff_salary",
+    entityId: req.params.id,
+    details: `recycle_id=${recycleId}`
+  });
+  db.prepare("DELETE FROM staff_salary_payments WHERE id = ?").run(req.params.id);
+  res.redirect(`/records/staffs/${payment.staff_id}`);
+});
+
+router.get("/staffs/payments/:id/print", (req, res) => {
+  const payment = db.prepare(
+    `SELECT staff_salary_payments.*, staff.full_name, staff.phone, staff.photo_path
+     FROM staff_salary_payments
+     JOIN staff ON staff_salary_payments.staff_id = staff.id
+     WHERE staff_salary_payments.id = ?`
+  ).get(req.params.id);
+  if (!payment) return res.redirect("/records/staffs");
+  res.render("admin/staff_payment_print", { title: req.t("staffPaySlipTitle"), payment });
+});
+
+router.get("/staff-attendance", (req, res) => {
+  const date = req.query.date || dayjs().format("YYYY-MM-DD");
+  const staffs = db.prepare(
+    "SELECT id, full_name, phone, photo_path, fingerprint_id FROM staff ORDER BY full_name"
+  ).all();
+  const attendanceRows = db.prepare(
+    "SELECT staff_id, status FROM staff_attendance WHERE attendance_date = ?"
+  ).all(date);
+  const attendanceMap = attendanceRows.reduce((acc, row) => {
+    acc[row.staff_id] = row.status;
+    return acc;
+  }, {});
+  const saved = req.query.saved === "1" ? req.t("attendanceSaved") : null;
+  const iotEnabled = getAttendanceIotEnabled();
+  const iotSaved = req.query.iot === "saved" ? req.t("attendanceSaved") : null;
+  const iotErrorKey = String(req.query.error || "").trim();
+  const iotError = iotErrorKey ? req.t(iotErrorKey) : null;
+  const iotLogs = db.prepare(
+    `SELECT iot_attendance_logs.*, users.full_name as recorded_by_name
+     FROM iot_attendance_logs
+     LEFT JOIN users ON iot_attendance_logs.recorded_by = users.id
+     WHERE iot_attendance_logs.person_type = 'STAFF'
+       AND iot_attendance_logs.attendance_date = ?
+     ORDER BY iot_attendance_logs.scanned_at DESC, iot_attendance_logs.id DESC
+     LIMIT 20`
+  ).all(date);
+
+  res.render("records/staff_attendance", {
+    title: req.t("staffAttendanceTitle"),
+    date,
+    staffs,
+    attendanceMap,
+    saved,
+    iotEnabled,
+    iotSaved,
+    iotError,
+    iotLogs
+  });
+});
+
+router.post("/staff-attendance", (req, res) => {
+  const attendanceDate = req.body.attendance_date || dayjs().format("YYYY-MM-DD");
+  const staffs = db.prepare("SELECT id FROM staff").all();
+  const userId = req.session.userId || null;
+  const upsert = db.prepare(
+    `INSERT INTO staff_attendance (staff_id, attendance_date, status, recorded_by, created_at, updated_at)
+     VALUES (?, ?, ?, ?, datetime('now'), datetime('now'))
+     ON CONFLICT(staff_id, attendance_date)
+     DO UPDATE SET status = excluded.status, recorded_by = excluded.recorded_by, updated_at = datetime('now')`
+  );
+  try {
+    db.exec("BEGIN");
+    staffs.forEach((staff) => {
+      const status = req.body[`status_${staff.id}`];
+      if (!status) return;
+      const finalStatus = status === "PRESENT" ? "PRESENT" : "ABSENT";
+      upsert.run(staff.id, attendanceDate, finalStatus, userId);
+    });
+    db.exec("COMMIT");
+  } catch (err) {
+    db.exec("ROLLBACK");
+    throw err;
+  }
+
+  logActivity({
+    userId,
+    action: "update",
+    entityType: "staff_attendance",
+    entityId: attendanceDate,
+    details: `date=${attendanceDate}`
+  });
+
+  res.redirect(`/records/staff-attendance?date=${attendanceDate}&saved=1`);
+});
+
+router.post("/staff-attendance/iot-mark", (req, res) => {
+  const attendanceDate = req.body.attendance_date || dayjs().format("YYYY-MM-DD");
+  if (!getAttendanceIotEnabled()) {
+    return res.redirect(`/records/staff-attendance?date=${attendanceDate}&error=iotAttendanceDisabled`);
+  }
+  const fingerprintId = normalizeFingerprintId(req.body.fingerprint_id);
+  if (!fingerprintId) {
+    return res.redirect(`/records/staff-attendance?date=${attendanceDate}&error=fingerprintIdRequired`);
+  }
+  const status = req.body.status === "ABSENT" ? "ABSENT" : "PRESENT";
+  const staff = db.prepare(
+    "SELECT id, full_name FROM staff WHERE lower(trim(fingerprint_id)) = lower(trim(?))"
+  ).get(fingerprintId);
+  if (!staff) {
+    return res.redirect(`/records/staff-attendance?date=${attendanceDate}&error=fingerprintIdNotMapped`);
+  }
+  const userId = req.session.userId || null;
+  db.prepare(
+    `INSERT INTO staff_attendance (staff_id, attendance_date, status, recorded_by, created_at, updated_at)
+     VALUES (?, ?, ?, ?, datetime('now'), datetime('now'))
+     ON CONFLICT(staff_id, attendance_date)
+     DO UPDATE SET status = excluded.status, recorded_by = excluded.recorded_by, updated_at = datetime('now')`
+  ).run(staff.id, attendanceDate, status, userId);
+  db.prepare(
+    `INSERT INTO iot_attendance_logs (source, person_type, person_id, fingerprint_id, status, attendance_date, scanned_at, note, recorded_by)
+     VALUES ('MANUAL', 'STAFF', ?, ?, ?, ?, datetime('now'), ?, ?)`
+  ).run(staff.id, fingerprintId, status, attendanceDate, "manual_attendance_form", userId);
+
+  logActivity({
+    userId,
+    action: "update",
+    entityType: "staff_attendance_iot",
+    entityId: attendanceDate,
+    details: `staff=${staff.id}, fingerprint=${fingerprintId}, status=${status}`
+  });
+
+  return res.redirect(`/records/staff-attendance?date=${attendanceDate}&iot=saved`);
+});
+
+router.get("/staff-attendance/print", (req, res) => {
+  const from = req.query.from || dayjs().format("YYYY-MM-DD");
+  const to = req.query.to || from;
+  const rows = db.prepare(
+    `SELECT staff_attendance.*, staff.full_name, staff.phone, users.full_name as recorded_by
+     FROM staff_attendance
+     JOIN staff ON staff_attendance.staff_id = staff.id
+     LEFT JOIN users ON staff_attendance.recorded_by = users.id
+     WHERE attendance_date BETWEEN ? AND ?
+     ORDER BY attendance_date DESC, staff.full_name`
+  ).all(from, to);
+  const totals = rows.reduce(
+    (acc, row) => {
+      if (row.status === "PRESENT") acc.present += 1;
+      else acc.absent += 1;
+      return acc;
+    },
+    { present: 0, absent: 0 }
+  );
+  res.render("records/staff_attendance_print", {
+    title: req.t("staffAttendanceTitle"),
+    from,
+    to,
+    rows,
+    totals
+  });
+});
+
+router.get("/profile", (req, res) => {
+  const user = attachWorkerPhoto(res.locals.currentUser);
+  if (!user) return res.redirect("/login");
+  const attendancePayload = getUserAttendancePayload(user.id);
+  res.render("admin/profile", {
+    title: req.t("profileTitle"),
+    user,
+    error: null,
+    success: null,
+    profileAction: "/records/profile",
+    attendanceAction: "/records/profile/attendance",
+    ...attendancePayload,
+    attendanceSaved: req.query.saved === "1" ? req.t("attendanceSaved") : null
+  });
+});
+
+router.post("/profile", (req, res) => {
+  const user = attachWorkerPhoto(res.locals.currentUser);
+  const { full_name, phone, current_password, new_password } = req.body;
+  if (!full_name) {
+    const attendancePayload = getUserAttendancePayload(user.id);
+    return res.render("admin/profile", {
+      title: req.t("profileTitle"),
+      user: { ...user, full_name, phone },
+      error: req.t("fullNameRequired"),
+      success: null,
+      profileAction: "/records/profile",
+      attendanceAction: "/records/profile/attendance",
+      ...attendancePayload
+    });
+  }
+
+  db.prepare("UPDATE users SET full_name = ?, phone = ?, updated_at = datetime('now') WHERE id = ?")
+    .run(full_name.trim(), phone ? phone.trim() : null, user.id);
+
+  if (new_password) {
+    const dbUser = db.prepare("SELECT password_hash FROM users WHERE id = ?").get(user.id);
+    if (!current_password || !dbUser || !bcrypt.compareSync(current_password, dbUser.password_hash)) {
+      const refreshed = db.prepare("SELECT id, username, full_name, phone, role FROM users WHERE id = ?").get(user.id);
+      const attendancePayload = getUserAttendancePayload(user.id);
+      return res.render("admin/profile", {
+        title: req.t("profileTitle"),
+        user: attachWorkerPhoto(refreshed),
+        error: req.t("currentPasswordInvalid"),
+        success: null,
+        profileAction: "/records/profile",
+        attendanceAction: "/records/profile/attendance",
+        ...attendancePayload
+      });
+    }
+    const hash = bcrypt.hashSync(new_password, 10);
+    db.prepare("UPDATE users SET password_hash = ? WHERE id = ?").run(hash, user.id);
+  }
+
+  const refreshed = db.prepare("SELECT id, username, full_name, phone, role FROM users WHERE id = ?").get(user.id);
+  const attendancePayload = getUserAttendancePayload(user.id);
+  res.render("admin/profile", {
+    title: req.t("profileTitle"),
+    user: attachWorkerPhoto(refreshed),
+    error: null,
+    success: req.t("profileSaved"),
+    profileAction: "/records/profile",
+    attendanceAction: "/records/profile/attendance",
+    ...attendancePayload
+  });
+});
+
+router.post("/profile/attendance", (req, res) => {
+  const user = res.locals.currentUser;
+  if (!user) return res.redirect("/login");
+  const attendanceDate = dayjs().format("YYYY-MM-DD");
+  const status = req.body.status === "PRESENT" ? "PRESENT" : "ABSENT";
+  db.prepare(
+    `INSERT INTO user_attendance (user_id, attendance_date, status, recorded_by, created_at, updated_at)
+     VALUES (?, ?, ?, ?, datetime('now'), datetime('now'))
+     ON CONFLICT(user_id, attendance_date)
+     DO UPDATE SET status = excluded.status, recorded_by = excluded.recorded_by, updated_at = datetime('now')`
+  ).run(user.id, attendanceDate, status, user.id);
+  logActivity({
+    userId: user.id,
+    action: "update",
+    entityType: "user_attendance",
+    entityId: attendanceDate,
+    details: `user=${user.id}, status=${status}`
+  });
+  res.redirect(`/records/profile?saved=1`);
+});
+
+router.get("/company-purchases", (req, res) => {
+  const from = req.query.from || dayjs().startOf("month").format("YYYY-MM-DD");
+  const to = req.query.to || dayjs().format("YYYY-MM-DD");
+  const q = String(req.query.q || "").trim();
+  const searchClause = q
+    ? "AND (company_purchases.item_name LIKE ? OR COALESCE(company_purchases.seller_name, '') LIKE ? OR company_purchases.machinery_name LIKE ? OR company_purchases.technician_name LIKE ? OR company_purchases.technician_phone LIKE ? OR company_purchases.work_details LIKE ?)"
+    : "";
+  const params = q
+    ? [from, to, `%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`]
+    : [from, to];
+  const rows = db.prepare(
+    `SELECT company_purchases.*, users.full_name as recorded_by
+     FROM company_purchases
+     LEFT JOIN users ON company_purchases.created_by = users.id
+     WHERE company_purchases.purchase_date BETWEEN ? AND ?
+     ${searchClause}
+     ORDER BY company_purchases.purchase_date DESC, company_purchases.created_at DESC`
+  ).all(...params);
+  const totals = rows.reduce(
+    (acc, row) => {
+      acc.total += Number(row.amount || 0);
+      acc.paid += Number(row.paid_amount || 0);
+      acc.due += Math.max(0, Number(row.amount || 0) - Number(row.paid_amount || 0));
+      if (Math.max(0, Number(row.amount || 0) - Number(row.paid_amount || 0)) > 0) acc.open_count += 1;
+      if (Number(row.is_machinery) === 1) acc.machinery += Number(row.amount || 0);
+      else acc.general += Number(row.amount || 0);
+      return acc;
+    },
+    { total: 0, paid: 0, due: 0, open_count: 0, machinery: 0, general: 0 }
+  );
+
+  const paymentRows = db.prepare(
+    `SELECT company_purchase_payments.*, company_purchases.item_name, company_purchases.seller_name,
+            users.full_name as recorded_by
+     FROM company_purchase_payments
+     JOIN company_purchases ON company_purchase_payments.company_purchase_id = company_purchases.id
+     LEFT JOIN users ON company_purchase_payments.created_by = users.id
+     WHERE company_purchase_payments.payment_date BETWEEN ? AND ?
+       ${q ? "AND (company_purchases.item_name LIKE ? OR COALESCE(company_purchases.seller_name, '') LIKE ? OR COALESCE(company_purchase_payments.note, '') LIKE ?)" : ""}
+     ORDER BY company_purchase_payments.payment_date DESC, company_purchase_payments.id DESC`
+  ).all(...(q ? [from, to, `%${q}%`, `%${q}%`, `%${q}%`] : [from, to]));
+
+  const status = req.query.status || "";
+  const errorKey = req.query.error || "";
+  const error = errorKey ? req.t(errorKey) : null;
+  const success = status === "saved"
+    ? req.t("purchaseSaved")
+    : status === "updated"
+      ? req.t("purchaseUpdated")
+      : status === "deleted"
+        ? req.t("purchaseDeleted")
+        : status === "payment_saved"
+          ? req.t("paymentSaved")
+          : status === "payment_deleted"
+            ? req.t("paymentDeleted")
+        : null;
+
+  res.render("records/company_purchases", {
+    title: req.t("companyPurchasesTitle"),
+    from,
+    to,
+    q,
+    rows,
+    totals,
+    paymentRows,
+    error,
+    success
+  });
+});
+
+router.post("/company-purchases", (req, res) => {
+  const {
+    purchase_date,
+    item_name,
+    amount,
+    seller_name,
+    paid_amount,
+    is_credit,
+    is_machinery,
+    machinery_name,
+    technician_name,
+    technician_phone,
+    work_details,
+    note
+  } = req.body;
+
+  const amountNum = parseMoneyValue(amount);
+  const isMachinery = is_machinery === "1" || is_machinery === "on";
+  const sellerName = String(seller_name || "").trim();
+  let paidAmount = parseMoneyValue(paid_amount);
+  const wantsCredit = parseCheckbox(is_credit);
+  if (!purchase_date || !item_name || Number.isNaN(amountNum) || amountNum <= 0) {
+    return res.redirect(`/records/company-purchases?error=purchaseRequired`);
+  }
+  if (isMachinery && !String(technician_name || "").trim()) {
+    return res.redirect(`/records/company-purchases?error=purchaseTechnicianRequired`);
+  }
+  if (paidAmount > amountNum) {
+    return res.redirect(`/records/company-purchases?error=paidMoreThanTotal`);
+  }
+  if (!wantsCredit && paidAmount < amountNum) {
+    paidAmount = amountNum;
+  }
+  const isCreditFinal = amountNum > paidAmount ? 1 : 0;
+  if (isCreditFinal === 1 && !sellerName) {
+    return res.redirect(`/records/company-purchases?error=sellerRequiredForCredit`);
+  }
+
+  const purchaseId = db.prepare(
+    `INSERT INTO company_purchases (
+       purchase_date, item_name, seller_name, amount, paid_amount, is_credit, is_machinery, machinery_name, technician_name,
+       technician_phone, work_details, note, created_by
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    purchase_date,
+    String(item_name).trim(),
+    sellerName || null,
+    amountNum,
+    paidAmount,
+    isCreditFinal,
+    isMachinery ? 1 : 0,
+    isMachinery ? (machinery_name ? String(machinery_name).trim() : null) : null,
+    isMachinery ? String(technician_name).trim() : null,
+    isMachinery ? (technician_phone ? String(technician_phone).trim() : null) : null,
+    isMachinery ? (work_details ? String(work_details).trim() : null) : null,
+    note ? String(note).trim() : null,
+    req.session.userId || null
+  ).lastInsertRowid;
+
+  if (paidAmount > 0) {
+    db.prepare(
+      `INSERT INTO company_purchase_payments (company_purchase_id, payment_date, amount, note, created_by)
+       VALUES (?, ?, ?, ?, ?)`
+    ).run(
+      purchaseId,
+      purchase_date,
+      paidAmount,
+      req.t("openingPaymentNote"),
+      req.session.userId || null
+    );
+  }
+
+  logActivity({
+    userId: req.session.userId,
+    action: "create",
+    entityType: "company_purchase",
+    entityId: purchaseId,
+    details: `item=${String(item_name).trim()}, amount=${amountNum}, paid=${paidAmount}, machinery=${isMachinery ? 1 : 0}`
+  });
+
+  res.redirect(`/records/company-purchases?from=${purchase_date}&to=${purchase_date}&status=saved`);
+});
+
+router.get("/company-purchases/:id/edit", (req, res) => {
+  const row = db.prepare("SELECT * FROM company_purchases WHERE id = ?").get(req.params.id);
+  if (!row) return res.redirect("/records/company-purchases");
+  const payments = db.prepare(
+    `SELECT company_purchase_payments.*, users.full_name as recorded_by
+     FROM company_purchase_payments
+     LEFT JOIN users ON company_purchase_payments.created_by = users.id
+     WHERE company_purchase_payments.company_purchase_id = ?
+     ORDER BY company_purchase_payments.payment_date DESC, company_purchase_payments.id DESC`
+  ).all(req.params.id);
+  const paymentTotals = payments.reduce(
+    (acc, entry) => {
+      acc.paid += parseMoneyValue(entry.amount || 0);
+      return acc;
+    },
+    { paid: 0 }
+  );
+  const dueAmount = Math.max(0, parseMoneyValue(row.amount || 0) - paymentTotals.paid);
+  const errorKey = String(req.query.error || "").trim();
+  const status = String(req.query.status || "").trim();
+  const error = errorKey ? req.t(errorKey) : null;
+  const success = status === "payment_saved"
+    ? req.t("paymentSaved")
+    : status === "payment_deleted"
+      ? req.t("paymentDeleted")
+      : null;
+  res.render("records/company_purchase_form", {
+    title: req.t("editPurchaseTitle"),
+    record: row,
+    error,
+    success,
+    payments,
+    paymentTotals,
+    dueAmount
+  });
+});
+
+router.post("/company-purchases/:id", (req, res) => {
+  const existing = db.prepare("SELECT * FROM company_purchases WHERE id = ?").get(req.params.id);
+  if (!existing) return res.redirect("/records/company-purchases");
+  const {
+    purchase_date,
+    item_name,
+    amount,
+    seller_name,
+    is_credit,
+    is_machinery,
+    machinery_name,
+    technician_name,
+    technician_phone,
+    work_details,
+    note
+  } = req.body;
+  const amountNum = parseMoneyValue(amount);
+  const isMachinery = is_machinery === "1" || is_machinery === "on";
+  const sellerName = String(seller_name || "").trim();
+  const wantsCredit = parseCheckbox(is_credit);
+  if (!purchase_date || !item_name || Number.isNaN(amountNum) || amountNum <= 0) {
+    return res.redirect(`/records/company-purchases/${req.params.id}/edit?error=purchaseRequired`);
+  }
+  if (isMachinery && !String(technician_name || "").trim()) {
+    return res.redirect(`/records/company-purchases/${req.params.id}/edit?error=purchaseTechnicianRequired`);
+  }
+
+  const paidRow = db.prepare(
+    "SELECT COALESCE(SUM(amount), 0) as paid FROM company_purchase_payments WHERE company_purchase_id = ?"
+  ).get(req.params.id);
+  const existingPaid = parseMoneyValue(paidRow?.paid || 0);
+  if (amountNum < existingPaid) {
+    return res.redirect(`/records/company-purchases/${req.params.id}/edit?error=totalBelowPaid`);
+  }
+  let finalPaidAmount = existingPaid;
+  if (!wantsCredit && amountNum > existingPaid) {
+    const remaining = parseMoneyValue(amountNum - existingPaid);
+    if (remaining > 0) {
+      db.prepare(
+        `INSERT INTO company_purchase_payments (company_purchase_id, payment_date, amount, note, created_by)
+         VALUES (?, ?, ?, ?, ?)`
+      ).run(
+        req.params.id,
+        purchase_date,
+        remaining,
+        req.t("autoSettledOnEdit"),
+        req.session.userId || null
+      );
+      finalPaidAmount = parseMoneyValue(existingPaid + remaining);
+    }
+  }
+  const isCreditFinal = amountNum > finalPaidAmount ? 1 : 0;
+  if (isCreditFinal === 1 && !sellerName) {
+    return res.redirect(`/records/company-purchases/${req.params.id}/edit?error=sellerRequiredForCredit`);
+  }
+
+  db.prepare(
+    `UPDATE company_purchases
+     SET purchase_date = ?, item_name = ?, seller_name = ?, amount = ?, paid_amount = ?, is_credit = ?, is_machinery = ?, machinery_name = ?, technician_name = ?,
+         technician_phone = ?, work_details = ?, note = ?, updated_at = datetime('now')
+     WHERE id = ?`
+  ).run(
+    purchase_date,
+    String(item_name).trim(),
+    sellerName || null,
+    amountNum,
+    finalPaidAmount,
+    isCreditFinal,
+    isMachinery ? 1 : 0,
+    isMachinery ? (machinery_name ? String(machinery_name).trim() : null) : null,
+    isMachinery ? String(technician_name).trim() : null,
+    isMachinery ? (technician_phone ? String(technician_phone).trim() : null) : null,
+    isMachinery ? (work_details ? String(work_details).trim() : null) : null,
+    note ? String(note).trim() : null,
+    req.params.id
+  );
+
+  logActivity({
+    userId: req.session.userId,
+    action: "update",
+    entityType: "company_purchase",
+    entityId: req.params.id,
+    details: buildDiffDetails(
+      existing,
+      {
+        purchase_date,
+        item_name: String(item_name).trim(),
+        seller_name: sellerName || null,
+        amount: amountNum,
+        paid_amount: finalPaidAmount,
+        is_credit: isCreditFinal,
+        is_machinery: isMachinery ? 1 : 0,
+        machinery_name: isMachinery ? (machinery_name ? String(machinery_name).trim() : null) : null,
+        technician_name: isMachinery ? String(technician_name).trim() : null,
+        technician_phone: isMachinery ? (technician_phone ? String(technician_phone).trim() : null) : null,
+        work_details: isMachinery ? (work_details ? String(work_details).trim() : null) : null,
+        note: note ? String(note).trim() : null
+      },
+      [
+        "purchase_date",
+        "item_name",
+        "seller_name",
+        "amount",
+        "paid_amount",
+        "is_credit",
+        "is_machinery",
+        "machinery_name",
+        "technician_name",
+        "technician_phone",
+        "work_details",
+        "note"
+      ]
+    )
+  });
+
+  res.redirect(`/records/company-purchases?from=${purchase_date}&to=${purchase_date}&status=updated`);
+});
+
+router.post("/company-purchases/:id/payments", (req, res) => {
+  const purchase = db.prepare("SELECT * FROM company_purchases WHERE id = ?").get(req.params.id);
+  if (!purchase) return res.redirect("/records/company-purchases");
+  const paymentDate = String(req.body.payment_date || "").trim() || dayjs().format("YYYY-MM-DD");
+  const amount = parseMoneyValue(req.body.amount);
+  const note = String(req.body.note || "").trim();
+  if (!paymentDate || amount <= 0) {
+    return res.redirect(`/records/company-purchases/${req.params.id}/edit?error=invalidPaymentAmount`);
+  }
+  const totalAmount = parseMoneyValue(purchase.amount || 0);
+  const paidAmount = parseMoneyValue(purchase.paid_amount || 0);
+  const remaining = Math.max(0, totalAmount - paidAmount);
+  if (remaining <= 0) {
+    return res.redirect(`/records/company-purchases/${req.params.id}/edit?error=noBalanceDue`);
+  }
+  if (amount > remaining) {
+    return res.redirect(`/records/company-purchases/${req.params.id}/edit?error=paidMoreThanDue`);
+  }
+  const paymentId = db.prepare(
+    `INSERT INTO company_purchase_payments (company_purchase_id, payment_date, amount, note, created_by)
+     VALUES (?, ?, ?, ?, ?)`
+  ).run(
+    req.params.id,
+    paymentDate,
+    amount,
+    note || null,
+    req.session.userId || null
+  ).lastInsertRowid;
+  const updatedPaid = parseMoneyValue(paidAmount + amount);
+  const updatedCredit = updatedPaid < totalAmount ? 1 : 0;
+  db.prepare("UPDATE company_purchases SET paid_amount = ?, is_credit = ? WHERE id = ?").run(
+    updatedPaid,
+    updatedCredit,
+    req.params.id
+  );
+  logActivity({
+    userId: req.session.userId,
+    action: "create",
+    entityType: "company_purchase_payment",
+    entityId: paymentId,
+    details: `purchase=${req.params.id}, amount=${amount}, date=${paymentDate}`
+  });
+  return res.redirect(`/records/company-purchases/${req.params.id}/edit?status=payment_saved`);
+});
+
+router.post("/company-purchases/payments/:id/delete", (req, res) => {
+  const payment = db.prepare("SELECT * FROM company_purchase_payments WHERE id = ?").get(req.params.id);
+  if (!payment) return res.redirect("/records/company-purchases");
+  const purchase = db.prepare("SELECT * FROM company_purchases WHERE id = ?").get(payment.company_purchase_id);
+  if (!purchase) {
+    db.prepare("DELETE FROM company_purchase_payments WHERE id = ?").run(req.params.id);
+    return res.redirect("/records/company-purchases");
+  }
+
+  db.prepare("DELETE FROM company_purchase_payments WHERE id = ?").run(req.params.id);
+  const paidRow = db.prepare(
+    "SELECT COALESCE(SUM(amount), 0) as paid FROM company_purchase_payments WHERE company_purchase_id = ?"
+  ).get(payment.company_purchase_id);
+  const newPaid = parseMoneyValue(paidRow?.paid || 0);
+  const totalAmount = parseMoneyValue(purchase.amount || 0);
+  db.prepare("UPDATE company_purchases SET paid_amount = ?, is_credit = ? WHERE id = ?").run(
+    newPaid,
+    newPaid < totalAmount ? 1 : 0,
+    payment.company_purchase_id
+  );
+
+  logActivity({
+    userId: req.session.userId,
+    action: "delete",
+    entityType: "company_purchase_payment",
+    entityId: req.params.id,
+    details: `purchase=${payment.company_purchase_id}, amount=${payment.amount || 0}`
+  });
+
+  return res.redirect(`/records/company-purchases/${payment.company_purchase_id}/edit?status=payment_deleted`);
+});
+
+router.post("/company-purchases/:id/delete", (req, res) => {
+  const existing = db.prepare("SELECT * FROM company_purchases WHERE id = ?").get(req.params.id);
+  if (!existing) return res.redirect("/records/company-purchases");
+  const payments = db.prepare(
+    "SELECT * FROM company_purchase_payments WHERE company_purchase_id = ? ORDER BY payment_date ASC, id ASC"
+  ).all(req.params.id);
+  const recycleId = createRecycleEntry({
+    entityType: "company_purchase",
+    entityId: req.params.id,
+    payload: { company_purchase: existing, company_purchase_payments: payments },
+    deletedBy: req.session.userId,
+    note: `date=${existing.purchase_date}; item=${existing.item_name || ""}`
+  });
+  db.prepare("DELETE FROM company_purchases WHERE id = ?").run(req.params.id);
+  logActivity({
+    userId: req.session.userId,
+    action: "delete",
+    entityType: "company_purchase",
+    entityId: req.params.id,
+    details: `item=${existing.item_name || ""}, amount=${existing.amount || 0}, recycle_id=${recycleId}`
+  });
+  db.prepare("DELETE FROM company_purchase_payments WHERE company_purchase_id = ?").run(req.params.id);
+  res.redirect(`/records/company-purchases?from=${existing.purchase_date}&to=${existing.purchase_date}&status=deleted`);
+});
+
+router.get("/company-purchases/export", (req, res) => {
+  const from = req.query.from || dayjs().startOf("month").format("YYYY-MM-DD");
+  const to = req.query.to || dayjs().format("YYYY-MM-DD");
+  const q = String(req.query.q || "").trim();
+  const searchClause = q
+    ? "AND (company_purchases.item_name LIKE ? OR COALESCE(company_purchases.seller_name, '') LIKE ? OR company_purchases.machinery_name LIKE ? OR company_purchases.technician_name LIKE ? OR company_purchases.technician_phone LIKE ? OR company_purchases.work_details LIKE ?)"
+    : "";
+  const params = q
+    ? [from, to, `%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`]
+    : [from, to];
+  const rows = db.prepare(
+    `SELECT company_purchases.*, users.full_name as recorded_by
+     FROM company_purchases
+     LEFT JOIN users ON company_purchases.created_by = users.id
+     WHERE company_purchases.purchase_date BETWEEN ? AND ?
+     ${searchClause}
+     ORDER BY company_purchases.purchase_date ASC, company_purchases.created_at ASC`
+  ).all(...params);
+  const header = "Date,Item Name,Seller,Amount,Paid Amount,Due Amount,Is Credit,Is Machinery,Machinery,Technician,Technician Phone,Work Details,Note,Recorded By";
+  const lines = rows.map((row) => [
+    row.purchase_date,
+    row.item_name,
+    row.seller_name || "",
+    row.amount,
+    row.paid_amount || 0,
+    Math.max(0, Number(row.amount || 0) - Number(row.paid_amount || 0)),
+    Number(row.is_credit) === 1 ? "Yes" : "No",
+    Number(row.is_machinery) === 1 ? "Yes" : "No",
+    row.machinery_name || "",
+    row.technician_name || "",
+    row.technician_phone || "",
+    row.work_details || "",
+    row.note || "",
+    row.recorded_by || ""
+  ].map((val) => `"${String(val ?? "").replace(/"/g, '""')}"`).join(","));
+  res.setHeader("Content-Type", "text/csv");
+  res.setHeader("Content-Disposition", `attachment; filename="company_purchases_${from}_to_${to}.csv"`);
+  res.send([header, ...lines].join("\n"));
+});
+
+router.get("/company-purchases/print", (req, res) => {
+  const from = req.query.from || dayjs().startOf("month").format("YYYY-MM-DD");
+  const to = req.query.to || dayjs().format("YYYY-MM-DD");
+  const q = String(req.query.q || "").trim();
+  const searchClause = q
+    ? "AND (company_purchases.item_name LIKE ? OR COALESCE(company_purchases.seller_name, '') LIKE ? OR company_purchases.machinery_name LIKE ? OR company_purchases.technician_name LIKE ? OR company_purchases.technician_phone LIKE ? OR company_purchases.work_details LIKE ?)"
+    : "";
+  const params = q
+    ? [from, to, `%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`]
+    : [from, to];
+
+  const rows = db.prepare(
+    `SELECT company_purchases.*, users.full_name as recorded_by
+     FROM company_purchases
+     LEFT JOIN users ON company_purchases.created_by = users.id
+     WHERE company_purchases.purchase_date BETWEEN ? AND ?
+     ${searchClause}
+     ORDER BY company_purchases.purchase_date DESC, company_purchases.created_at DESC`
+  ).all(...params);
+
+  const totals = rows.reduce(
+    (acc, row) => {
+      const amount = Number(row.amount || 0);
+      const paid = Number(row.paid_amount || 0);
+      acc.total += amount;
+      acc.paid += paid;
+      acc.due += Math.max(0, amount - paid);
+      if (Math.max(0, amount - paid) > 0) acc.open_count += 1;
+      if (Number(row.is_machinery) === 1) acc.machinery += amount;
+      else acc.general += amount;
+      return acc;
+    },
+    { total: 0, paid: 0, due: 0, open_count: 0, machinery: 0, general: 0 }
+  );
+
+  res.render("records/company_purchases_print", {
+    title: req.t("companyPurchasesTitle"),
+    from,
+    to,
+    q,
+    rows,
+    totals
+  });
+});
+
+router.get("/vehicle-expenses", (req, res) => {
+  const from = req.query.from || dayjs().startOf("month").format("YYYY-MM-DD");
+  const to = req.query.to || dayjs().format("YYYY-MM-DD");
+  const vehicleIdRaw = Number(req.query.vehicle_id || 0);
+  const vehicleId = Number.isInteger(vehicleIdRaw) && vehicleIdRaw > 0 ? vehicleIdRaw : null;
+  const selectedType = String(req.query.expense_type || "").trim().toUpperCase();
+  const expenseType = vehicleExpenseTypes.includes(selectedType) ? selectedType : "ALL";
+  const q = String(req.query.q || "").trim();
+  const vehicles = db.prepare(
+    "SELECT id, vehicle_number, owner_name, is_company FROM vehicles ORDER BY vehicle_number"
+  ).all();
+
+  const clauses = ["vehicle_expenses.expense_date BETWEEN ? AND ?"];
+  const params = [from, to];
+  if (vehicleId) {
+    clauses.push("vehicle_expenses.vehicle_id = ?");
+    params.push(vehicleId);
+  }
+  if (expenseType !== "ALL") {
+    clauses.push("vehicle_expenses.expense_type = ?");
+    params.push(expenseType);
+  }
+  if (q) {
+    clauses.push("(vehicles.vehicle_number LIKE ? OR vehicles.owner_name LIKE ? OR COALESCE(vehicle_expenses.note, '') LIKE ?)");
+    params.push(`%${q}%`, `%${q}%`, `%${q}%`);
+  }
+
+  const rows = db.prepare(
+    `SELECT vehicle_expenses.*, vehicles.vehicle_number, vehicles.owner_name, vehicles.is_company,
+            users.full_name as recorded_by
+     FROM vehicle_expenses
+     JOIN vehicles ON vehicle_expenses.vehicle_id = vehicles.id
+     LEFT JOIN users ON vehicle_expenses.created_by = users.id
+     WHERE ${clauses.join(" AND ")}
+     ORDER BY vehicle_expenses.expense_date DESC, vehicle_expenses.created_at DESC`
+  ).all(...params);
+
+  const totals = rows.reduce((acc, row) => {
+    const amount = Number(row.amount || 0);
+    const safeType = normalizeVehicleExpenseType(row.expense_type);
+    acc.total += amount;
+    if (safeType === "FUEL") acc.fuel += amount;
+    if (safeType === "REPAIR") acc.repair += amount;
+    if (safeType === "SERVICE") acc.service += amount;
+    if (safeType === "OTHER") acc.other += amount;
+    return acc;
+  }, { total: 0, fuel: 0, repair: 0, service: 0, other: 0 });
+
+  const status = req.query.status || "";
+  const errorKey = req.query.error || "";
+  const error = errorKey ? req.t(errorKey) : null;
+  const success = status === "saved"
+    ? req.t("vehicleExpenseSaved")
+    : status === "deleted"
+      ? req.t("vehicleExpenseDeleted")
+      : null;
+
+  res.render("records/vehicle_expenses", {
+    title: req.t("vehicleExpensesTitle"),
+    from,
+    to,
+    q,
+    vehicleId: vehicleId ? String(vehicleId) : "all",
+    expenseType,
+    vehicles,
+    rows,
+    totals,
+    error,
+    success,
+    resolveExpenseTypeLabel: (value) => getVehicleExpenseTypeLabel(value, req.t)
+  });
+});
+
+router.post("/vehicle-expenses", (req, res) => {
+  const {
+    vehicle_id,
+    expense_date,
+    expense_type,
+    amount,
+    note
+  } = req.body;
+
+  const vehicleId = Number(vehicle_id || 0);
+  const amountNum = Number(amount || 0);
+  const normalizedType = normalizeVehicleExpenseType(expense_type);
+  if (!vehicleId || !expense_date || Number.isNaN(amountNum) || amountNum <= 0) {
+    return res.redirect("/records/vehicle-expenses?error=vehicleExpenseRequired");
+  }
+  const vehicle = db.prepare("SELECT id FROM vehicles WHERE id = ?").get(vehicleId);
+  if (!vehicle) {
+    return res.redirect("/records/vehicle-expenses?error=vehicleExpenseRequired");
+  }
+
+  const expenseId = db.prepare(
+    `INSERT INTO vehicle_expenses (vehicle_id, expense_date, expense_type, amount, note, created_by)
+     VALUES (?, ?, ?, ?, ?, ?)`
+  ).run(
+    vehicleId,
+    expense_date,
+    normalizedType,
+    amountNum,
+    note ? String(note).trim() : null,
+    req.session.userId || null
+  ).lastInsertRowid;
+
+  logActivity({
+    userId: req.session.userId,
+    action: "create",
+    entityType: "vehicle_expense",
+    entityId: expenseId,
+    details: `vehicle_id=${vehicleId}, type=${normalizedType}, amount=${amountNum}`
+  });
+
+  res.redirect(`/records/vehicle-expenses?from=${expense_date}&to=${expense_date}&vehicle_id=${vehicleId}&status=saved`);
+});
+
+router.post("/vehicle-expenses/:id/delete", (req, res) => {
+  const existing = db.prepare("SELECT * FROM vehicle_expenses WHERE id = ?").get(req.params.id);
+  if (!existing) return res.redirect("/records/vehicle-expenses");
+  const recycleId = createRecycleEntry({
+    entityType: "vehicle_expense",
+    entityId: req.params.id,
+    payload: { vehicle_expense: existing },
+    deletedBy: req.session.userId,
+    note: `date=${existing.expense_date || ""}; amount=${existing.amount || 0}`
+  });
+  db.prepare("DELETE FROM vehicle_expenses WHERE id = ?").run(req.params.id);
+  logActivity({
+    userId: req.session.userId,
+    action: "delete",
+    entityType: "vehicle_expense",
+    entityId: req.params.id,
+    details: `type=${existing.expense_type || ""}, amount=${existing.amount || 0}, recycle_id=${recycleId}`
+  });
+  res.redirect(`/records/vehicle-expenses?from=${existing.expense_date}&to=${existing.expense_date}&vehicle_id=${existing.vehicle_id}&status=deleted`);
+});
+
+router.get("/savings", (req, res) => {
+  const from = req.query.from || dayjs().startOf("month").format("YYYY-MM-DD");
+  const to = req.query.to || dayjs().format("YYYY-MM-DD");
+  const vehicleId = req.query.vehicle_id || "all";
+  const vehicles = db.prepare(
+    "SELECT id, vehicle_number, owner_name FROM vehicles WHERE is_company = 0 ORDER BY vehicle_number"
+  ).all();
+
+  const vehicleClause = vehicleId === "all" ? "" : "AND vehicle_savings.vehicle_id = ?";
+  const params = vehicleId === "all" ? [from, to] : [from, to, vehicleId];
+  const entries = db.prepare(
+    `SELECT vehicle_savings.*, vehicles.vehicle_number, vehicles.owner_name, users.full_name as recorded_by
+     FROM vehicle_savings
+     JOIN vehicles ON vehicle_savings.vehicle_id = vehicles.id
+     LEFT JOIN users ON vehicle_savings.created_by = users.id
+     WHERE entry_date BETWEEN ? AND ?
+     ${vehicleClause}
+     ORDER BY entry_date DESC, created_at DESC`
+  ).all(...params);
+
+  const balances = db.prepare(
+    `SELECT vehicle_id, COALESCE(SUM(amount), 0) as balance
+     FROM vehicle_savings
+     GROUP BY vehicle_id`
+  ).all().reduce((acc, row) => {
+    acc[row.vehicle_id] = Number(row.balance || 0);
+    return acc;
+  }, {});
+
+  const totals = entries.reduce(
+    (acc, row) => {
+      const amt = Number(row.amount || 0);
+      acc.total += amt;
+      acc.deposits += amt > 0 ? amt : 0;
+      acc.withdraws += amt < 0 ? Math.abs(amt) : 0;
+      return acc;
+    },
+    { total: 0, deposits: 0, withdraws: 0 }
+  );
+
+  res.render("records/savings", {
+    title: req.t("savingsTitle"),
+    from,
+    to,
+    vehicleId,
+    vehicles,
+    entries,
+    balances,
+    totals
+  });
+});
+
+router.get("/savings/export-csv", (req, res) => {
+  const from = req.query.from || dayjs().startOf("month").format("YYYY-MM-DD");
+  const to = req.query.to || dayjs().format("YYYY-MM-DD");
+  const vehicleId = req.query.vehicle_id || "all";
+  const vehicleClause = vehicleId === "all" ? "" : "AND vehicle_savings.vehicle_id = ?";
+  const params = vehicleId === "all" ? [from, to] : [from, to, vehicleId];
+  const entries = db.prepare(
+    `SELECT vehicle_savings.*, vehicles.vehicle_number, vehicles.owner_name, users.full_name as recorded_by
+     FROM vehicle_savings
+     JOIN vehicles ON vehicle_savings.vehicle_id = vehicles.id
+     LEFT JOIN users ON vehicle_savings.created_by = users.id
+     WHERE entry_date BETWEEN ? AND ?
+     ${vehicleClause}
+     ORDER BY entry_date DESC, created_at DESC`
+  ).all(...params);
+
+  const header = "Date,Vehicle,Type,Amount,Note,Recorded By";
+  const lines = entries.map((row) => {
+    const entryType = row.amount < 0 ? "withdraw" : "deposit";
+    const safe = [
+      row.entry_date,
+      `${row.owner_name} • ${row.vehicle_number}`,
+      entryType,
+      Math.abs(row.amount),
+      row.note || "",
+      row.recorded_by || ""
+    ].map((val) => {
+      const str = String(val ?? "").replace(/\"/g, "\"\"");
+      return `"${str}"`;
+    });
+    return safe.join(",");
+  });
+
+  const csv = [header, ...lines].join("\n");
+  res.setHeader("Content-Type", "text/csv");
+  res.setHeader("Content-Disposition", `attachment; filename="savings_${from}_to_${to}.csv"`);
+  res.send(csv);
+});
+
+router.get("/savings/print", (req, res) => {
+  const from = req.query.from || dayjs().startOf("month").format("YYYY-MM-DD");
+  const to = req.query.to || dayjs().format("YYYY-MM-DD");
+  const vehicleId = req.query.vehicle_id || "all";
+  const vehicleClause = vehicleId === "all" ? "" : "AND vehicle_savings.vehicle_id = ?";
+  const params = vehicleId === "all" ? [from, to] : [from, to, vehicleId];
+  const entries = db.prepare(
+    `SELECT vehicle_savings.*, vehicles.vehicle_number, vehicles.owner_name
+     FROM vehicle_savings
+     JOIN vehicles ON vehicle_savings.vehicle_id = vehicles.id
+     WHERE entry_date BETWEEN ? AND ?
+     ${vehicleClause}
+     ORDER BY entry_date DESC, created_at DESC`
+  ).all(...params);
+
+  const totals = entries.reduce(
+    (acc, row) => {
+      const amt = Number(row.amount || 0);
+      acc.total += amt;
+      acc.deposits += amt > 0 ? amt : 0;
+      acc.withdraws += amt < 0 ? Math.abs(amt) : 0;
+      return acc;
+    },
+    { total: 0, deposits: 0, withdraws: 0 }
+  );
+
+  res.render("records/savings_print", {
+    title: req.t("savingsTitle"),
+    from,
+    to,
+    printedAt: dayjs().format("YYYY-MM-DD HH:mm"),
+    entries,
+    totals
+  });
+});
+
+router.get("/savings/:id/edit", (req, res) => {
+  const entry = db.prepare(
+    `SELECT vehicle_savings.*, vehicles.vehicle_number, vehicles.owner_name
+     FROM vehicle_savings
+     JOIN vehicles ON vehicle_savings.vehicle_id = vehicles.id
+     WHERE vehicle_savings.id = ?`
+  ).get(req.params.id);
+  if (!entry) return res.redirect("/records/savings");
+  const vehicles = db.prepare(
+    "SELECT id, vehicle_number, owner_name FROM vehicles WHERE is_company = 0 ORDER BY vehicle_number"
+  ).all();
+  const entryType = entry.amount < 0 ? "withdraw" : "deposit";
+  res.render("records/savings_edit", {
+    title: req.t("editSavingsEntryTitle"),
+    entry,
+    vehicles,
+    entryType
+  });
+});
+
+router.post("/savings", (req, res) => {
+  const { vehicle_id, entry_date, amount, entry_type, note } = req.body;
+  if (!vehicle_id || !entry_date) {
+    return res.redirect("/records/savings");
+  }
+  let amt = Number(amount || 0);
+  if (Number.isNaN(amt) || amt <= 0) {
+    return res.redirect("/records/savings");
+  }
+  const type = entry_type === "withdraw" ? "withdraw" : "deposit";
+  if (type === "withdraw") amt = -Math.abs(amt);
+
+  db.prepare(
+    "INSERT INTO vehicle_savings (vehicle_id, entry_date, amount, note, created_by) VALUES (?, ?, ?, ?, ?)"
+  ).run(vehicle_id, entry_date, amt, note || null, req.session.userId);
+
+  logActivity({
+    userId: req.session.userId,
+    action: "create",
+    entityType: "vehicle_savings",
+    entityId: `${vehicle_id}_${entry_date}`,
+    details: `type=${type}, amount=${amt}`
+  });
+
+  res.redirect(`/records/savings?from=${entry_date}&to=${entry_date}&vehicle_id=${vehicle_id}`);
+});
+
+router.post("/savings/:id", (req, res) => {
+  const entry = db.prepare("SELECT * FROM vehicle_savings WHERE id = ?").get(req.params.id);
+  if (!entry) return res.redirect("/records/savings");
+  const { vehicle_id, entry_date, amount, entry_type, note } = req.body;
+  if (!vehicle_id || !entry_date) {
+    return res.redirect(`/records/savings/${req.params.id}/edit`);
+  }
+  let amt = Number(amount || 0);
+  if (Number.isNaN(amt) || amt <= 0) {
+    return res.redirect(`/records/savings/${req.params.id}/edit`);
+  }
+  const type = entry_type === "withdraw" ? "withdraw" : "deposit";
+  if (type === "withdraw") amt = -Math.abs(amt);
+
+  db.prepare(
+    "UPDATE vehicle_savings SET vehicle_id = ?, entry_date = ?, amount = ?, note = ? WHERE id = ?"
+  ).run(vehicle_id, entry_date, amt, note || null, req.params.id);
+
+  logActivity({
+    userId: req.session.userId,
+    action: "update",
+    entityType: "vehicle_savings",
+    entityId: req.params.id,
+    details: buildDiffDetails(
+      entry,
+      {
+        vehicle_id: Number(vehicle_id),
+        entry_date,
+        amount: amt,
+        note: note || null
+      },
+      ["vehicle_id", "entry_date", "amount", "note"]
+    )
+  });
+
+  res.redirect(`/records/savings?from=${entry_date}&to=${entry_date}&vehicle_id=${vehicle_id}`);
+});
+
+router.post("/savings/:id/delete", (req, res) => {
+  const entry = db.prepare("SELECT * FROM vehicle_savings WHERE id = ?").get(req.params.id);
+  if (!entry) return res.redirect("/records/savings");
+  const recycleId = createRecycleEntry({
+    entityType: "vehicle_savings",
+    entityId: req.params.id,
+    payload: { vehicle_savings: entry },
+    deletedBy: req.session.userId,
+    note: `date=${entry.entry_date || ""}; amount=${entry.amount || 0}`
+  });
+  logActivity({
+    userId: req.session.userId,
+    action: "delete",
+    entityType: "vehicle_savings",
+    entityId: req.params.id,
+    details: `recycle_id=${recycleId}`
+  });
+  db.prepare("DELETE FROM vehicle_savings WHERE id = ?").run(req.params.id);
+  res.redirect(`/records/savings?from=${entry.entry_date}&to=${entry.entry_date}&vehicle_id=${entry.vehicle_id}`);
+});
+
+router.get("/jar-sales", (req, res) => {
+  const from = req.query.from || dayjs().subtract(7, "day").format("YYYY-MM-DD");
+  const to = req.query.to || dayjs().format("YYYY-MM-DD");
+  const q = (req.query.q || "").trim();
+  const searchClause = q ? "AND (jar_types.name LIKE ? OR jar_sales.customer_name LIKE ? OR jar_sales.vehicle_number LIKE ? OR vehicles.vehicle_number LIKE ? OR vehicles.owner_name LIKE ?)" : "";
+  const params = q ? [from, to, `%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`] : [from, to];
+
+  const rows = db.prepare(
+    `SELECT jar_sales.*, jar_types.name as jar_name, users.full_name as recorded_by,
+            vehicles.vehicle_number as vehicle_number_ref, vehicles.owner_name as owner_name, vehicles.is_company as is_company
+     FROM jar_sales
+     JOIN jar_types ON jar_sales.jar_type_id = jar_types.id
+     LEFT JOIN vehicles ON jar_sales.vehicle_id = vehicles.id
+     LEFT JOIN users ON jar_sales.created_by = users.id
+     WHERE jar_sales.sale_date BETWEEN ? AND ?
+     ${searchClause}
+     ORDER BY jar_sales.sale_date DESC, jar_sales.created_at DESC`
+  ).all(...params);
+
+  const totals = rows.reduce(
+    (acc, row) => {
+      acc.total += Number(row.total_amount || 0);
+      acc.paid += Number(row.paid_amount || 0);
+      acc.credit += Number(row.credit_amount || 0);
+      acc.qty += Number(row.quantity || 0);
+      return acc;
+    },
+    { total: 0, paid: 0, credit: 0, qty: 0 }
+  );
+
+  res.render("records/jar_sales", {
+    title: req.t("jarSalesTitle"),
+    from,
+    to,
+    q,
+    rows,
+    totals
+  });
+});
+
+router.get("/jar-sales/new", (req, res) => {
+  const jarTypes = db.prepare("SELECT id, name, price FROM jar_types WHERE active = 1 ORDER BY name").all();
+  const vehicles = db.prepare("SELECT id, vehicle_number, owner_name, is_company FROM vehicles ORDER BY vehicle_number").all();
+  const importTotals = db.prepare(
+    `SELECT jar_type_id, COALESCE(SUM(quantity), 0) as qty
+     FROM import_entries
+     WHERE item_type = 'JAR_CONTAINER' AND direction = 'IN' AND jar_type_id IS NOT NULL
+     GROUP BY jar_type_id`
+  ).all();
+  const salesTotals = db.prepare(
+    `SELECT jar_type_id, COALESCE(SUM(quantity), 0) as qty
+     FROM jar_sales
+     GROUP BY jar_type_id`
+  ).all();
+  const importMap = importTotals.reduce((acc, row) => {
+    acc[row.jar_type_id] = Number(row.qty || 0);
+    return acc;
+  }, {});
+  const salesMap = salesTotals.reduce((acc, row) => {
+    acc[row.jar_type_id] = Number(row.qty || 0);
+    return acc;
+  }, {});
+  const jarTypeBalances = jarTypes.reduce((acc, type) => {
+    acc[type.id] = (importMap[type.id] || 0) - (salesMap[type.id] || 0);
+    return acc;
+  }, {});
+  res.render("records/jar_sale_form", {
+    title: req.t("addJarSaleTitle"),
+    record: null,
+    jarTypes,
+    vehicles,
+    jarTypeBalances,
+    error: null,
+    defaultDate: dayjs().format("YYYY-MM-DD")
+  });
+});
+
+router.post("/jar-sales", (req, res) => {
+  const { jar_type_id, sale_date, quantity, paid_amount, note, customer_name, vehicle_id, vehicle_number } = req.body;
+  const jarTypes = db.prepare("SELECT id, name, price FROM jar_types WHERE active = 1 ORDER BY name").all();
+  const vehicles = db.prepare("SELECT id, vehicle_number, owner_name, is_company FROM vehicles ORDER BY vehicle_number").all();
+  const importTotals = db.prepare(
+    `SELECT jar_type_id, COALESCE(SUM(quantity), 0) as qty
+     FROM import_entries
+     WHERE item_type = 'JAR_CONTAINER' AND direction = 'IN' AND jar_type_id IS NOT NULL
+     GROUP BY jar_type_id`
+  ).all();
+  const salesTotals = db.prepare(
+    `SELECT jar_type_id, COALESCE(SUM(quantity), 0) as qty
+     FROM jar_sales
+     GROUP BY jar_type_id`
+  ).all();
+  const importMap = importTotals.reduce((acc, row) => {
+    acc[row.jar_type_id] = Number(row.qty || 0);
+    return acc;
+  }, {});
+  const salesMap = salesTotals.reduce((acc, row) => {
+    acc[row.jar_type_id] = Number(row.qty || 0);
+    return acc;
+  }, {});
+  const jarTypeBalances = jarTypes.reduce((acc, type) => {
+    acc[type.id] = (importMap[type.id] || 0) - (salesMap[type.id] || 0);
+    return acc;
+  }, {});
+  if (!jar_type_id || !sale_date) {
+    return res.render("records/jar_sale_form", {
+      title: req.t("addJarSaleTitle"),
+      record: null,
+      jarTypes,
+      vehicles,
+      jarTypeBalances,
+      error: req.t("jarSaleRequired"),
+      defaultDate: sale_date || dayjs().format("YYYY-MM-DD")
+    });
+  }
+  const type = db.prepare("SELECT id, price FROM jar_types WHERE id = ?").get(jar_type_id);
+  if (!type) {
+    return res.render("records/jar_sale_form", {
+      title: req.t("addJarSaleTitle"),
+      record: null,
+      jarTypes,
+      vehicles,
+      jarTypeBalances,
+      error: req.t("jarTypeRequired"),
+      defaultDate: sale_date || dayjs().format("YYYY-MM-DD")
+    });
+  }
+  const qty = Number(quantity || 0);
+  const available = (jarTypeBalances[jar_type_id] || 0);
+  if (available <= 0) {
+    return res.render("records/jar_sale_form", {
+      title: req.t("addJarSaleTitle"),
+      record: null,
+      jarTypes,
+      vehicles,
+      jarTypeBalances,
+      error: req.t("jarContainerOutOfStock"),
+      defaultDate: sale_date || dayjs().format("YYYY-MM-DD")
+    });
+  }
+  if (qty > available) {
+    return res.render("records/jar_sale_form", {
+      title: req.t("addJarSaleTitle"),
+      record: null,
+      jarTypes,
+      vehicles,
+      jarTypeBalances,
+      error: req.t("jarContainerInsufficient"),
+      defaultDate: sale_date || dayjs().format("YYYY-MM-DD")
+    });
+  }
+  let unitPrice = Number(type.price || 0);
+  const selectedVehicleId = vehicle_id ? Number(vehicle_id) : null;
+  const vehicleRow = selectedVehicleId
+    ? db.prepare("SELECT vehicle_number, is_company FROM vehicles WHERE id = ?").get(selectedVehicleId)
+    : null;
+  const isCompany = vehicleRow && Number(vehicleRow.is_company) === 1;
+  if (isCompany) unitPrice = 0;
+  const totalAmount = qty * unitPrice;
+  let paidAmount = Number(paid_amount || 0);
+  if (Number.isNaN(paidAmount) || paidAmount < 0) paidAmount = 0;
+  if (paidAmount > totalAmount) paidAmount = totalAmount;
+  if (isCompany) paidAmount = 0;
+  const creditAmount = totalAmount - paidAmount;
+  const vehicleNumberValue = vehicleRow ? vehicleRow.vehicle_number : (vehicle_number ? vehicle_number.trim() : null);
+  db.prepare(
+    "INSERT INTO jar_sales (jar_type_id, customer_name, vehicle_id, vehicle_number, sale_date, quantity, unit_price, total_amount, paid_amount, credit_amount, note, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+  ).run(
+    jar_type_id,
+    customer_name ? customer_name.trim() : null,
+    selectedVehicleId || null,
+    vehicleNumberValue,
+    sale_date,
+    qty,
+    unitPrice,
+    totalAmount,
+    paidAmount,
+    creditAmount,
+    note || null,
+    req.session.userId
+  );
+
+  logActivity({
+    userId: req.session.userId,
+    action: "create",
+    entityType: "jar_sale",
+    entityId: `${jar_type_id}_${sale_date}`,
+    details: `qty=${qty}, price=${unitPrice}`
+  });
+
+  res.redirect(`/records/jar-sales?from=${sale_date}&to=${sale_date}`);
+});
+
+router.get("/jar-sales/:id/edit", (req, res) => {
+  const record = db.prepare("SELECT * FROM jar_sales WHERE id = ?").get(req.params.id);
+  if (!record) return res.redirect("/records/jar-sales");
+  const jarTypes = db.prepare("SELECT id, name, price FROM jar_types ORDER BY name").all();
+  const vehicles = db.prepare("SELECT id, vehicle_number, owner_name, is_company FROM vehicles ORDER BY vehicle_number").all();
+  const importTotals = db.prepare(
+    `SELECT jar_type_id, COALESCE(SUM(quantity), 0) as qty
+     FROM import_entries
+     WHERE item_type = 'JAR_CONTAINER' AND direction = 'IN' AND jar_type_id IS NOT NULL
+     GROUP BY jar_type_id`
+  ).all();
+  const salesTotals = db.prepare(
+    `SELECT jar_type_id, COALESCE(SUM(quantity), 0) as qty
+     FROM jar_sales
+     GROUP BY jar_type_id`
+  ).all();
+  const importMap = importTotals.reduce((acc, row) => {
+    acc[row.jar_type_id] = Number(row.qty || 0);
+    return acc;
+  }, {});
+  const salesMap = salesTotals.reduce((acc, row) => {
+    acc[row.jar_type_id] = Number(row.qty || 0);
+    return acc;
+  }, {});
+  const jarTypeBalances = jarTypes.reduce((acc, type) => {
+    acc[type.id] = (importMap[type.id] || 0) - (salesMap[type.id] || 0);
+    return acc;
+  }, {});
+  if (record.jar_type_id && jarTypeBalances[record.jar_type_id] !== undefined) {
+    jarTypeBalances[record.jar_type_id] += Number(record.quantity || 0);
+  }
+  res.render("records/jar_sale_form", {
+    title: req.t("editJarSaleTitle"),
+    record,
+    jarTypes,
+    vehicles,
+    jarTypeBalances,
+    error: null,
+    defaultDate: record.sale_date
+  });
+});
+
+router.post("/jar-sales/:id", (req, res) => {
+  const { jar_type_id, sale_date, quantity, paid_amount, note, customer_name, vehicle_id, vehicle_number } = req.body;
+  const record = db.prepare("SELECT * FROM jar_sales WHERE id = ?").get(req.params.id);
+  const jarTypes = db.prepare("SELECT id, name, price FROM jar_types ORDER BY name").all();
+  const vehicles = db.prepare("SELECT id, vehicle_number, owner_name, is_company FROM vehicles ORDER BY vehicle_number").all();
+  const importTotals = db.prepare(
+    `SELECT jar_type_id, COALESCE(SUM(quantity), 0) as qty
+     FROM import_entries
+     WHERE item_type = 'JAR_CONTAINER' AND direction = 'IN' AND jar_type_id IS NOT NULL
+     GROUP BY jar_type_id`
+  ).all();
+  const salesTotals = db.prepare(
+    `SELECT jar_type_id, COALESCE(SUM(quantity), 0) as qty
+     FROM jar_sales
+     GROUP BY jar_type_id`
+  ).all();
+  const importMap = importTotals.reduce((acc, row) => {
+    acc[row.jar_type_id] = Number(row.qty || 0);
+    return acc;
+  }, {});
+  const salesMap = salesTotals.reduce((acc, row) => {
+    acc[row.jar_type_id] = Number(row.qty || 0);
+    return acc;
+  }, {});
+  const jarTypeBalances = jarTypes.reduce((acc, type) => {
+    acc[type.id] = (importMap[type.id] || 0) - (salesMap[type.id] || 0);
+    return acc;
+  }, {});
+  if (record && record.jar_type_id && jarTypeBalances[record.jar_type_id] !== undefined) {
+    jarTypeBalances[record.jar_type_id] += Number(record.quantity || 0);
+  }
+  if (!record) return res.redirect("/records/jar-sales");
+  if (!jar_type_id || !sale_date) {
+    return res.render("records/jar_sale_form", {
+      title: req.t("editJarSaleTitle"),
+      record,
+      jarTypes,
+      vehicles,
+      jarTypeBalances,
+      error: req.t("jarSaleRequired"),
+      defaultDate: sale_date || record.sale_date
+    });
+  }
+  const type = db.prepare("SELECT id, price FROM jar_types WHERE id = ?").get(jar_type_id);
+  if (!type) {
+    return res.render("records/jar_sale_form", {
+      title: req.t("editJarSaleTitle"),
+      record,
+      jarTypes,
+      vehicles,
+      jarTypeBalances,
+      error: req.t("jarTypeRequired"),
+      defaultDate: sale_date || record.sale_date
+    });
+  }
+  const qty = Number(quantity || 0);
+  const available = (jarTypeBalances[jar_type_id] || 0);
+  if (available <= 0) {
+    return res.render("records/jar_sale_form", {
+      title: req.t("editJarSaleTitle"),
+      record,
+      jarTypes,
+      vehicles,
+      jarTypeBalances,
+      error: req.t("jarContainerOutOfStock"),
+      defaultDate: sale_date || record.sale_date
+    });
+  }
+  if (qty > available) {
+    return res.render("records/jar_sale_form", {
+      title: req.t("editJarSaleTitle"),
+      record,
+      jarTypes,
+      vehicles,
+      jarTypeBalances,
+      error: req.t("jarContainerInsufficient"),
+      defaultDate: sale_date || record.sale_date
+    });
+  }
+  let unitPrice = Number(type.price || 0);
+  const selectedVehicleId = vehicle_id ? Number(vehicle_id) : null;
+  const vehicleRow = selectedVehicleId
+    ? db.prepare("SELECT vehicle_number, is_company FROM vehicles WHERE id = ?").get(selectedVehicleId)
+    : null;
+  const isCompany = vehicleRow && Number(vehicleRow.is_company) === 1;
+  if (isCompany) unitPrice = 0;
+  const totalAmount = qty * unitPrice;
+  let paidAmount = Number(paid_amount || 0);
+  if (Number.isNaN(paidAmount) || paidAmount < 0) paidAmount = 0;
+  if (paidAmount > totalAmount) paidAmount = totalAmount;
+  if (isCompany) paidAmount = 0;
+  const creditAmount = totalAmount - paidAmount;
+  const vehicleNumberValue = vehicleRow ? vehicleRow.vehicle_number : (vehicle_number ? vehicle_number.trim() : null);
+
+  db.prepare(
+    "UPDATE jar_sales SET jar_type_id = ?, customer_name = ?, vehicle_id = ?, vehicle_number = ?, sale_date = ?, quantity = ?, unit_price = ?, total_amount = ?, paid_amount = ?, credit_amount = ?, note = ? WHERE id = ?"
+  ).run(
+    jar_type_id,
+    customer_name ? customer_name.trim() : null,
+    selectedVehicleId || null,
+    vehicleNumberValue,
+    sale_date,
+    qty,
+    unitPrice,
+    totalAmount,
+    paidAmount,
+    creditAmount,
+    note || null,
+    req.params.id
+  );
+
+  logActivity({
+    userId: req.session.userId,
+    action: "update",
+    entityType: "jar_sale",
+    entityId: req.params.id,
+    details: buildDiffDetails(
+      record,
+      {
+        jar_type_id: Number(jar_type_id),
+        customer_name: customer_name ? customer_name.trim() : null,
+        vehicle_id: selectedVehicleId || null,
+        vehicle_number: vehicleNumberValue,
+        sale_date,
+        quantity: qty,
+        unit_price: unitPrice,
+        total_amount: totalAmount,
+        paid_amount: paidAmount,
+        credit_amount: creditAmount,
+        note: note || null
+      },
+      [
+        "jar_type_id",
+        "customer_name",
+        "vehicle_id",
+        "vehicle_number",
+        "sale_date",
+        "quantity",
+        "unit_price",
+        "total_amount",
+        "paid_amount",
+        "credit_amount",
+        "note"
+      ]
+    )
+  });
+
+  res.redirect(`/records/jar-sales?from=${sale_date}&to=${sale_date}`);
+});
+
+router.post("/jar-sales/:id/delete", (req, res) => {
+  const record = db.prepare("SELECT * FROM jar_sales WHERE id = ?").get(req.params.id);
+  if (!record) return res.redirect("/records/jar-sales");
+  const recycleId = createRecycleEntry({
+    entityType: "jar_sale",
+    entityId: req.params.id,
+    payload: { jar_sale: record },
+    deletedBy: req.session.userId,
+    note: `date=${record.sale_date || ""}; qty=${record.quantity || 0}`
+  });
+  logActivity({
+    userId: req.session.userId,
+    action: "delete",
+    entityType: "jar_sale",
+    entityId: req.params.id,
+    details: `recycle_id=${recycleId}`
+  });
+  db.prepare("DELETE FROM jar_sales WHERE id = ?").run(req.params.id);
+  res.redirect("/records/jar-sales");
+});
+
+router.get("/jar-sales/:id/print", (req, res) => {
+  const record = db.prepare(
+    `SELECT jar_sales.*, jar_types.name as jar_name, vehicles.vehicle_number as vehicle_number_ref, vehicles.owner_name, vehicles.is_company
+     FROM jar_sales
+     JOIN jar_types ON jar_sales.jar_type_id = jar_types.id
+     LEFT JOIN vehicles ON jar_sales.vehicle_id = vehicles.id
+     WHERE jar_sales.id = ?`
+  ).get(req.params.id);
+  if (!record) return res.redirect("/records/jar-sales");
+  res.render("records/jar_sale_print", { title: req.t("jarSalesTitle"), record });
+});
+
+router.get("/jar-sales/export", (req, res) => {
+  const from = req.query.from || dayjs().subtract(7, "day").format("YYYY-MM-DD");
+  const to = req.query.to || dayjs().format("YYYY-MM-DD");
+  const q = (req.query.q || "").trim();
+  const searchClause = q ? "AND (jar_types.name LIKE ? OR jar_sales.customer_name LIKE ? OR jar_sales.vehicle_number LIKE ? OR vehicles.vehicle_number LIKE ? OR vehicles.owner_name LIKE ?)" : "";
+  const params = q ? [from, to, `%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`] : [from, to];
+
+  const rows = db.prepare(
+    `SELECT jar_sales.sale_date, jar_types.name as jar_name, jar_sales.customer_name,
+            COALESCE(vehicles.vehicle_number, jar_sales.vehicle_number) as vehicle_number,
+            vehicles.owner_name as owner_name, vehicles.is_company as is_company,
+            jar_sales.quantity, jar_sales.unit_price,
+            jar_sales.total_amount, jar_sales.paid_amount, jar_sales.credit_amount, jar_sales.note
+     FROM jar_sales
+     JOIN jar_types ON jar_sales.jar_type_id = jar_types.id
+     LEFT JOIN vehicles ON jar_sales.vehicle_id = vehicles.id
+     WHERE jar_sales.sale_date BETWEEN ? AND ?
+     ${searchClause}
+     ORDER BY jar_sales.sale_date ASC`
+  ).all(...params);
+
+  const header = "Date,Jar Type,Person Name,Vehicle Number,Owner Name,Company Vehicle,Quantity,Unit Price,Total Amount,Paid Amount,Credit Amount,Note";
+  const lines = rows.map((row) => {
+    const safe = [
+      row.sale_date,
+      row.jar_name,
+      row.customer_name || "",
+      row.vehicle_number || "",
+      row.owner_name || "",
+      row.is_company ? "Yes" : "No",
+      row.quantity,
+      row.unit_price,
+      row.total_amount,
+      row.paid_amount,
+      row.credit_amount,
+      row.note || ""
+    ].map((val) => `"${String(val ?? "").replace(/\"/g, "\"\"")}"`);
+    return safe.join(",");
+  });
+  res.setHeader("Content-Type", "text/csv");
+  res.setHeader("Content-Disposition", `attachment; filename="jar_sales_${from}_to_${to}.csv"`);
+  res.send([header, ...lines].join("\n"));
+});
+
+router.get("/credits", (req, res) => {
+  const from = req.query.from || dayjs().subtract(7, "day").format("YYYY-MM-DD");
+  const to = req.query.to || dayjs().format("YYYY-MM-DD");
+  const q = (req.query.q || "").trim();
+  const statusRaw = req.query.status || "all";
+  const status = ["all", "paid", "unpaid", "partial"].includes(statusRaw) ? statusRaw : "all";
+  const notice = String(req.query.notice || "").trim();
+  const error = String(req.query.error || "").trim();
+  const sortRaw = req.query.sort || "date_desc";
+  const sortMap = {
+    date_desc: "credit_date DESC, credits.created_at DESC",
+    date_asc: "credit_date ASC, credits.created_at ASC",
+    amount_desc: "credits.amount DESC",
+    amount_asc: "credits.amount ASC",
+    jars_desc: "credits.credit_jars DESC",
+    paid_first: "credits.paid DESC, credits.created_at DESC",
+    unpaid_first: "credits.paid ASC, credits.created_at DESC",
+    paid_amount_desc: "credits.paid_amount DESC",
+    remaining_desc: "(credits.amount - credits.paid_amount) DESC"
+  };
+  const sort = sortMap[sortRaw] ? sortRaw : "date_desc";
+  const orderBy = sortMap[sort];
+
+  let statusClause = "";
+  if (status === "paid") statusClause = "AND credits.paid_amount >= credits.amount";
+  if (status === "unpaid") statusClause = "AND credits.paid_amount <= 0";
+  if (status === "partial") statusClause = "AND credits.paid_amount > 0 AND credits.paid_amount < credits.amount";
+  const searchClause = q ? "AND (vehicles.vehicle_number LIKE ? OR credits.customer_name LIKE ?)" : "";
+
+  const creditsParams = q ? [from, to, `%${q}%`, `%${q}%`] : [from, to];
+  const creditsRows = db.prepare(
+    `SELECT credits.*, vehicles.vehicle_number, vehicles.owner_name,
+            users.full_name as recorded_by,
+            credit_export.receipt_no as trip_receipt_no,
+            COALESCE(credits.trip_date, credit_export.export_date) as trip_date,
+            checked_staff.full_name as checked_by_staff_name,
+            CASE WHEN credits.amount - credits.paid_amount < 0 THEN 0 ELSE credits.amount - credits.paid_amount END AS remaining_amount
+     FROM credits
+     JOIN vehicles ON credits.vehicle_id = vehicles.id
+     LEFT JOIN users ON credits.created_by = users.id
+     LEFT JOIN exports as credit_export ON credits.export_id = credit_export.id
+     LEFT JOIN staff as checked_staff ON credits.checked_by_staff_id = checked_staff.id
+     WHERE credit_date BETWEEN ? AND ?
+     AND vehicles.is_company = 0
+     ${statusClause}
+     ${searchClause}
+     ORDER BY ${orderBy}`
+  ).all(...creditsParams);
+
+  const creditTotals = db.prepare(
+    `SELECT
+        COALESCE(SUM(credits.amount), 0) AS total_amount,
+        COALESCE(SUM(credits.paid_amount), 0) AS total_paid,
+        COALESCE(SUM(credits.amount - credits.paid_amount), 0) AS total_remaining,
+        COALESCE(SUM(credits.credit_jars), 0) AS total_jars,
+        COALESCE(SUM(credits.credit_bottle_cases), 0) AS total_bottle_cases,
+        COALESCE(SUM(credits.credit_dispensers), 0) AS total_dispensers,
+        COALESCE(SUM(credits.credit_jar_containers), 0) AS total_jar_containers
+     FROM credits
+     JOIN vehicles ON credits.vehicle_id = vehicles.id
+     WHERE credit_date BETWEEN ? AND ?
+     AND vehicles.is_company = 0
+     ${statusClause}
+     ${searchClause}`
+  ).get(...creditsParams);
+
+  const customerCumulativeSearchClause = q ? "AND (credits.customer_name LIKE ? OR vehicles.vehicle_number LIKE ?)" : "";
+  const customerCumulativeParams = q ? [`%${q}%`, `%${q}%`] : [];
+  const customerCumulativeTotals = db.prepare(
+    `SELECT credits.customer_name,
+            COALESCE(SUM(credits.amount), 0) AS total_amount,
+            COALESCE(SUM(credits.paid_amount), 0) AS total_paid,
+            COALESCE(SUM(CASE WHEN credits.amount - credits.paid_amount < 0 THEN 0 ELSE credits.amount - credits.paid_amount END), 0) AS total_remaining,
+            MAX(credits.credit_date) AS last_credit_date,
+            COUNT(*) AS total_entries
+     FROM credits
+     JOIN vehicles ON credits.vehicle_id = vehicles.id
+     WHERE vehicles.is_company = 0
+     ${statusClause}
+     ${customerCumulativeSearchClause}
+     GROUP BY credits.customer_name
+     ORDER BY total_remaining DESC, credits.customer_name ASC`
+  ).all(...customerCumulativeParams);
+
+  const today = dayjs().format("YYYY-MM-DD");
+  const monthStart = dayjs().startOf("month").format("YYYY-MM-DD");
+  const yearStart = dayjs().startOf("year").format("YYYY-MM-DD");
+
+  res.render("records/credits", {
+    title: req.t("creditsTitle"),
+    from,
+    to,
+    status,
+    q,
+    sort,
+    notice,
+    error,
+    creditsRows,
+    customerCumulativeTotals,
+    creditTotals,
+    today,
+    monthStart,
+    yearStart
+  });
+});
+
+router.post("/credits/pay/customer-total", (req, res) => {
+  const customerName = String(req.body.customer_name || "").trim();
+  const paymentAmount = Number(req.body.payment_amount || 0);
+  if (!customerName) {
+    return res.redirect(buildCreditsListUrl({ ...req.body, error: "creditSettlementCustomerRequired" }));
+  }
+  if (Number.isNaN(paymentAmount) || paymentAmount <= 0) {
+    return res.redirect(buildCreditsListUrl({ ...req.body, error: "creditSettlementInvalid" }));
+  }
+
+  const rows = db.prepare(
+    `SELECT credits.id, credits.amount, credits.paid_amount
+     FROM credits
+     JOIN vehicles ON credits.vehicle_id = vehicles.id
+     WHERE lower(trim(credits.customer_name)) = lower(trim(?))
+       AND vehicles.is_company = 0
+       AND (credits.amount - credits.paid_amount) > 0
+     ORDER BY credits.credit_date ASC, credits.id ASC`
+  ).all(customerName);
+
+  if (!rows.length) {
+    return res.redirect(buildCreditsListUrl({ ...req.body, error: "creditSettlementNoOutstandingCustomer" }));
+  }
+
+  const result = applyCreditSettlementPayment({
+    creditRows: rows,
+    paymentAmount,
+    note: `Customer settlement (${customerName})`,
+    userId: req.session.userId
+  });
+  if (result.applied <= 0) {
+    return res.redirect(buildCreditsListUrl({ ...req.body, error: "creditSettlementInvalid" }));
+  }
+
+  logActivity({
+    userId: req.session.userId,
+    action: "payment",
+    entityType: "credit_customer_settlement",
+    entityId: customerName,
+    details: `customer=${customerName}; payment=${result.applied}; credits=${result.count}`
+  });
+
+  return res.redirect(buildCreditsListUrl({ ...req.body, notice: "creditSettlementCustomerSaved" }));
+});
+
+router.get("/credits/all", (req, res) => {
+  const from = req.query.from || dayjs().subtract(30, "day").format("YYYY-MM-DD");
+  const to = req.query.to || dayjs().format("YYYY-MM-DD");
+  const q = (req.query.q || "").trim();
+  const { rows, totals } = getCombinedCredits({ from, to, q });
+
+  res.render("records/credits_all", {
+    title: req.t("allCreditsTitle"),
+    from,
+    to,
+    q,
+    rows,
+    totals
+  });
+});
+
+router.get("/credits/all/export", (req, res) => {
+  const from = req.query.from || dayjs().subtract(30, "day").format("YYYY-MM-DD");
+  const to = req.query.to || dayjs().format("YYYY-MM-DD");
+  const q = (req.query.q || "").trim();
+  const { rows } = getCombinedCredits({ from, to, q });
+
+  const header = ["Date", "Source", "Vehicle", "Owner", "Customer", "Credit Amount", "Paid Amount", "Remaining Amount"];
+  const body = rows.map((row) => ([
+    row.credit_date,
+    row.source,
+    row.vehicle_number,
+    row.owner_name || "",
+    row.customer_name || "",
+    row.credit_amount,
+    row.paid_amount,
+    row.remaining_amount
+  ].map((value) => `"${String(value ?? "").replace(/"/g, '""')}"`).join(",")));
+
+  res.setHeader("Content-Type", "text/csv");
+  res.setHeader("Content-Disposition", `attachment; filename="aqua_msk_all_credits_${from}_to_${to}.csv"`);
+  res.send([header.join(","), ...body].join("\n"));
+});
+
+router.get("/credits/all/print", (req, res) => {
+  const from = req.query.from || dayjs().subtract(30, "day").format("YYYY-MM-DD");
+  const to = req.query.to || dayjs().format("YYYY-MM-DD");
+  const q = (req.query.q || "").trim();
+  const { rows, totals } = getCombinedCredits({ from, to, q });
+
+  res.render("records/credits_all_print", {
+    title: req.t("allCreditsTitle"),
+    from,
+    to,
+    q,
+    rows,
+    totals,
+    printedAt: dayjs().format("YYYY-MM-DD HH:mm")
+  });
+});
+
+router.get("/credits/new", (req, res) => {
+  const vehicles = getCreditVehicles();
+  const customers = db.prepare("SELECT DISTINCT customer_name FROM credits ORDER BY customer_name").all().map((row) => row.customer_name);
+  const staffOptions = getStaffOptions();
+  const requestedExportId = parseOptionalId(req.query.export_id);
+  const exportRow = requestedExportId
+    ? db.prepare(
+      `SELECT exports.id, exports.vehicle_id, exports.export_date
+       FROM exports
+       JOIN vehicles ON exports.vehicle_id = vehicles.id
+       WHERE exports.id = ? AND vehicles.is_company = 0`
+    ).get(requestedExportId)
+    : null;
+  const selectedVehicleIdRaw = Number(req.query.vehicle_id || (exportRow ? exportRow.vehicle_id : 0));
+  const selectedVehicleId = Number.isNaN(selectedVehicleIdRaw) || selectedVehicleIdRaw <= 0 ? null : selectedVehicleIdRaw;
+  const defaultDate = req.query.credit_date || (exportRow ? exportRow.export_date : dayjs().format("YYYY-MM-DD"));
+  const defaultTripDate = req.query.trip_date || (exportRow ? exportRow.export_date : "");
+  res.render("records/credit_form", {
+    title: req.t("addCreditTitle"),
+    record: null,
+    vehicles,
+    customers,
+    error: null,
+    defaultDate,
+    selectedVehicleId,
+    defaultTripDate,
+    staffOptions,
+    selectedStaffId: null,
+    forceWashDefault: false
+  });
+});
+
+router.post("/credits", (req, res) => {
+  const {
+    vehicle_id,
+    export_id,
+    customer_name,
+    amount,
+    credit_jars,
+    credit_bottle_cases,
+    credit_dispensers,
+    credit_jar_containers,
+    jar_price,
+    bottle_case_price,
+    dispenser_price,
+    jar_container_price,
+    credit_date,
+    trip_date,
+    checked_by_staff_id,
+    force_wash_required,
+    paid,
+    paid_amount
+  } = req.body;
+  const vehicles = getCreditVehicles();
+  const staffOptions = getStaffOptions();
+  const selectedExportId = parseOptionalId(export_id);
+  const tripDateValue = parseOptionalDate(trip_date);
+  const selectedStaffId = parseOptionalId(checked_by_staff_id);
+  const forceWashDefault = force_wash_required === "on";
+  if (!vehicle_id || !customer_name || !credit_date) {
+    return res.render("records/credit_form", {
+      title: req.t("addCreditTitle"),
+      record: null,
+      vehicles,
+      staffOptions,
+      customers: db.prepare("SELECT DISTINCT customer_name FROM credits ORDER BY customer_name").all().map((row) => row.customer_name),
+      error: req.t("creditRequired"),
+      defaultDate: credit_date || dayjs().format("YYYY-MM-DD"),
+      selectedVehicleId: vehicle_id || null,
+      defaultTripDate: tripDateValue || "",
+      selectedStaffId,
+      forceWashDefault
+    });
+  }
+  const vehicleRow = db.prepare("SELECT id, is_company FROM vehicles WHERE id = ?").get(vehicle_id);
+  if (!vehicleRow || Number(vehicleRow.is_company) === 1) {
+    return res.render("records/credit_form", {
+      title: req.t("addCreditTitle"),
+      record: null,
+      vehicles,
+      staffOptions,
+      customers: db.prepare("SELECT DISTINCT customer_name FROM credits ORDER BY customer_name").all().map((row) => row.customer_name),
+      error: req.t("companyVehicleNoCredit"),
+      defaultDate: credit_date || dayjs().format("YYYY-MM-DD"),
+      selectedVehicleId: vehicle_id || null,
+      defaultTripDate: tripDateValue || "",
+      selectedStaffId,
+      forceWashDefault
+    });
+  }
+  let linkedExportId = null;
+  if (selectedExportId) {
+    const linkedExport = db.prepare("SELECT id, vehicle_id FROM exports WHERE id = ?").get(selectedExportId);
+    if (!linkedExport || Number(linkedExport.vehicle_id) !== Number(vehicle_id)) {
+      return res.render("records/credit_form", {
+        title: req.t("addCreditTitle"),
+        record: null,
+        vehicles,
+        staffOptions,
+        customers: db.prepare("SELECT DISTINCT customer_name FROM credits ORDER BY customer_name").all().map((row) => row.customer_name),
+        error: req.t("creditTripInvalid"),
+        defaultDate: credit_date || dayjs().format("YYYY-MM-DD"),
+        selectedVehicleId: vehicle_id || null,
+        defaultTripDate: tripDateValue || "",
+        selectedStaffId,
+        forceWashDefault
+      });
+    }
+    linkedExportId = linkedExport.id;
+  }
+  const staffRow = selectedStaffId
+    ? db.prepare("SELECT id FROM staff WHERE id = ?").get(selectedStaffId)
+    : null;
+  const checkedByStaffId = staffRow ? staffRow.id : null;
+  const forceWashRequired = forceWashDefault ? 1 : 0;
+
+  const jarCreditRaw = Number(credit_jars || 0);
+  const bottleCreditRaw = Number(credit_bottle_cases || 0);
+  const dispenserCreditRaw = Number(credit_dispensers || 0);
+  const containerCreditRaw = Number(credit_jar_containers || 0);
+  const jarCreditCount = Number.isNaN(jarCreditRaw) || jarCreditRaw < 0 ? 0 : jarCreditRaw;
+  const bottleCreditCount = Number.isNaN(bottleCreditRaw) || bottleCreditRaw < 0 ? 0 : bottleCreditRaw;
+  const dispenserCreditCount = Number.isNaN(dispenserCreditRaw) || dispenserCreditRaw < 0 ? 0 : dispenserCreditRaw;
+  const jarContainerCreditCount = Number.isNaN(containerCreditRaw) || containerCreditRaw < 0 ? 0 : containerCreditRaw;
+  const jarPriceRaw = Number(jar_price || 0);
+  const bottlePriceRaw = Number(bottle_case_price || 0);
+  const dispenserPriceRaw = Number(dispenser_price || 0);
+  const jarContainerPriceRaw = Number(jar_container_price || 0);
+  const jarPrice = Number.isNaN(jarPriceRaw) || jarPriceRaw < 0 ? 0 : jarPriceRaw;
+  const bottlePrice = Number.isNaN(bottlePriceRaw) || bottlePriceRaw < 0 ? 0 : bottlePriceRaw;
+  const dispenserPrice = Number.isNaN(dispenserPriceRaw) || dispenserPriceRaw < 0 ? 0 : dispenserPriceRaw;
+  const jarContainerPrice = Number.isNaN(jarContainerPriceRaw) || jarContainerPriceRaw < 0 ? 0 : jarContainerPriceRaw;
+  const derivedAmount = (jarCreditCount * jarPrice)
+    + (bottleCreditCount * bottlePrice)
+    + (dispenserCreditCount * dispenserPrice)
+    + (jarContainerCreditCount * jarContainerPrice);
+  const amountNumRaw = Number(amount || 0);
+  const fallbackAmount = Number.isNaN(amountNumRaw) || amountNumRaw < 0 ? 0 : amountNumRaw;
+  const hasPriceInputs = Object.prototype.hasOwnProperty.call(req.body, "jar_price")
+    || Object.prototype.hasOwnProperty.call(req.body, "bottle_case_price")
+    || Object.prototype.hasOwnProperty.call(req.body, "dispenser_price")
+    || Object.prototype.hasOwnProperty.call(req.body, "jar_container_price");
+  const shouldUseDerived = hasPriceInputs
+    && (derivedAmount > 0 || jarPrice > 0 || bottlePrice > 0 || dispenserPrice > 0 || jarContainerPrice > 0 || fallbackAmount === 0);
+  const amountNum = shouldUseDerived ? derivedAmount : fallbackAmount;
+  let paidAmount = Number(paid_amount || 0);
+  if (Number.isNaN(paidAmount) || paidAmount < 0) paidAmount = 0;
+  if (typeof paid !== "undefined") paidAmount = amountNum;
+  if (paidAmount > amountNum) paidAmount = amountNum;
+  const paidFlag = amountNum === 0 ? 1 : paidAmount >= amountNum ? 1 : 0;
+
+  const result = db.prepare(
+    "INSERT INTO credits (vehicle_id, export_id, customer_name, amount, paid_amount, credit_jars, credit_bottle_cases, credit_dispensers, credit_jar_containers, jar_price, bottle_case_price, dispenser_price, jar_container_price, credit_date, trip_date, checked_by_staff_id, force_wash_required, paid, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+  ).run(
+    vehicle_id,
+    linkedExportId,
+    customer_name.trim(),
+    amountNum,
+    paidAmount,
+    jarCreditCount,
+    bottleCreditCount,
+    dispenserCreditCount,
+    jarContainerCreditCount,
+    jarPrice,
+    bottlePrice,
+    dispenserPrice,
+    jarContainerPrice,
+    credit_date,
+    tripDateValue,
+    checkedByStaffId,
+    forceWashRequired,
+    paidFlag,
+    req.session.userId
+  );
+  const creditId = Number(result.lastInsertRowid);
+  const creditReceiptNo = buildReceiptNo("CRD", credit_date, creditId);
+  db.prepare("UPDATE credits SET receipt_no = ? WHERE id = ?").run(creditReceiptNo, creditId);
+  if (paidAmount > 0 && creditId) {
+    insertCreditPayment({
+      creditId,
+      amount: paidAmount,
+      note: "Opening payment",
+      paidAt: credit_date,
+      userId: req.session.userId
+    });
+  }
+  logActivity({
+    userId: req.session.userId,
+    action: "create",
+    entityType: "credit",
+    entityId: creditId,
+    details: `receipt=${creditReceiptNo}, export_id=${linkedExportId || ""}, credit_date=${credit_date}, trip_date=${tripDateValue || ""}, checked_staff=${checkedByStaffId || ""}, force_wash=${forceWashRequired}, amount=${amountNum}, paid=${paidAmount}, jars=${jarCreditCount}@${jarPrice}, bottles=${bottleCreditCount}@${bottlePrice}, dispensers=${dispenserCreditCount}@${dispenserPrice}, containers=${jarContainerCreditCount}@${jarContainerPrice}, customer=${customer_name.trim()}`
+  });
+
+  res.redirect(`/records/credits?from=${credit_date}&to=${credit_date}`);
+});
+
+router.get("/credits/:id/edit", (req, res) => {
+  const record = db.prepare("SELECT * FROM credits WHERE id = ?").get(req.params.id);
+  if (!record) return res.redirect("/records/credits");
+  const vehicles = getCreditVehicles();
+  const staffOptions = getStaffOptions();
+  const customers = db.prepare("SELECT DISTINCT customer_name FROM credits ORDER BY customer_name").all().map((row) => row.customer_name);
+  res.render("records/credit_form", {
+    title: req.t("editCreditTitle"),
+    record,
+    vehicles,
+    staffOptions,
+    customers,
+    error: null,
+    defaultDate: record.credit_date,
+    defaultTripDate: record.trip_date || ""
+  });
+});
+
+router.post("/credits/:id", (req, res) => {
+  const {
+    vehicle_id,
+    export_id,
+    customer_name,
+    amount,
+    credit_jars,
+    credit_bottle_cases,
+    credit_dispensers,
+    credit_jar_containers,
+    jar_price,
+    bottle_case_price,
+    dispenser_price,
+    jar_container_price,
+    credit_date,
+    trip_date,
+    checked_by_staff_id,
+    force_wash_required,
+    paid,
+    paid_amount
+  } = req.body;
+  const record = db.prepare("SELECT * FROM credits WHERE id = ?").get(req.params.id);
+  const vehicles = getCreditVehicles();
+  const staffOptions = getStaffOptions();
+  const hasExportIdField = Object.prototype.hasOwnProperty.call(req.body, "export_id");
+  const selectedExportId = hasExportIdField ? parseOptionalId(export_id) : parseOptionalId(record ? record.export_id : null);
+  const tripDateValue = parseOptionalDate(trip_date);
+  const selectedStaffId = parseOptionalId(checked_by_staff_id);
+  const forceWashDefault = force_wash_required === "on";
+  if (!record) return res.redirect("/records/credits");
+
+  if (!vehicle_id || !customer_name || !credit_date) {
+    return res.render("records/credit_form", {
+      title: req.t("editCreditTitle"),
+      record,
+      vehicles,
+      staffOptions,
+      customers: db.prepare("SELECT DISTINCT customer_name FROM credits ORDER BY customer_name").all().map((row) => row.customer_name),
+      error: req.t("creditRequired"),
+      defaultDate: credit_date || record.credit_date,
+      defaultTripDate: tripDateValue || (record.trip_date || ""),
+      selectedStaffId,
+      forceWashDefault
+    });
+  }
+  const vehicleRow = db.prepare("SELECT id, is_company FROM vehicles WHERE id = ?").get(vehicle_id);
+  if (!vehicleRow || Number(vehicleRow.is_company) === 1) {
+    return res.render("records/credit_form", {
+      title: req.t("editCreditTitle"),
+      record,
+      vehicles,
+      staffOptions,
+      customers: db.prepare("SELECT DISTINCT customer_name FROM credits ORDER BY customer_name").all().map((row) => row.customer_name),
+      error: req.t("companyVehicleNoCredit"),
+      defaultDate: credit_date || record.credit_date,
+      defaultTripDate: tripDateValue || (record.trip_date || ""),
+      selectedStaffId,
+      forceWashDefault
+    });
+  }
+  let linkedExportId = null;
+  if (selectedExportId) {
+    const linkedExport = db.prepare("SELECT id, vehicle_id FROM exports WHERE id = ?").get(selectedExportId);
+    if (!linkedExport || Number(linkedExport.vehicle_id) !== Number(vehicle_id)) {
+      return res.render("records/credit_form", {
+        title: req.t("editCreditTitle"),
+        record,
+        vehicles,
+        staffOptions,
+        customers: db.prepare("SELECT DISTINCT customer_name FROM credits ORDER BY customer_name").all().map((row) => row.customer_name),
+        error: req.t("creditTripInvalid"),
+        defaultDate: credit_date || record.credit_date,
+        defaultTripDate: tripDateValue || (record.trip_date || ""),
+        selectedStaffId,
+        forceWashDefault
+      });
+    }
+    linkedExportId = linkedExport.id;
+  }
+  const staffRow = selectedStaffId
+    ? db.prepare("SELECT id FROM staff WHERE id = ?").get(selectedStaffId)
+    : null;
+  const checkedByStaffId = staffRow ? staffRow.id : null;
+  const forceWashRequired = forceWashDefault ? 1 : 0;
+
+  const jarCreditRaw = Number(credit_jars || 0);
+  const bottleCreditRaw = Number(credit_bottle_cases || 0);
+  const dispenserCreditRaw = Number(credit_dispensers || 0);
+  const containerCreditRaw = Number(credit_jar_containers || 0);
+  const jarCreditCount = Number.isNaN(jarCreditRaw) || jarCreditRaw < 0 ? 0 : jarCreditRaw;
+  const bottleCreditCount = Number.isNaN(bottleCreditRaw) || bottleCreditRaw < 0 ? 0 : bottleCreditRaw;
+  const dispenserCreditCount = Number.isNaN(dispenserCreditRaw) || dispenserCreditRaw < 0 ? 0 : dispenserCreditRaw;
+  const jarContainerCreditCount = Number.isNaN(containerCreditRaw) || containerCreditRaw < 0 ? 0 : containerCreditRaw;
+  const jarPriceRaw = Number(jar_price || 0);
+  const bottlePriceRaw = Number(bottle_case_price || 0);
+  const dispenserPriceRaw = Number(dispenser_price || 0);
+  const jarContainerPriceRaw = Number(jar_container_price || 0);
+  const jarPrice = Number.isNaN(jarPriceRaw) || jarPriceRaw < 0 ? 0 : jarPriceRaw;
+  const bottlePrice = Number.isNaN(bottlePriceRaw) || bottlePriceRaw < 0 ? 0 : bottlePriceRaw;
+  const dispenserPrice = Number.isNaN(dispenserPriceRaw) || dispenserPriceRaw < 0 ? 0 : dispenserPriceRaw;
+  const jarContainerPrice = Number.isNaN(jarContainerPriceRaw) || jarContainerPriceRaw < 0 ? 0 : jarContainerPriceRaw;
+  const derivedAmount = (jarCreditCount * jarPrice)
+    + (bottleCreditCount * bottlePrice)
+    + (dispenserCreditCount * dispenserPrice)
+    + (jarContainerCreditCount * jarContainerPrice);
+  const amountNumRaw = Number(amount || 0);
+  const fallbackAmount = Number.isNaN(amountNumRaw) || amountNumRaw < 0 ? 0 : amountNumRaw;
+  const hasPriceInputs = Object.prototype.hasOwnProperty.call(req.body, "jar_price")
+    || Object.prototype.hasOwnProperty.call(req.body, "bottle_case_price")
+    || Object.prototype.hasOwnProperty.call(req.body, "dispenser_price")
+    || Object.prototype.hasOwnProperty.call(req.body, "jar_container_price");
+  const shouldUseDerived = hasPriceInputs
+    && (derivedAmount > 0 || jarPrice > 0 || bottlePrice > 0 || dispenserPrice > 0 || jarContainerPrice > 0 || fallbackAmount === 0);
+  const amountNum = shouldUseDerived ? derivedAmount : fallbackAmount;
+  let paidAmount = Number(paid_amount || 0);
+  if (Number.isNaN(paidAmount) || paidAmount < 0) paidAmount = 0;
+  if (typeof paid !== "undefined") paidAmount = amountNum;
+  if (paidAmount > amountNum) paidAmount = amountNum;
+  const paidFlag = amountNum === 0 ? 1 : paidAmount >= amountNum ? 1 : 0;
+
+  db.prepare(
+    "UPDATE credits SET vehicle_id = ?, export_id = ?, customer_name = ?, amount = ?, paid_amount = ?, credit_jars = ?, credit_bottle_cases = ?, credit_dispensers = ?, credit_jar_containers = ?, jar_price = ?, bottle_case_price = ?, dispenser_price = ?, jar_container_price = ?, credit_date = ?, trip_date = ?, checked_by_staff_id = ?, force_wash_required = ?, paid = ? WHERE id = ?"
+  ).run(
+    vehicle_id,
+    linkedExportId,
+    customer_name.trim(),
+    amountNum,
+    paidAmount,
+    jarCreditCount,
+    bottleCreditCount,
+    dispenserCreditCount,
+    jarContainerCreditCount,
+    jarPrice,
+    bottlePrice,
+    dispenserPrice,
+    jarContainerPrice,
+    credit_date,
+    tripDateValue,
+    checkedByStaffId,
+    forceWashRequired,
+    paidFlag,
+    req.params.id
+  );
+  const delta = paidAmount - Number(record.paid_amount || 0);
+  if (delta !== 0) {
+    insertCreditPayment({
+      creditId: req.params.id,
+      amount: delta,
+      note: "Adjustment",
+      userId: req.session.userId
+    });
+  }
+  logActivity({
+    userId: req.session.userId,
+    action: "update",
+    entityType: "credit",
+    entityId: req.params.id,
+    details: buildDiffDetails(
+      record,
+      {
+        vehicle_id: Number(vehicle_id),
+        export_id: linkedExportId,
+        customer_name: customer_name.trim(),
+        amount: amountNum,
+        paid_amount: paidAmount,
+        credit_jars: jarCreditCount,
+        credit_bottle_cases: bottleCreditCount,
+        credit_dispensers: dispenserCreditCount,
+        credit_jar_containers: jarContainerCreditCount,
+        jar_price: jarPrice,
+        bottle_case_price: bottlePrice,
+        dispenser_price: dispenserPrice,
+        jar_container_price: jarContainerPrice,
+        credit_date,
+        trip_date: tripDateValue,
+        checked_by_staff_id: checkedByStaffId,
+        force_wash_required: forceWashRequired,
+        paid: paidFlag
+      },
+      [
+        "vehicle_id",
+        "export_id",
+        "customer_name",
+        "amount",
+        "paid_amount",
+        "credit_jars",
+        "credit_bottle_cases",
+        "credit_dispensers",
+        "credit_jar_containers",
+        "jar_price",
+        "bottle_case_price",
+        "dispenser_price",
+        "jar_container_price",
+        "credit_date",
+        "trip_date",
+        "checked_by_staff_id",
+        "force_wash_required",
+        "paid"
+      ]
+    )
+  });
+
+  res.redirect(`/records/credits?from=${credit_date}&to=${credit_date}`);
+});
+
+router.post("/credits/:id/paid", (req, res) => {
+  const record = db.prepare("SELECT id, paid, amount, paid_amount FROM credits WHERE id = ?").get(req.params.id);
+  if (!record) return res.redirect("/records/credits");
+
+  const newPaid = typeof req.body.paid !== "undefined" ? Number(req.body.paid) : record.paid ? 0 : 1;
+  const desiredPaid = newPaid ? Number(record.amount || 0) : 0;
+  const delta = desiredPaid - Number(record.paid_amount || 0);
+  if (delta !== 0) {
+    insertCreditPayment({
+      creditId: req.params.id,
+      amount: delta,
+      note: newPaid ? "Marked paid" : "Marked unpaid",
+      userId: req.session.userId
+    });
+  }
+  db.prepare("UPDATE credits SET paid = ?, paid_amount = ? WHERE id = ?").run(newPaid, desiredPaid, req.params.id);
+  logActivity({
+    userId: req.session.userId,
+    action: "update",
+    entityType: "credit",
+    entityId: req.params.id,
+    details: buildDiffDetails(
+      record,
+      { paid: newPaid, paid_amount: desiredPaid },
+      ["paid", "paid_amount"]
+    )
+  });
+
+  res.redirect(req.get("Referrer") || "/records/credits");
+});
+
+router.post("/credits/:id/pay", (req, res) => {
+  const record = db.prepare("SELECT id, amount, paid_amount FROM credits WHERE id = ?").get(req.params.id);
+  if (!record) return res.redirect("/records/credits");
+  let payment = Number(req.body.payment_amount || 0);
+  if (Number.isNaN(payment) || payment <= 0) {
+    return res.redirect(req.get("Referrer") || "/records/credits");
+  }
+  const remaining = Math.max(0, Number(record.amount || 0) - Number(record.paid_amount || 0));
+  const appliedPayment = Math.min(payment, remaining);
+  if (appliedPayment <= 0) {
+    return res.redirect(req.get("Referrer") || "/records/credits");
+  }
+  let newPaidAmount = Number(record.paid_amount || 0) + appliedPayment;
+  if (newPaidAmount > Number(record.amount || 0)) newPaidAmount = Number(record.amount || 0);
+  const paidFlag = Number(record.amount || 0) === 0 ? 1 : newPaidAmount >= Number(record.amount || 0) ? 1 : 0;
+  insertCreditPayment({
+    creditId: req.params.id,
+    amount: appliedPayment,
+    note: "Payment",
+    userId: req.session.userId
+  });
+  db.prepare("UPDATE credits SET paid_amount = ?, paid = ? WHERE id = ?").run(newPaidAmount, paidFlag, req.params.id);
+  logActivity({
+    userId: req.session.userId,
+    action: "payment",
+    entityType: "credit",
+    entityId: req.params.id,
+    details: `payment=${appliedPayment}; paid_amount: ${formatDiffValue(record.paid_amount)} -> ${formatDiffValue(newPaidAmount)}`
+  });
+  res.redirect(req.get("Referrer") || "/records/credits");
+});
+
+router.post("/credits/:id/delete", (req, res) => {
+  const credit = db.prepare("SELECT * FROM credits WHERE id = ?").get(req.params.id);
+  if (!credit) return res.redirect("/records/credits");
+  const payments = db.prepare("SELECT * FROM credit_payments WHERE credit_id = ?").all(req.params.id);
+  const recycleId = createRecycleEntry({
+    entityType: "credit",
+    entityId: req.params.id,
+    payload: { credit, payments },
+    deletedBy: req.session.userId,
+    note: `date=${credit.credit_date || ""}; customer=${credit.customer_name || ""}`
+  });
+  logActivity({
+    userId: req.session.userId,
+    action: "delete",
+    entityType: "credit",
+    entityId: req.params.id,
+    details: `recycle_id=${recycleId}`
+  });
+  db.prepare("DELETE FROM credit_payments WHERE credit_id = ?").run(req.params.id);
+  db.prepare("DELETE FROM credits WHERE id = ?").run(req.params.id);
+  res.redirect("/records/credits");
+});
+
+router.get("/credits/:id/print", (req, res) => {
+  const record = db.prepare(
+    `SELECT credits.*, vehicles.vehicle_number, vehicles.owner_name, vehicles.phone,
+            credit_export.receipt_no as trip_receipt_no,
+            COALESCE(credits.trip_date, credit_export.export_date) as trip_date,
+            checked_staff.full_name as checked_by_staff_name
+     FROM credits
+     JOIN vehicles ON credits.vehicle_id = vehicles.id
+     LEFT JOIN exports as credit_export ON credits.export_id = credit_export.id
+     LEFT JOIN staff as checked_staff ON credits.checked_by_staff_id = checked_staff.id
+     WHERE credits.id = ?
+       AND vehicles.is_company = 0`
+  ).get(req.params.id);
+  if (!record) return res.redirect("/records/credits");
+  res.render("records/credit_print", { title: req.t("creditsTitle"), record });
+});
+
+router.get("/credits/:id/payments", (req, res) => {
+  const record = db.prepare(
+    `SELECT credits.*, vehicles.vehicle_number, vehicles.owner_name, vehicles.phone,
+            credit_export.receipt_no as trip_receipt_no,
+            COALESCE(credits.trip_date, credit_export.export_date) as trip_date,
+            checked_staff.full_name as checked_by_staff_name
+     FROM credits
+     JOIN vehicles ON credits.vehicle_id = vehicles.id
+     LEFT JOIN exports as credit_export ON credits.export_id = credit_export.id
+     LEFT JOIN staff as checked_staff ON credits.checked_by_staff_id = checked_staff.id
+     WHERE credits.id = ?
+       AND vehicles.is_company = 0`
+  ).get(req.params.id);
+  if (!record) return res.redirect("/records/credits");
+
+  const payments = db.prepare(
+    `SELECT credit_payments.*, users.full_name
+     FROM credit_payments
+     LEFT JOIN users ON credit_payments.created_by = users.id
+     WHERE credit_payments.credit_id = ?
+     ORDER BY credit_payments.paid_at DESC, credit_payments.id DESC`
+  ).all(req.params.id);
+
+  const paymentTotals = db.prepare(
+    "SELECT COALESCE(SUM(amount), 0) as total_paid FROM credit_payments WHERE credit_id = ?"
+  ).get(req.params.id);
+
+  res.render("records/credit_payments", {
+    title: req.t("paymentHistoryTitle"),
+    record,
+    payments,
+    paymentTotals
+  });
+});
+
+router.get("/credits/export", (req, res) => {
+  const from = req.query.from || dayjs().subtract(7, "day").format("YYYY-MM-DD");
+  const to = req.query.to || dayjs().format("YYYY-MM-DD");
+  const statusRaw = req.query.status || "all";
+  const status = ["all", "paid", "unpaid", "partial"].includes(statusRaw) ? statusRaw : "all";
+  let statusClause = "";
+  if (status === "paid") statusClause = "AND credits.paid_amount >= credits.amount";
+  if (status === "unpaid") statusClause = "AND credits.paid_amount <= 0";
+  if (status === "partial") statusClause = "AND credits.paid_amount > 0 AND credits.paid_amount < credits.amount";
+  const q = (req.query.q || "").trim();
+  const sortRaw = req.query.sort || "date_desc";
+  const sortMap = {
+    date_desc: "credit_date DESC, credits.created_at DESC",
+    date_asc: "credit_date ASC, credits.created_at ASC",
+    amount_desc: "credits.amount DESC",
+    amount_asc: "credits.amount ASC",
+    jars_desc: "credits.credit_jars DESC",
+    paid_first: "credits.paid DESC, credits.created_at DESC",
+    unpaid_first: "credits.paid ASC, credits.created_at DESC",
+    paid_amount_desc: "credits.paid_amount DESC",
+    remaining_desc: "(credits.amount - credits.paid_amount) DESC"
+  };
+  const sort = sortMap[sortRaw] ? sortRaw : "date_desc";
+  const orderBy = sortMap[sort];
+  const searchClause = q ? "AND (vehicles.vehicle_number LIKE ? OR credits.customer_name LIKE ?)" : "";
+  const params = q ? [from, to, `%${q}%`, `%${q}%`] : [from, to];
+
+  const creditsRows = db.prepare(
+    `SELECT credits.credit_date, credits.receipt_no, vehicles.vehicle_number, vehicles.owner_name, credits.customer_name,
+            credit_export.receipt_no as trip_receipt_no,
+            COALESCE(credits.trip_date, credit_export.export_date) as trip_date,
+            credits.amount, credits.paid_amount,
+            CASE WHEN credits.amount - credits.paid_amount < 0 THEN 0 ELSE credits.amount - credits.paid_amount END AS remaining_amount,
+            credits.credit_jars, credits.credit_bottle_cases, credits.credit_dispensers, credits.credit_jar_containers,
+            credits.jar_price, credits.bottle_case_price, credits.dispenser_price, credits.jar_container_price
+     FROM credits
+     JOIN vehicles ON credits.vehicle_id = vehicles.id
+     LEFT JOIN exports as credit_export ON credits.export_id = credit_export.id
+     WHERE credit_date BETWEEN ? AND ?
+     AND vehicles.is_company = 0
+     ${statusClause}
+     ${searchClause}
+     ORDER BY ${orderBy}`
+  ).all(...params);
+
+  const header = "Date,Receipt No,Trip Receipt,Trip Date,Vehicle Number,Owner Name,Customer,Amount,Paid Amount,Remaining Amount,Credit Jars,Bottle Cases,Credit Dispensers,Credit Jar Containers,Jar Price,Bottle Case Price,Dispenser Price,Jar Container Price,Status";
+  const lines = creditsRows.map((row) => {
+    const statusLabel = row.paid_amount >= row.amount ? "Paid" : row.paid_amount > 0 ? "Partial" : "Unpaid";
+    const safe = [
+      row.credit_date,
+      row.receipt_no || "",
+      row.trip_receipt_no || "",
+      row.trip_date || "",
+      row.vehicle_number,
+      row.owner_name,
+      row.customer_name,
+      row.amount,
+      row.paid_amount,
+      row.remaining_amount,
+      row.credit_jars,
+      row.credit_bottle_cases,
+      row.credit_dispensers || 0,
+      row.credit_jar_containers || 0,
+      row.jar_price || 0,
+      row.bottle_case_price || 0,
+      row.dispenser_price || 0,
+      row.jar_container_price || 0,
+      statusLabel
+    ].map((val) => {
+      const str = String(val ?? "").replace(/\"/g, "\"\"");
+      return `"${str}"`;
+    });
+    return safe.join(",");
+  });
+
+  const csv = [header, ...lines].join("\n");
+  res.setHeader("Content-Type", "text/csv");
+  res.setHeader("Content-Disposition", `attachment; filename="credits_${from}_to_${to}.csv"`);
+  res.send(csv);
+});
+
+module.exports = router;

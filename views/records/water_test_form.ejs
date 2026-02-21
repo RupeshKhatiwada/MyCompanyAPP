@@ -1,0 +1,87 @@
+<%- include('../partials/shell-start', { title }) %>
+<section class="py-8">
+  <div class="flex items-center justify-between">
+    <div>
+      <h1 class="text-3xl font-semibold"><%= record ? t('editWaterTestTitle') : t('addWaterTestTitle') %></h1>
+      <p class="text-slate-600"><%= t('waterTestFormSubtitle') %></p>
+    </div>
+    <a class="btn-outline" href="/records/water-tests"><%= t('back') %></a>
+  </div>
+
+  <div class="mt-6 card p-6">
+    <% if (error) { %>
+      <div class="mb-4 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700"><%= error %></div>
+    <% } %>
+    <form
+      method="post"
+      action="<%= record ? ('/records/water-tests/' + record.id) : '/records/water-tests' %>"
+      enctype="multipart/form-data"
+      class="space-y-4"
+    >
+      <div class="card p-5">
+        <h2 class="text-base font-semibold"><%= t('companyTestSectionTitle') %></h2>
+        <p class="mt-1 text-sm text-slate-600"><%= t('companyTestSectionSubtitle') %></p>
+        <div class="mt-4 grid gap-4 md:grid-cols-2">
+          <div>
+            <label class="label"><%= t('date') %></label>
+            <input class="input" type="date" name="test_date" value="<%= record ? record.test_date : defaultDate %>" required />
+          </div>
+          <div>
+            <label class="label">pH</label>
+            <input class="input" type="number" step="0.01" min="0" name="ph_value" value="<%= record ? record.ph_value : 0 %>" required />
+          </div>
+          <div>
+            <label class="label">TDS</label>
+            <input class="input" type="number" step="0.01" min="0" name="tds_value" value="<%= record ? record.tds_value : 0 %>" required />
+          </div>
+          <div>
+            <label class="label"><%= t('coliform') %></label>
+            <input class="input" type="text" name="coliform" value="<%= record ? (record.coliform || '') : '' %>" placeholder="<%= t('coliformPlaceholder') %>" />
+          </div>
+          <div class="md:col-span-2">
+            <label class="label"><%= t('forensicReport') %></label>
+            <input class="input" type="file" name="forensic_report" accept="image/*,application/pdf" />
+            <p class="mt-1 text-xs text-slate-500"><%= t('reportFileHint') %></p>
+            <% if (record && record.forensic_report_path) { %>
+              <div class="mt-2 flex flex-wrap items-center gap-2">
+                <a class="btn-outline" href="<%= record.forensic_report_path %>" target="_blank"><%= t('viewCurrentFile') %></a>
+                <label class="inline-flex items-center gap-2 text-xs text-slate-600">
+                  <input type="checkbox" name="remove_forensic" />
+                  <span><%= t('removeCurrentFile') %></span>
+                </label>
+              </div>
+            <% } %>
+          </div>
+        </div>
+      </div>
+
+      <div class="card p-5">
+        <h2 class="text-base font-semibold"><%= t('externalLabSectionTitle') %></h2>
+        <p class="mt-1 text-sm text-slate-600"><%= t('externalLabSectionSubtitle') %></p>
+        <div class="mt-4 grid gap-4 md:grid-cols-2">
+          <div class="md:col-span-2">
+            <label class="label"><%= t('governmentReport') %></label>
+            <input class="input" type="file" name="government_report" accept="image/*,application/pdf" />
+            <p class="mt-1 text-xs text-slate-500"><%= t('reportFileHint') %></p>
+            <% if (record && record.government_report_path) { %>
+              <div class="mt-2 flex flex-wrap items-center gap-2">
+                <a class="btn-outline" href="<%= record.government_report_path %>" target="_blank"><%= t('viewCurrentFile') %></a>
+                <label class="inline-flex items-center gap-2 text-xs text-slate-600">
+                  <input type="checkbox" name="remove_government" />
+                  <span><%= t('removeCurrentFile') %></span>
+                </label>
+              </div>
+            <% } %>
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <label class="label"><%= t('note') %></label>
+        <textarea class="input min-h-[92px]" name="note"><%= record ? (record.note || '') : '' %></textarea>
+      </div>
+      <button class="btn-primary" type="submit"><%= t('save') %></button>
+    </form>
+  </div>
+</section>
+<%- include('../partials/shell-end') %>

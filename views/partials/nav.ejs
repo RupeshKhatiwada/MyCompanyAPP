@@ -1,0 +1,238 @@
+<% const user = currentUser; %>
+<% const isAdmin = user && (user.role === 'ADMIN' || user.role === 'SUPER_ADMIN'); %>
+<% const isSuper = user && user.role === 'SUPER_ADMIN'; %>
+<% const roleLabel = user ? (user.role === 'SUPER_ADMIN' ? t('roleSuper') : user.role === 'ADMIN' ? t('roleAdmin') : t('workersTitle')) : ''; %>
+<header class="sticky top-0 z-50 border-b border-slate-200/80 bg-white/90 backdrop-blur shadow-sm">
+  <div class="mx-auto flex w-full max-w-6xl flex-wrap items-center justify-between gap-6 px-4 py-4">
+    <div class="flex items-center gap-3">
+      <a class="flex items-center gap-3" href="/">
+        <div class="h-10 w-10 rounded-xl bg-white/90 ring-1 ring-slate-200 flex items-center justify-center overflow-hidden">
+          <% if (logoPath) { %>
+            <img src="<%= logoPath %>" alt="logo" class="h-10 w-10 object-contain" />
+          <% } else { %>
+            <span class="text-sm font-bold text-aqua-700">A</span>
+          <% } %>
+        </div>
+        <div>
+          <% if (brandWordmarkPath) { %>
+            <img src="<%= brandWordmarkPath %>" alt="AQUA MSK" class="h-6 w-auto object-contain" />
+          <% } else { %>
+            <p class="text-lg font-semibold">AQUA MSK</p>
+          <% } %>
+          <p class="text-xs text-slate-500"><%= t('brandTagline') %></p>
+        </div>
+      </a>
+      <% if (isSuper) { %>
+        <details class="relative">
+          <summary class="btn-outline text-xs"><%= t('editBranding') %></summary>
+          <div class="absolute left-0 mt-2 w-72 card p-4 shadow-lg">
+            <p class="text-xs font-semibold text-slate-600"><%= t('logoImageTitle') %></p>
+            <form method="post" action="/admin/logo" enctype="multipart/form-data" class="mt-2 space-y-2">
+              <input class="input h-9" type="file" name="logo_file" accept="image/*" required />
+              <button class="btn-outline w-full" type="submit"><%= t('uploadLogo') %></button>
+            </form>
+            <% if (logoPath) { %>
+              <form method="post" action="/admin/logo/delete" class="mt-2">
+                <button class="btn-danger w-full" type="submit"><%= t('deleteLogo') %></button>
+              </form>
+            <% } %>
+            <div class="mt-4 border-t border-slate-200 pt-3">
+              <p class="text-xs font-semibold text-slate-600"><%= t('brandWordmarkTitle') %></p>
+              <form method="post" action="/admin/brand-image" enctype="multipart/form-data" class="mt-2 space-y-2">
+                <input class="input h-9" type="file" name="brand_file" accept="image/*" required />
+                <button class="btn-outline w-full" type="submit"><%= t('uploadBrandImage') %></button>
+              </form>
+              <% if (brandWordmarkPath) { %>
+                <form method="post" action="/admin/brand-image/delete" class="mt-2">
+                  <button class="btn-danger w-full" type="submit"><%= t('deleteBrandImage') %></button>
+                </form>
+              <% } %>
+            </div>
+          </div>
+        </details>
+      <% } %>
+    </div>
+
+    <div class="flex items-center gap-3">
+      <% if (user) { %>
+        <button id="menuToggle" class="btn-outline" type="button" aria-haspopup="true" aria-expanded="false">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h16"/>
+          </svg>
+          <span class="ml-2 text-xs font-semibold"><%= t('menu') %></span>
+        </button>
+      <% } %>
+      <div class="text-right">
+        <p class="text-sm font-semibold"><%= user ? user.full_name : '' %></p>
+        <p class="text-xs text-slate-500"><%= roleLabel %></p>
+      </div>
+      <form method="post" action="/logout" onsubmit="return confirm('<%= t('logoutConfirm') %>');">
+        <button class="btn-outline" type="submit">Logout</button>
+      </form>
+    </div>
+  </div>
+</header>
+
+<% if (user) { %>
+  <div id="menuPanel" class="fixed inset-0 z-50 hidden" hidden>
+    <div class="absolute inset-0 bg-slate-900/30" data-close></div>
+    <div class="absolute right-4 top-4 w-full max-w-sm drawer p-4">
+      <div class="flex items-center justify-between">
+        <div>
+          <p class="text-sm font-semibold"><%= t('menu') %></p>
+          <p class="text-xs text-slate-500">AQUA MSK</p>
+        </div>
+        <button class="btn-outline" type="button" data-close><%= t('close') %></button>
+      </div>
+      <div class="mt-4 space-y-3 text-sm">
+        <% if (isAdmin) { %>
+          <div>
+            <p class="pill"><%= t('menuOperations') %></p>
+            <div class="mt-2 grid gap-2">
+              <a class="btn-outline" href="/admin"><%= t('dashboard') %></a>
+              <a class="btn-outline" href="/search"><%= t('search') %></a>
+              <a class="btn-outline" href="/records/exports"><%= t('exports') %></a>
+              <a class="btn-outline" href="/records/credits"><%= t('credits') %></a>
+              <a class="btn-outline" href="/records/water-tests"><%= t('waterTestsTitle') %></a>
+              <a class="btn-outline" href="/records/imports"><%= t('importsTitle') %></a>
+              <a class="btn-outline" href="/admin/import-item-types"><%= t('importItemTypesTitle') %></a>
+              <a class="btn-outline" href="/admin/jar-types"><%= t('jarTypesTitle') %></a>
+              <a class="btn-outline" href="/admin/jar-cap-types"><%= t('jarCapTypesTitle') %></a>
+              <a class="btn-outline" href="/records/jar-sales"><%= t('jarSalesTitle') %></a>
+              <a class="btn-outline" href="/records/company-purchases"><%= t('companyPurchasesTitle') %></a>
+              <a class="btn-outline" href="/records/vehicle-expenses"><%= t('vehicleExpensesTitle') %></a>
+              <a class="btn-outline" href="/admin/savings"><%= t('savingsTitle') %></a>
+              <a class="btn-outline" href="/admin/sales"><%= t('dailySales') %></a>
+              <a class="btn-outline" href="/admin/settings"><%= t('settingsTitle') %></a>
+            </div>
+          </div>
+          <div>
+            <p class="pill"><%= t('menuPeopleAccess') %></p>
+            <div class="mt-2 grid gap-2">
+              <a class="btn-outline" href="/admin/vehicles"><%= t('vehicles') %></a>
+              <a class="btn-outline" href="/admin/workers"><%= t('workers') %></a>
+              <a class="btn-outline" href="/admin/staffs"><%= t('staffsTitle') %></a>
+              <a class="btn-outline" href="/admin/staff-roles"><%= t('manageStaffRoles') %></a>
+              <a class="btn-outline" href="/admin/worker-attendance"><%= t('workerAttendanceTitle') %></a>
+              <% if (isSuper) { %>
+                <a class="btn-outline" href="/admin/admins"><%= t('admins') %></a>
+              <% } %>
+              <a class="btn-outline" href="/worker"><%= t('workerView') %></a>
+              <a class="btn-outline" href="/admin/profile"><%= t('profileTitle') %></a>
+              <% if (isSuper) { %>
+                <a class="btn-outline" href="/admin/recovery"><%= t('recoveryTitle') %></a>
+              <% } %>
+            </div>
+          </div>
+          <div>
+            <p class="pill"><%= t('menuInsights') %></p>
+            <div class="mt-2 grid gap-2">
+              <a class="btn-outline" href="/admin/alerts"><%= t('alertCenterTitle') %></a>
+              <a class="btn-outline" href="/admin/recycle-bin"><%= t('recycleBinTitle') %></a>
+              <a class="btn-outline" href="/admin/reports/all"><%= t('allReportsTitle') %></a>
+              <a class="btn-outline" href="/admin/activity"><%= t('activityLogTitle') %></a>
+              <a class="btn-outline" href="/admin/backup"><%= t('backup') %></a>
+              <a class="btn-outline" href="/admin/windows-kit"><%= t('windowsKitTitle') %></a>
+            </div>
+          </div>
+        <% } %>
+          <% if (!isAdmin) { %>
+          <div>
+            <p class="pill"><%= t('menuRecords') %></p>
+            <div class="mt-2 grid gap-2">
+              <a class="btn-outline" href="/worker"><%= t('home') %></a>
+              <a class="btn-outline" href="/records/exports"><%= t('exports') %></a>
+              <a class="btn-outline" href="/records/imports"><%= t('importsTitle') %></a>
+              <a class="btn-outline" href="/records/credits"><%= t('credits') %></a>
+              <a class="btn-outline" href="/records/water-tests"><%= t('waterTestsTitle') %></a>
+              <a class="btn-outline" href="/records/vehicles"><%= t('vehicles') %></a>
+              <a class="btn-outline" href="/records/jar-sales"><%= t('jarSalesTitle') %></a>
+              <a class="btn-outline" href="/records/company-purchases"><%= t('companyPurchasesTitle') %></a>
+              <a class="btn-outline" href="/records/vehicle-expenses"><%= t('vehicleExpensesTitle') %></a>
+              <a class="btn-outline" href="/records/staffs"><%= t('staffsTitle') %></a>
+              <a class="btn-outline" href="/records/staff-attendance"><%= t('staffAttendanceTitle') %></a>
+              <a class="btn-outline" href="/records/savings"><%= t('savingsTitle') %></a>
+              <a class="btn-outline" href="/search"><%= t('search') %></a>
+              <a class="btn-outline" href="/records/profile"><%= t('profileTitle') %></a>
+            </div>
+          </div>
+          <% } %>
+          <div>
+            <p class="pill"><%= t('preferencesTitle') %></p>
+            <div class="mt-2 flex flex-wrap gap-2">
+              <a class="btn-outline <%= lang === 'en' ? 'bg-slate-100' : '' %>" href="/lang/en">EN</a>
+              <a class="btn-outline <%= lang === 'ne' ? 'bg-slate-100' : '' %>" href="/lang/ne">ने</a>
+              <button class="btn-outline font-size-toggle" type="button" data-font-size="sm" title="<%= t('fontSmall') %>">A-</button>
+              <button class="btn-outline font-size-toggle" type="button" data-font-size="md" title="<%= t('fontMedium') %>">A</button>
+              <button class="btn-outline font-size-toggle" type="button" data-font-size="lg" title="<%= t('fontLarge') %>">A+</button>
+            </div>
+          </div>
+        </div>
+      </div>
+  </div>
+  <script>
+    (function () {
+      var toggle = document.getElementById('menuToggle');
+      var panel = document.getElementById('menuPanel');
+      if (!toggle || !panel) return;
+      function openPanel() {
+        panel.hidden = false;
+        panel.classList.remove('hidden');
+        toggle.setAttribute('aria-expanded', 'true');
+      }
+      function closePanel() {
+        panel.classList.add('hidden');
+        panel.hidden = true;
+        toggle.setAttribute('aria-expanded', 'false');
+      }
+      toggle.addEventListener('click', function () {
+        if (panel.hidden || panel.classList.contains('hidden')) {
+          openPanel();
+        } else {
+          closePanel();
+        }
+      });
+      panel.addEventListener('click', function (event) {
+        if (event.target && event.target.dataset && event.target.dataset.close !== undefined) {
+          closePanel();
+        }
+      });
+      document.addEventListener('keydown', function (event) {
+        if (event.key === 'Escape') closePanel();
+      });
+    })();
+  </script>
+<% } %>
+<script>
+  (function () {
+    function initFontToggles() {
+      var buttons = document.querySelectorAll('.font-size-toggle');
+      if (!buttons.length) return;
+      function setActive(size) {
+        buttons.forEach(function (btn) {
+          if (btn.dataset.fontSize === size) {
+            btn.classList.add('bg-slate-100');
+          } else {
+            btn.classList.remove('bg-slate-100');
+          }
+        });
+      }
+      var current = document.documentElement.dataset.fontSize || 'md';
+      setActive(current);
+      buttons.forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          var size = btn.dataset.fontSize || 'md';
+          document.documentElement.dataset.fontSize = size;
+          try { localStorage.setItem('fontSize', size); } catch (e) {}
+          setActive(size);
+        });
+      });
+    }
+
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', initFontToggles);
+    } else {
+      initFontToggles();
+    }
+  })();
+</script>

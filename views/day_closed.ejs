@@ -1,0 +1,9 @@
+<%- include('partials/shell-start', { title }) %>
+<section class="py-16 text-center">
+  <h1 class="text-3xl font-semibold"><%= t('dayClosedTitle') %></h1>
+  <p class="mt-2 text-slate-600"><%= t('dayClosedText', { date: closureDate }) %></p>
+  <div class="mt-6">
+    <a class="btn-primary" href="<%= backUrl %>"><%= t('back') %></a>
+  </div>
+</section>
+<%- include('partials/shell-end') %>

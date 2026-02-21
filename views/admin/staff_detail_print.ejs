@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="<%= lang %>">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title><%= title %> | AQUA MSK</title>
+  <link rel="stylesheet" href="/css/styles.css?v=<%= assetVersion %>" />
+  <style>
+    @media print { .print-hidden { display: none !important; } }
+  </style>
+</head>
+<body class="bg-white text-slate-900">
+  <% const attendance = attendanceSummary || { present_days: 0, absent_days: 0, marked_days: 0 }; %>
+  <div class="mx-auto max-w-5xl p-6">
+    <div class="flex items-start justify-between gap-4">
+      <div class="flex-1">
+        <%- include('../partials/print-brand', { subtitle: title }) %>
+      </div>
+      <div class="print-hidden flex flex-wrap gap-2">
+        <button class="btn-outline" onclick="window.print()"><%= t('downloadPdf') %></button>
+        <button class="btn-primary" onclick="window.print()"><%= t('print') %></button>
+      </div>
+    </div>
+    <p class="mt-2 text-xs text-slate-500 print-hidden"><%= t('printOrSavePdfHint') %></p>
+
+    <div class="mt-6 card p-6">
+      <div class="grid gap-4 sm:grid-cols-2 text-sm">
+        <div class="sm:col-span-2 flex items-center gap-4">
+          <% if (staff.photo_path) { %>
+            <img src="<%= staff.photo_path %>" alt="staff" class="h-16 w-16 rounded-full object-cover border border-slate-200" />
+          <% } else { %>
+            <div class="h-16 w-16 rounded-full bg-slate-200"></div>
+          <% } %>
+          <div>
+            <p class="text-slate-500"><%= t('fullName') %></p>
+            <p class="font-semibold"><%= staff.full_name %></p>
+          </div>
+        </div>
+        <div>
+          <p class="text-slate-500"><%= t('staffRole') %></p>
+          <p class="font-semibold"><%= staff.role_label || (staff.staff_role ? t('staffRole' + staff.staff_role) : '-') %></p>
+        </div>
+        <div>
+          <p class="text-slate-500"><%= t('phone') %></p>
+          <p class="font-semibold"><%= staff.phone || '-' %></p>
+        </div>
+        <div>
+          <p class="text-slate-500"><%= t('startDate') %></p>
+          <p class="font-semibold"><%= staff.start_date || '-' %></p>
+        </div>
+        <div>
+          <p class="text-slate-500"><%= t('monthlySalary') %></p>
+          <p class="font-semibold"><%= staff.monthly_salary || 0 %></p>
+        </div>
+        <div>
+          <p class="text-slate-500"><%= t('dueSalary') %></p>
+          <p class="font-semibold"><%= dueSalary %></p>
+        </div>
+        <div>
+          <p class="text-slate-500"><%= t('attendanceDays') %></p>
+          <p class="font-semibold"><%= attendance.present_days %></p>
+        </div>
+      </div>
+    </div>
+
+    <div class="mt-6 card p-6">
+      <h2 class="text-lg font-semibold"><%= t('salarySummary') %></h2>
+      <div class="mt-3 grid gap-3 text-sm sm:grid-cols-3">
+        <div class="card p-4">
+          <p class="text-slate-500"><%= t('totalPaid') %></p>
+          <p class="text-lg font-semibold"><%= totals.total %></p>
+        </div>
+        <div class="card p-4">
+          <p class="text-slate-500"><%= t('salaryPaid') %></p>
+          <p class="text-lg font-semibold"><%= totals.salary %></p>
+        </div>
+        <div class="card p-4">
+          <p class="text-slate-500"><%= t('advancePaid') %></p>
+          <p class="text-lg font-semibold"><%= totals.advance %></p>
+        </div>
+      </div>
+    </div>
+
+    <div class="mt-6 card p-6">
+      <h2 class="text-lg font-semibold"><%= t('staffDocuments') %></h2>
+      <% if (!document) { %>
+        <p class="mt-2 text-sm text-slate-500"><%= t('noDocuments') %></p>
+      <% } else { %>
+        <p class="mt-2 text-sm text-slate-600">
+          <%= t('documentType') %>: <%= t(document.doc_type === 'CITIZENSHIP' ? 'docCitizenship' : document.doc_type === 'LICENSE' ? 'docLicense' : 'docPassport') %>
+        </p>
+        <div class="mt-3 grid gap-3 sm:grid-cols-2">
+          <% if (document.front_path) { %>
+            <img src="<%= document.front_path %>" alt="front" class="rounded-lg border border-slate-200" />
+          <% } %>
+          <% if (document.back_path) { %>
+            <img src="<%= document.back_path %>" alt="back" class="rounded-lg border border-slate-200" />
+          <% } %>
+        </div>
+      <% } %>
+    </div>
+
+    <div class="mt-6 card p-6">
+      <h2 class="text-lg font-semibold"><%= t('salaryHistory') %></h2>
+      <div class="mt-3 overflow-x-auto">
+        <table class="table-base text-sm">
+          <thead class="table-head">
+            <tr>
+              <th class="px-4 py-3"><%= t('date') %></th>
+              <th class="px-4 py-3"><%= t('receiptNo') %></th>
+              <th class="px-4 py-3"><%= t('paymentType') %></th>
+              <th class="px-4 py-3"><%= t('amount') %></th>
+              <th class="px-4 py-3"><%= t('note') %></th>
+              <th class="px-4 py-3"><%= t('recordedBy') %></th>
+            </tr>
+          </thead>
+          <tbody>
+            <% if (!payments || payments.length === 0) { %>
+              <tr>
+                <td class="px-4 py-4 text-slate-500" colspan="6"><%= t('noSalaryHistory') %></td>
+              </tr>
+            <% } %>
+            <% payments.forEach((pay) => { %>
+              <tr class="table-row">
+                <td class="px-4 py-3"><%= pay.payment_date %></td>
+                <td class="px-4 py-3"><%= pay.receipt_no || (`#${pay.id}`) %></td>
+                <td class="px-4 py-3"><%= pay.payment_type === 'SALARY' ? t('salaryPaid') : t('advancePaid') %></td>
+                <td class="px-4 py-3"><%= pay.amount %></td>
+                <td class="px-4 py-3"><%= pay.note || '-' %></td>
+                <td class="px-4 py-3"><%= pay.recorded_by || '-' %></td>
+              </tr>
+            <% }) %>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

@@ -1,0 +1,44 @@
+<%- include('../partials/shell-start', { title }) %>
+<section class="py-8">
+  <div class="flex items-center justify-between gap-3">
+    <div>
+      <h1 class="text-3xl font-semibold"><%= type ? t('editImportItemTypeTitle') : t('addImportItemTypeTitle') %></h1>
+      <p class="text-slate-600"><%= t('importItemTypeFormSubtitle') %></p>
+    </div>
+    <a class="btn-outline" href="/admin/import-item-types"><%= t('back') %></a>
+  </div>
+
+  <div class="mt-6 card p-6">
+    <% if (error) { %>
+      <div class="mb-4 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700"><%= error %></div>
+    <% } %>
+    <form method="post" action="<%= type ? '/admin/import-item-types/' + type.id : '/admin/import-item-types' %>" class="space-y-4">
+      <div>
+        <label class="label"><%= t('itemType') %></label>
+        <input class="input" type="text" name="name" value="<%= type ? type.name : '' %>" required />
+      </div>
+      <% if (type) { %>
+        <div>
+          <label class="label">Code</label>
+          <input class="input" type="text" value="<%= type.code %>" disabled />
+        </div>
+      <% } %>
+      <div>
+        <label class="label"><%= t('unit') %></label>
+        <input class="input" type="text" name="unit_label" value="<%= type && type.unit_label ? type.unit_label : '' %>" />
+      </div>
+      <div class="grid gap-3 sm:grid-cols-2">
+        <label class="flex items-center gap-2 text-sm">
+          <input type="checkbox" name="uses_direction" <%= !type || Number(type.uses_direction) === 1 ? 'checked' : '' %> <%= type && type.code === 'JAR_CONTAINER' ? 'disabled' : '' %> />
+          <span><%= t('usedUnused') %></span>
+        </label>
+        <label class="flex items-center gap-2 text-sm">
+          <input type="checkbox" name="is_active" <%= !type || Number(type.is_active) === 1 ? 'checked' : '' %> />
+          <span><%= t('active') %></span>
+        </label>
+      </div>
+      <button class="btn-primary" type="submit"><%= t('save') %></button>
+    </form>
+  </div>
+</section>
+<%- include('../partials/shell-end') %>

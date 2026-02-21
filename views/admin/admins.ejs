@@ -1,0 +1,75 @@
+<%- include('../partials/shell-start', { title }) %>
+<section class="py-8">
+  <div class="flex flex-wrap items-center justify-between gap-3">
+    <div>
+      <h1 class="text-3xl font-semibold"><%= t('adminsTitle') %></h1>
+      <p class="text-slate-600"><%= t('adminsSubtitle') %></p>
+    </div>
+    <a class="btn-primary" href="/admin/admins/new"><%= t('addAdminTitle') %></a>
+  </div>
+
+  <div class="mt-6 card overflow-hidden">
+    <% if (success) { %>
+      <div class="mx-4 mt-4 rounded-lg bg-emerald-50 px-4 py-3 text-sm text-emerald-700"><%= success %></div>
+    <% } %>
+    <div class="overflow-x-auto">
+      <table class="table-base">
+        <thead class="table-head">
+          <tr>
+            <th class="px-4 py-3"><%= t('name') %></th>
+            <th class="px-4 py-3"><%= t('username') %></th>
+            <th class="px-4 py-3"><%= t('phone') %></th>
+            <th class="px-4 py-3"><%= t('role') %></th>
+            <th class="px-4 py-3"><%= t('status') %></th>
+            <th class="px-4 py-3 text-right"><%= t('actions') %></th>
+          </tr>
+        </thead>
+        <tbody>
+          <% if (admins.length === 0) { %>
+            <tr>
+              <td class="px-4 py-4 text-slate-500" colspan="6"><%= t('noAdmins') %></td>
+            </tr>
+          <% } %>
+          <% admins.forEach((admin) => { %>
+            <tr class="table-row">
+              <td class="px-4 py-3"><%= admin.full_name %></td>
+              <td class="px-4 py-3"><%= admin.username %></td>
+              <td class="px-4 py-3"><%= admin.phone || '-' %></td>
+              <td class="px-4 py-3">
+                <span class="badge <%= admin.role === 'SUPER_ADMIN' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600' %>"><%= admin.role === 'SUPER_ADMIN' ? t('roleSuper') : t('roleAdmin') %></span>
+              </td>
+              <td class="px-4 py-3">
+                <% if (Number(admin.is_active) === 1) { %>
+                  <span class="badge bg-emerald-100 text-emerald-700"><%= t('active') %></span>
+                <% } else { %>
+                  <span class="badge bg-red-100 text-red-700"><%= t('inactive') %></span>
+                <% } %>
+              </td>
+              <td class="px-4 py-3 text-right">
+                <div class="flex justify-end gap-2">
+                  <% if (admin.id !== currentUser.id) { %>
+                    <form method="post" action="/admin/admins/<%= admin.id %>/role">
+                      <button class="btn-outline" type="submit"><%= admin.role === 'SUPER_ADMIN' ? t('makeAdmin') : t('makeSuper') %></button>
+                    </form>
+                    <% if (Number(admin.is_active) === 1) { %>
+                      <form method="post" action="/admin/admins/<%= admin.id %>/delete" onsubmit="return confirm('<%= t('deactivateAdminConfirm') %>');">
+                        <button class="btn-danger" type="submit"><%= t('deactivate') %></button>
+                      </form>
+                    <% } else { %>
+                      <form method="post" action="/admin/admins/<%= admin.id %>/activate" onsubmit="return confirm('<%= t('activateAdminConfirm') %>');">
+                        <button class="btn-primary" type="submit"><%= t('activate') %></button>
+                      </form>
+                    <% } %>
+                  <% } else { %>
+                    <span class="text-xs text-slate-400"><%= t('youTag') %></span>
+                  <% } %>
+                </div>
+              </td>
+            </tr>
+          <% }) %>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+<%- include('../partials/shell-end') %>

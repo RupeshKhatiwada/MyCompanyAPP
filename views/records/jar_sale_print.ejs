@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="<%= lang %>">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title><%= t('jarSalesTitle') %> | AQUA MSK</title>
+  <link rel="stylesheet" href="/css/styles.css?v=<%= assetVersion %>" />
+  <style>
+    @media print { .print-hidden { display: none !important; } }
+  </style>
+</head>
+<body class="bg-white text-slate-900">
+  <div class="mx-auto max-w-3xl p-6">
+    <div class="flex items-center justify-between gap-4">
+      <div class="flex-1">
+        <%- include('../partials/print-brand', { subtitle: t('jarSalesTitle') }) %>
+      </div>
+      <button class="btn-primary print-hidden" onclick="window.print()"><%= t('print') %></button>
+    </div>
+
+    <div class="mt-6 card p-6">
+      <div class="grid gap-4 sm:grid-cols-2 text-sm">
+        <div>
+          <p class="text-slate-500"><%= t('jarType') %></p>
+          <p class="font-semibold"><%= record.jar_name %></p>
+        </div>
+        <div>
+          <p class="text-slate-500"><%= t('personName') %></p>
+          <p class="font-semibold"><%= record.customer_name || '-' %></p>
+        </div>
+        <% const vehicleNo = record.vehicle_number_ref || record.vehicle_number || '-'; %>
+        <% const vehicleLabel = record.owner_name ? `${record.owner_name} • ${vehicleNo}` : vehicleNo; %>
+        <div>
+          <p class="text-slate-500"><%= t('vehicleNumber') %></p>
+          <p class="font-semibold">
+            <%= vehicleLabel %>
+            <% if (record.is_company) { %>
+              <span class="ml-2 text-xs text-emerald-700"><%= t('companyVehicle') %></span>
+            <% } %>
+          </p>
+        </div>
+        <div>
+          <p class="text-slate-500"><%= t('date') %></p>
+          <p class="font-semibold"><%= record.sale_date %></p>
+        </div>
+        <div>
+          <p class="text-slate-500"><%= t('quantity') %></p>
+          <p class="font-semibold"><%= record.quantity %></p>
+        </div>
+        <div>
+          <p class="text-slate-500"><%= t('price') %></p>
+          <p class="font-semibold"><%= record.unit_price %></p>
+        </div>
+      </div>
+
+      <div class="mt-6 overflow-hidden rounded-2xl border border-slate-200">
+        <table class="table-base">
+          <thead class="table-head">
+            <tr>
+              <th class="px-4 py-3"><%= t('total') %></th>
+              <th class="px-4 py-3"><%= t('paidAmount') %></th>
+              <th class="px-4 py-3"><%= t('creditAmount') %></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr class="table-row">
+              <td class="px-4 py-3"><%= record.total_amount %></td>
+              <td class="px-4 py-3"><%= record.paid_amount %></td>
+              <td class="px-4 py-3"><%= record.credit_amount %></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <% if (record.note) { %>
+        <p class="mt-4 text-sm text-slate-600"><strong><%= t('note') %>:</strong> <%= record.note %></p>
+      <% } %>
+    </div>
+  </div>
+</body>
+</html>

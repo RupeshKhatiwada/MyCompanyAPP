@@ -1,0 +1,67 @@
+<%- include('../partials/shell-start', { title }) %>
+<section class="py-8">
+  <div class="flex flex-wrap items-center justify-between gap-3">
+    <div>
+      <h1 class="text-3xl font-semibold"><%= t('returnsReportTitle') %></h1>
+      <p class="text-slate-600"><%= t('returnsReportSubtitle') %></p>
+    </div>
+    <div class="flex flex-wrap gap-2">
+      <a class="btn-outline" href="/admin/reports/returns/export?date=<%= date %>"><%= t('exportCsv') %></a>
+      <a class="btn-outline" href="/admin/reports/returns/print?date=<%= date %>" target="_blank"><%= t('print') %></a>
+    </div>
+  </div>
+
+  <form class="mt-4 flex flex-wrap items-end gap-3" method="get" action="/admin/reports/returns">
+    <div>
+      <label class="label"><%= t('date') %></label>
+      <input class="input" type="date" name="date" value="<%= date %>" />
+    </div>
+    <button class="btn-outline" type="submit"><%= t('filter') %></button>
+  </form>
+
+  <div class="mt-6 card overflow-hidden">
+    <div class="overflow-x-auto">
+      <table class="table-base">
+        <thead class="table-head">
+          <tr>
+            <th class="px-4 py-3"><%= t('vehicle') %></th>
+            <th class="px-4 py-3"><%= t('returnJars') %></th>
+            <th class="px-4 py-3"><%= t('leakageJars') %></th>
+            <th class="px-4 py-3"><%= t('returnBottleCases') %></th>
+          </tr>
+        </thead>
+        <tbody>
+          <% if (rows.length === 0) { %>
+            <tr>
+              <td class="px-4 py-4 text-slate-500" colspan="4"><%= t('noData') %></td>
+            </tr>
+          <% } %>
+          <% rows.forEach((row) => { %>
+            <tr class="table-row">
+              <td class="px-4 py-3 font-medium"><%= row.vehicle_number %> - <%= row.owner_name %></td>
+              <td class="px-4 py-3"><%= row.return_jars %></td>
+              <td class="px-4 py-3"><%= row.leakage_jars %></td>
+              <td class="px-4 py-3"><%= row.return_bottles %></td>
+            </tr>
+          <% }) %>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="mt-4 grid gap-3 text-sm sm:grid-cols-3">
+    <div class="card p-4">
+      <p class="text-slate-500"><%= t('totalReturnJars') %></p>
+      <p class="text-lg font-semibold"><%= totals.return_jars %></p>
+    </div>
+    <div class="card p-4">
+      <p class="text-slate-500"><%= t('totalLeakageJars') %></p>
+      <p class="text-lg font-semibold"><%= totals.leakage_jars %></p>
+    </div>
+    <div class="card p-4">
+      <p class="text-slate-500"><%= t('totalReturnBottleCases') %></p>
+      <p class="text-lg font-semibold"><%= totals.return_bottles %></p>
+    </div>
+  </div>
+</section>
+<%- include('../partials/shell-end') %>

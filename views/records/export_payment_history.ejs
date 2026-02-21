@@ -1,0 +1,67 @@
+<%- include('../partials/shell-start', { title }) %>
+<section class="py-8">
+  <div class="flex flex-wrap items-center justify-between gap-3">
+    <div>
+      <h1 class="text-3xl font-semibold"><%= t('exportPaymentHistoryTitle') %></h1>
+      <p class="text-slate-600"><%= t('exportPaymentHistorySubtitle') %></p>
+    </div>
+    <a class="btn-outline" href="/records/exports?from=<%= from %>&to=<%= to %>"><%= t('back') %></a>
+  </div>
+
+  <div class="mt-6 grid gap-3 text-sm sm:grid-cols-3">
+    <div class="card p-4">
+      <p class="text-slate-500"><%= t('vehicle') %></p>
+      <p class="text-lg font-semibold"><%= `${vehicle.owner_name} • ${vehicle.vehicle_number}` %></p>
+    </div>
+    <div class="card p-4">
+      <p class="text-slate-500"><%= t('from') %></p>
+      <p class="text-lg font-semibold"><%= from %></p>
+    </div>
+    <div class="card p-4">
+      <p class="text-slate-500"><%= t('to') %></p>
+      <p class="text-lg font-semibold"><%= to %></p>
+    </div>
+  </div>
+
+  <div class="mt-6 card overflow-hidden">
+    <div class="overflow-x-auto">
+      <table class="table-base">
+        <thead class="table-head">
+          <tr>
+            <th class="px-4 py-3"><%= t('dateTime') %></th>
+            <th class="px-4 py-3"><%= t('date') %></th>
+            <th class="px-4 py-3"><%= t('receiptNo') %></th>
+            <th class="px-4 py-3"><%= t('paymentSource') %></th>
+            <th class="px-4 py-3"><%= t('amount') %></th>
+            <th class="px-4 py-3"><%= t('details') %></th>
+          </tr>
+        </thead>
+        <tbody>
+          <% if (!payments || payments.length === 0) { %>
+            <tr>
+              <td class="px-4 py-4 text-slate-500" colspan="6"><%= t('noPaymentHistory') %></td>
+            </tr>
+          <% } %>
+          <% payments.forEach((row) => { %>
+            <tr class="table-row">
+              <td class="px-4 py-3"><%= row.created_at %></td>
+              <td class="px-4 py-3"><%= row.export_date %></td>
+              <td class="px-4 py-3"><%= row.receipt_no %></td>
+              <td class="px-4 py-3"><%= row.source === 'day' ? t('paymentSourceDay') : t('paymentSourceTrip') %></td>
+              <td class="px-4 py-3"><%= row.payment_amount %></td>
+              <td class="px-4 py-3"><%= row.details || '-' %></td>
+            </tr>
+          <% }) %>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="mt-4 grid gap-3 text-sm sm:grid-cols-2">
+    <div class="card p-4">
+      <p class="text-slate-500"><%= t('totalPaidAmount') %></p>
+      <p class="text-lg font-semibold"><%= totalPaid %></p>
+    </div>
+  </div>
+</section>
+<%- include('../partials/shell-end') %>

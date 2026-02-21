@@ -1,0 +1,50 @@
+<%- include('../partials/shell-start', { title }) %>
+<section class="py-8">
+  <div class="flex flex-wrap items-center justify-between gap-3">
+    <div>
+      <h1 class="text-3xl font-semibold"><%= t('editSavingsEntryTitle') %></h1>
+      <p class="text-slate-600"><%= t('savingsSubtitle') %></p>
+    </div>
+    <div class="flex flex-wrap gap-2">
+      <a class="btn-outline" href="/records/savings"><%= t('back') %></a>
+    </div>
+  </div>
+
+  <div class="mt-6 card p-6 max-w-4xl">
+    <form class="grid gap-3 sm:grid-cols-5" method="post" action="/records/savings/<%= entry.id %>">
+      <div class="sm:col-span-2">
+        <label class="label"><%= t('vehicle') %></label>
+        <select class="input" name="vehicle_id" required>
+          <% vehicles.forEach((vehicle) => { %>
+            <% const label = `${vehicle.owner_name} • ${vehicle.vehicle_number}`; %>
+            <option value="<%= vehicle.id %>" <%= String(vehicle.id) === String(entry.vehicle_id) ? 'selected' : '' %>><%= label %></option>
+          <% }) %>
+        </select>
+      </div>
+      <div>
+        <label class="label"><%= t('savingsType') %></label>
+        <select class="input" name="entry_type" required>
+          <option value="deposit" <%= entryType === 'deposit' ? 'selected' : '' %>><%= t('savingsDeposit') %></option>
+          <option value="withdraw" <%= entryType === 'withdraw' ? 'selected' : '' %>><%= t('savingsWithdraw') %></option>
+        </select>
+      </div>
+      <div>
+        <label class="label"><%= t('amount') %></label>
+        <input class="input" type="number" step="0.01" min="0" name="amount" value="<%= Math.abs(entry.amount) %>" required />
+      </div>
+      <div>
+        <label class="label"><%= t('date') %></label>
+        <input class="input" type="date" name="entry_date" value="<%= entry.entry_date %>" required />
+      </div>
+      <div class="sm:col-span-5">
+        <label class="label"><%= t('note') %></label>
+        <input class="input" type="text" name="note" value="<%= entry.note || '' %>" placeholder="<%= t('optionalNote') %>" />
+      </div>
+      <div class="sm:col-span-5 flex flex-wrap gap-2">
+        <button class="btn-primary" type="submit"><%= t('save') %></button>
+        <a class="btn-outline" href="/records/savings"><%= t('back') %></a>
+      </div>
+    </form>
+  </div>
+</section>
+<%- include('../partials/shell-end') %>

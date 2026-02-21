@@ -1,0 +1,63 @@
+<%- include('../partials/shell-start', { title }) %>
+<section class="py-8">
+  <div class="flex flex-wrap items-center justify-between gap-3">
+    <div>
+      <h1 class="text-3xl font-semibold"><%= t('staffScorecardTitle') %></h1>
+      <p class="text-slate-600"><%= t('staffScorecardSubtitle') %></p>
+    </div>
+    <div class="flex flex-wrap gap-2">
+      <a class="btn-outline" href="/admin/reports/staff-scorecard/print?from=<%= from %>&to=<%= to %>" target="_blank"><%= t('print') %></a>
+    </div>
+  </div>
+
+  <form class="mt-4 flex flex-wrap items-end gap-3" method="get" action="/admin/reports/staff-scorecard">
+    <div>
+      <label class="label"><%= t('from') %></label>
+      <input class="input" type="date" name="from" value="<%= from %>" />
+    </div>
+    <div>
+      <label class="label"><%= t('to') %></label>
+      <input class="input" type="date" name="to" value="<%= to %>" />
+    </div>
+    <button class="btn-outline" type="submit"><%= t('filter') %></button>
+  </form>
+
+  <div class="mt-6 card overflow-hidden">
+    <div class="overflow-x-auto">
+      <table class="table-base">
+        <thead class="table-head">
+          <tr>
+            <th class="px-4 py-3"><%= t('name') %></th>
+            <th class="px-4 py-3"><%= t('role') %></th>
+            <th class="px-4 py-3"><%= t('exportCount') %></th>
+            <th class="px-4 py-3"><%= t('totalExportAmount') %></th>
+            <th class="px-4 py-3"><%= t('creditCount') %></th>
+            <th class="px-4 py-3"><%= t('creditAmount') %></th>
+            <th class="px-4 py-3"><%= t('paymentCount') %></th>
+            <th class="px-4 py-3"><%= t('totalPayments') %></th>
+          </tr>
+        </thead>
+        <tbody>
+          <% if (rows.length === 0) { %>
+            <tr>
+              <td class="px-4 py-4 text-slate-500" colspan="8"><%= t('noData') %></td>
+            </tr>
+          <% } %>
+          <% rows.forEach((row) => { %>
+            <tr class="table-row">
+              <td class="px-4 py-3 font-medium"><%= row.full_name %></td>
+              <td class="px-4 py-3"><%= row.role %></td>
+              <td class="px-4 py-3"><%= row.export_count %></td>
+              <td class="px-4 py-3"><%= row.export_total %></td>
+              <td class="px-4 py-3"><%= row.credit_count %></td>
+              <td class="px-4 py-3"><%= row.credit_total %></td>
+              <td class="px-4 py-3"><%= row.payment_count %></td>
+              <td class="px-4 py-3"><%= row.payment_total %></td>
+            </tr>
+          <% }) %>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+<%- include('../partials/shell-end') %>

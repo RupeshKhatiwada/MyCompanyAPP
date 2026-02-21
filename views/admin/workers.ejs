@@ -1,0 +1,73 @@
+<%- include('../partials/shell-start', { title }) %>
+<section class="py-8">
+  <div class="flex flex-wrap items-center justify-between gap-3">
+    <div>
+      <h1 class="text-3xl font-semibold"><%= t('workersTitle') %></h1>
+      <p class="text-slate-600"><%= t('workersSubtitle') %></p>
+    </div>
+    <a class="btn-primary" href="/admin/workers/new"><%= t('addWorkerTitle') %></a>
+  </div>
+
+  <div class="mt-6 card overflow-hidden">
+    <% if (success) { %>
+      <div class="mx-4 mt-4 rounded-lg bg-emerald-50 px-4 py-3 text-sm text-emerald-700"><%= success %></div>
+    <% } %>
+    <% if (error) { %>
+      <div class="mx-4 mt-4 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700"><%= error %></div>
+    <% } %>
+    <div class="overflow-x-auto">
+      <table class="table-base">
+        <thead class="table-head">
+          <tr>
+            <th class="px-4 py-3"><%= t('name') %></th>
+            <th class="px-4 py-3"><%= t('username') %></th>
+            <th class="px-4 py-3"><%= t('phone') %></th>
+            <th class="px-4 py-3"><%= t('monthlySalary') %></th>
+            <th class="px-4 py-3"><%= t('dueSalary') %></th>
+            <th class="px-4 py-3"><%= t('status') %></th>
+            <th class="px-4 py-3 text-right"><%= t('actions') %></th>
+          </tr>
+        </thead>
+        <tbody>
+          <% if (workers.length === 0) { %>
+            <tr>
+              <td class="px-4 py-4 text-slate-500" colspan="7"><%= t('noWorkers') %></td>
+            </tr>
+          <% } %>
+          <% workers.forEach((worker) => { %>
+            <tr class="table-row">
+              <td class="px-4 py-3"><%= worker.full_name %></td>
+              <td class="px-4 py-3"><%= worker.username %></td>
+              <td class="px-4 py-3"><%= worker.phone || '-' %></td>
+              <td class="px-4 py-3"><%= worker.monthly_salary || 0 %></td>
+              <td class="px-4 py-3"><%= worker.due_salary || 0 %></td>
+              <td class="px-4 py-3">
+                <% if (Number(worker.is_active) === 1) { %>
+                  <span class="badge bg-emerald-100 text-emerald-700"><%= t('active') %></span>
+                <% } else { %>
+                  <span class="badge bg-red-100 text-red-700"><%= t('inactive') %></span>
+                <% } %>
+              </td>
+              <td class="px-4 py-3 text-right">
+                <div class="flex justify-end gap-2">
+                  <a class="btn-outline" href="/admin/workers/<%= worker.id %>"><%= t('manage') %></a>
+                  <a class="btn-outline" href="/admin/workers/<%= worker.id %>/edit"><%= t('edit') %></a>
+                  <% if (Number(worker.is_active) === 1) { %>
+                    <form method="post" action="/admin/workers/<%= worker.id %>/delete" onsubmit="return confirm('<%= t('deactivateWorkerConfirm') %>');">
+                      <button class="btn-danger" type="submit"><%= t('deactivate') %></button>
+                    </form>
+                  <% } else { %>
+                    <form method="post" action="/admin/workers/<%= worker.id %>/activate" onsubmit="return confirm('<%= t('activateWorkerConfirm') %>');">
+                      <button class="btn-primary" type="submit"><%= t('activate') %></button>
+                    </form>
+                  <% } %>
+                </div>
+              </td>
+            </tr>
+          <% }) %>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+<%- include('../partials/shell-end') %>

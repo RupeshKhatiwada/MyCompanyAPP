@@ -1,0 +1,156 @@
+<%- include('../partials/shell-start', { title }) %>
+<section class="py-8">
+  <div class="flex flex-wrap items-center justify-between gap-3">
+    <div>
+      <h1 class="text-3xl font-semibold"><%= t('workerAttendanceTitle') %></h1>
+      <p class="text-slate-600"><%= t('workerAttendanceSubtitle') %></p>
+    </div>
+    <div class="flex flex-wrap gap-2">
+      <a class="btn-outline" href="/admin/worker-attendance/print?from=<%= encodeURIComponent(date) %>&to=<%= encodeURIComponent(date) %>" target="_blank"><%= t('print') %></a>
+    </div>
+  </div>
+
+  <% if (saved) { %>
+    <div class="mt-4 rounded-lg bg-emerald-50 px-4 py-3 text-sm text-emerald-700"><%= saved %></div>
+  <% } %>
+  <% if (iotSaved) { %>
+    <div class="mt-4 rounded-lg bg-emerald-50 px-4 py-3 text-sm text-emerald-700"><%= iotSaved %></div>
+  <% } %>
+  <% if (iotError) { %>
+    <div class="mt-4 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700"><%= iotError %></div>
+  <% } %>
+
+  <form class="mt-4 flex flex-wrap items-end gap-3" method="get" action="/admin/worker-attendance">
+    <div>
+      <label class="label"><%= t('attendanceDate') %></label>
+      <input class="input" type="date" name="date" value="<%= date %>" />
+    </div>
+    <button class="btn-outline" type="submit"><%= t('filter') %></button>
+  </form>
+
+  <div class="mt-6 card overflow-hidden">
+    <form method="post" action="/admin/worker-attendance">
+      <input type="hidden" name="attendance_date" value="<%= date %>" />
+      <div class="overflow-x-auto">
+        <table class="table-base">
+          <thead class="table-head">
+            <tr>
+              <th class="px-4 py-3"><%= t('fullName') %></th>
+              <th class="px-4 py-3"><%= t('status') %></th>
+            </tr>
+          </thead>
+          <tbody>
+            <% if (!workers.length) { %>
+              <tr>
+                <td class="px-4 py-4 text-slate-500" colspan="2"><%= t('noWorkers') %></td>
+              </tr>
+            <% } %>
+            <% workers.forEach((worker) => { %>
+              <% const selected = attendanceMap[worker.id] || 'ABSENT'; %>
+              <tr class="table-row">
+                <td class="px-4 py-3">
+                  <p class="font-medium"><%= worker.full_name %></p>
+                  <p class="text-xs text-slate-500"><%= worker.phone || '-' %></p>
+                </td>
+                <td class="px-4 py-3">
+                  <div class="flex flex-wrap items-center gap-4 text-sm">
+                    <label class="flex items-center gap-2">
+                      <input type="radio" name="status_<%= worker.id %>" value="PRESENT" <%= selected === 'PRESENT' ? 'checked' : '' %> />
+                      <span><%= t('present') %></span>
+                    </label>
+                    <label class="flex items-center gap-2">
+                      <input type="radio" name="status_<%= worker.id %>" value="ABSENT" <%= selected === 'ABSENT' ? 'checked' : '' %> />
+                      <span><%= t('absent') %></span>
+                    </label>
+                  </div>
+                </td>
+              </tr>
+            <% }) %>
+          </tbody>
+        </table>
+      </div>
+      <% if (workers.length) { %>
+        <div class="border-t border-slate-200 px-4 py-3 text-right">
+          <button class="btn-primary" type="submit"><%= t('save') %></button>
+        </div>
+      <% } %>
+    </form>
+  </div>
+
+  <div class="mt-6 card p-6">
+    <h2 class="text-lg font-semibold"><%= t('iotMarkAttendance') %></h2>
+    <p class="mt-1 text-sm text-slate-600"><%= t('iotMarkAttendanceSubtitle') %></p>
+    <% if (!iotEnabled) { %>
+      <div class="mt-3 rounded-lg bg-amber-50 px-4 py-3 text-sm text-amber-700"><%= t('iotAttendanceDisabled') %></div>
+    <% } %>
+    <form class="mt-4 grid gap-3 sm:grid-cols-4" method="post" action="/admin/worker-attendance/iot-mark">
+      <div>
+        <label class="label"><%= t('attendanceDate') %></label>
+        <input class="input" type="date" name="attendance_date" value="<%= date %>" required />
+      </div>
+      <div>
+        <label class="label"><%= t('fingerprintId') %></label>
+        <input class="input" type="text" name="fingerprint_id" placeholder="<%= t('fingerprintIdHint') %>" required />
+      </div>
+      <div>
+        <label class="label"><%= t('status') %></label>
+        <select class="input" name="status">
+          <option value="PRESENT"><%= t('present') %></option>
+          <option value="ABSENT"><%= t('absent') %></option>
+        </select>
+      </div>
+      <div class="flex items-end">
+        <button class="btn-primary w-full <%= !iotEnabled ? 'opacity-60 cursor-not-allowed' : '' %>" type="submit" <%= !iotEnabled ? 'disabled' : '' %>><%= t('save') %></button>
+      </div>
+    </form>
+  </div>
+
+  <div class="mt-4 card p-4">
+    <h3 class="text-sm font-semibold"><%= t('iotRecentScans') %></h3>
+    <div class="mt-3 overflow-x-auto">
+      <table class="table-base text-sm">
+        <thead class="table-head">
+          <tr>
+            <th class="px-3 py-2"><%= t('dateTime') %></th>
+            <th class="px-3 py-2"><%= t('fullName') %></th>
+            <th class="px-3 py-2"><%= t('fingerprintId') %></th>
+            <th class="px-3 py-2"><%= t('status') %></th>
+            <th class="px-3 py-2"><%= t('recordedBy') %></th>
+          </tr>
+        </thead>
+        <tbody>
+          <% if (!iotLogs || iotLogs.length === 0) { %>
+            <tr>
+              <td class="px-3 py-3 text-slate-500" colspan="5"><%= t('noIotScans') %></td>
+            </tr>
+          <% } %>
+          <% (iotLogs || []).forEach((log) => { %>
+            <% const matchedWorker = workers.find((w) => Number(w.id) === Number(log.person_id)); %>
+            <tr class="table-row">
+              <td class="px-3 py-2"><%= log.scanned_at %></td>
+              <td class="px-3 py-2"><%= matchedWorker ? matchedWorker.full_name : '-' %></td>
+              <td class="px-3 py-2"><%= log.fingerprint_id %></td>
+              <td class="px-3 py-2"><%= log.status === 'PRESENT' ? t('present') : t('absent') %></td>
+              <td class="px-3 py-2"><%= log.recorded_by_name || t('system') %></td>
+            </tr>
+          <% }) %>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="mt-4 card p-4">
+    <form class="flex flex-wrap items-end gap-3" method="get" action="/admin/worker-attendance/print" target="_blank">
+      <div>
+        <label class="label"><%= t('from') %></label>
+        <input class="input" type="date" name="from" value="<%= date %>" />
+      </div>
+      <div>
+        <label class="label"><%= t('to') %></label>
+        <input class="input" type="date" name="to" value="<%= date %>" />
+      </div>
+      <button class="btn-outline" type="submit"><%= t('print') %></button>
+    </form>
+  </div>
+</section>
+<%- include('../partials/shell-end') %>

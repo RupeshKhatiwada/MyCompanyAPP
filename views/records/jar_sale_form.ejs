@@ -1,0 +1,155 @@
+<%- include('../partials/shell-start', { title }) %>
+<section class="py-8">
+  <div class="flex items-center justify-between">
+    <div>
+      <h1 class="text-3xl font-semibold"><%= record ? t('editJarSaleTitle') : t('addJarSaleTitle') %></h1>
+      <p class="text-slate-600"><%= t('jarSaleFormSubtitle') %></p>
+    </div>
+    <a class="btn-outline" href="/records/jar-sales"><%= t('back') %></a>
+  </div>
+
+  <div class="mt-6 card p-6">
+    <% if (error) { %>
+      <div class="mb-4 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700"><%= error %></div>
+    <% } %>
+    <form method="post" action="<%= record ? '/records/jar-sales/' + record.id : '/records/jar-sales' %>" class="space-y-4">
+      <div>
+        <label class="label"><%= t('jarType') %></label>
+        <select class="input" name="jar_type_id" data-type required>
+          <option value=""><%= t('selectJarType') %></option>
+          <% jarTypes.forEach((type) => { %>
+            <% const optionPrice = record && record.jar_type_id === type.id ? record.unit_price : type.price; %>
+            <option value="<%= type.id %>" data-price="<%= optionPrice %>" <%= record && record.jar_type_id === type.id ? 'selected' : '' %>>
+              <%= type.name %> - <%= type.price %>
+            </option>
+          <% }) %>
+        </select>
+        <div class="mt-2 text-sm text-slate-600">
+          <span><%= t('availableInStorage') %>:</span>
+          <span id="jarBalanceValue" class="ml-1 font-semibold">0</span>
+          <span id="jarBalanceAlert" class="ml-2 text-red-600 hidden"><%= t('jarContainerOutOfStock') %></span>
+        </div>
+      </div>
+      <div>
+        <label class="label"><%= t('date') %></label>
+        <input class="input" type="date" name="sale_date" value="<%= defaultDate %>" required />
+      </div>
+      <div class="grid gap-3 sm:grid-cols-2">
+        <div>
+          <label class="label"><%= t('personName') %></label>
+          <input class="input" type="text" name="customer_name" value="<%= record ? record.customer_name || '' : '' %>" />
+        </div>
+        <div>
+          <label class="label"><%= t('vehicle') %> (<%= t('optional') %>)</label>
+          <select class="input" name="vehicle_id" data-vehicle>
+            <option value=""><%= t('selectVehicle') %></option>
+            <% vehicles.forEach((vehicle) => { %>
+              <% const label = `${vehicle.owner_name} • ${vehicle.vehicle_number}`; %>
+              <option value="<%= vehicle.id %>" data-company="<%= vehicle.is_company ? 1 : 0 %>" <%= record && String(record.vehicle_id) === String(vehicle.id) ? 'selected' : '' %>><%= label %></option>
+            <% }) %>
+          </select>
+        </div>
+      </div>
+      <div>
+        <label class="label"><%= t('vehicleNumber') %> (<%= t('optional') %>)</label>
+        <input class="input" type="text" name="vehicle_number" value="<%= record ? record.vehicle_number || '' : '' %>" data-vehicle-number />
+      </div>
+      <div class="grid gap-3 sm:grid-cols-2">
+        <div>
+          <label class="label"><%= t('quantity') %></label>
+          <input class="input" type="number" min="0" name="quantity" value="<%= record ? record.quantity : 0 %>" data-qty />
+        </div>
+        <div>
+          <label class="label"><%= t('paidAmount') %></label>
+          <input class="input" type="number" min="0" step="0.01" name="paid_amount" value="<%= record ? record.paid_amount : 0 %>" data-paid />
+        </div>
+      </div>
+      <div>
+        <label class="label"><%= t('note') %></label>
+        <input class="input" type="text" name="note" value="<%= record ? record.note || '' : '' %>" />
+      </div>
+      <div class="grid gap-3 text-sm sm:grid-cols-3">
+        <div class="card p-4">
+          <p class="text-slate-500"><%= t('price') %></p>
+          <p class="text-lg font-semibold" id="unitPrice">0</p>
+        </div>
+        <div class="card p-4">
+          <p class="text-slate-500"><%= t('total') %></p>
+          <p class="text-lg font-semibold" id="totalAmount">0</p>
+        </div>
+        <div class="card p-4">
+          <p class="text-slate-500"><%= t('creditAmount') %></p>
+          <p class="text-lg font-semibold" id="creditAmount">0</p>
+        </div>
+      </div>
+      <button class="btn-primary" type="submit"><%= t('save') %></button>
+    </form>
+  </div>
+</section>
+
+<script>
+  (() => {
+    const typeSelect = document.querySelector('[data-type]');
+    const qtyInput = document.querySelector('[data-qty]');
+    const paidInput = document.querySelector('[data-paid]');
+    const unitEl = document.getElementById('unitPrice');
+    const totalEl = document.getElementById('totalAmount');
+    const creditEl = document.getElementById('creditAmount');
+    const vehicleSelect = document.querySelector('[data-vehicle]');
+    const vehicleNumberInput = document.querySelector('[data-vehicle-number]');
+    const jarBalanceValue = document.getElementById('jarBalanceValue');
+    const jarBalanceAlert = document.getElementById('jarBalanceAlert');
+    const jarBalances = <%- JSON.stringify(jarTypeBalances || {}) %>;
+
+    const updateBalance = () => {
+      const typeId = Number(typeSelect?.value || 0);
+      const balance = Number(jarBalances[typeId] || 0);
+      if (jarBalanceValue) jarBalanceValue.textContent = balance;
+      if (jarBalanceAlert) {
+        if (!typeId) {
+          jarBalanceAlert.classList.add('hidden');
+        } else if (balance <= 0) {
+          jarBalanceAlert.classList.remove('hidden');
+        } else {
+          jarBalanceAlert.classList.add('hidden');
+        }
+      }
+    };
+
+    const recalc = () => {
+      const isCompany = vehicleSelect?.selectedOptions[0]?.dataset?.company === "1";
+      const price = isCompany ? 0 : Number(typeSelect?.selectedOptions[0]?.dataset?.price || 0);
+      const qty = Number(qtyInput?.value || 0);
+      const total = price * qty;
+      let paid = Number(paidInput?.value || 0);
+      if (paid < 0) paid = 0;
+      if (paid > total) paid = total;
+      if (isCompany) paid = 0;
+      if (paidInput) paidInput.readOnly = isCompany;
+      if (paidInput) paidInput.value = paid;
+      if (unitEl) unitEl.textContent = price.toFixed(2);
+      if (totalEl) totalEl.textContent = total.toFixed(2);
+      if (creditEl) creditEl.textContent = (total - paid).toFixed(2);
+    };
+
+    if (vehicleSelect && vehicleNumberInput) {
+      vehicleSelect.addEventListener('change', () => {
+        const selected = vehicleSelect.selectedOptions[0];
+        if (selected && selected.value) {
+          const text = selected.textContent || '';
+          const parts = text.split('•');
+          if (parts.length > 1) {
+            vehicleNumberInput.value = parts[1].trim();
+          }
+        }
+      });
+    }
+
+    [typeSelect, qtyInput, paidInput, vehicleSelect].forEach((el) => el && el.addEventListener('input', recalc));
+    if (vehicleSelect) vehicleSelect.addEventListener('change', recalc);
+    if (typeSelect) typeSelect.addEventListener('change', updateBalance);
+    updateBalance();
+    recalc();
+  })();
+</script>
+<%- include('../partials/shell-end') %>

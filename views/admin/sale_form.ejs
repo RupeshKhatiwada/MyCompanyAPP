@@ -1,0 +1,40 @@
+<%- include('../partials/shell-start', { title }) %>
+<section class="py-8">
+  <div class="flex items-center justify-between">
+    <div>
+      <h1 class="text-3xl font-semibold"><%= sale ? t('editDailySaleTitle') : t('addDailySaleTitle') %></h1>
+      <p class="text-slate-600"><%= t('dailySaleSubtitle') %></p>
+    </div>
+    <% const safeMode = typeof mode !== 'undefined' && mode ? mode : 'manual'; %>
+    <% const safeReturnDate = typeof returnDate !== 'undefined' && returnDate ? returnDate : defaultDate; %>
+    <a class="btn-outline" href="/admin/sales?mode=<%= safeMode %>&date=<%= safeReturnDate %>"><%= t('back') %></a>
+  </div>
+
+  <div class="mt-6 card p-6">
+    <% if (error) { %>
+      <div class="mb-4 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700"><%= error %></div>
+    <% } %>
+    <form method="post" action="<%= sale ? '/admin/sales/' + sale.id : '/admin/sales' %>" class="space-y-4">
+      <div>
+        <label class="label"><%= t('vehicle') %></label>
+        <select class="input" name="vehicle_id" required>
+          <option value=""><%= t('selectVehicle') %></option>
+          <% vehicles.forEach((vehicle) => { %>
+            <% const label = `${vehicle.owner_name} • ${vehicle.vehicle_number}`; %>
+            <option value="<%= vehicle.id %>" <%= sale && sale.vehicle_id === vehicle.id ? 'selected' : '' %>><%= label %></option>
+          <% }) %>
+        </select>
+      </div>
+      <div>
+        <label class="label"><%= t('date') %></label>
+        <input class="input" type="date" name="sale_date" value="<%= defaultDate %>" required />
+      </div>
+      <div>
+        <label class="label"><%= t('totalSales') %></label>
+        <input class="input" type="number" step="0.01" name="total_sales" value="<%= sale ? sale.total_sales : 0 %>" />
+      </div>
+      <button class="btn-primary" type="submit"><%= t('save') %></button>
+    </form>
+  </div>
+</section>
+<%- include('../partials/shell-end') %>

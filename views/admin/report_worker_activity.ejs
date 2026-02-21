@@ -1,0 +1,66 @@
+<%- include('../partials/shell-start', { title }) %>
+<section class="py-8">
+  <div class="print-only mb-4">
+    <%- include('../partials/print-brand', { subtitle: t('workerActivityTitle') }) %>
+  </div>
+  <div class="flex flex-wrap items-center justify-between gap-3">
+    <div>
+      <h1 class="text-3xl font-semibold"><%= t('workerActivityTitle') %></h1>
+      <p class="text-slate-600"><%= t('workerActivitySubtitle') %></p>
+    </div>
+    <div class="flex flex-wrap gap-2">
+      <button class="btn-primary" onclick="window.print()"><%= t('print') %></button>
+    </div>
+  </div>
+
+  <form class="mt-4 flex flex-wrap items-end gap-3" method="get" action="/admin/reports/worker-activity">
+    <div>
+      <label class="label"><%= t('from') %></label>
+      <input class="input" type="date" name="from" value="<%= from %>" />
+    </div>
+    <div>
+      <label class="label"><%= t('to') %></label>
+      <input class="input" type="date" name="to" value="<%= to %>" />
+    </div>
+    <button class="btn-outline" type="submit"><%= t('run') %></button>
+  </form>
+
+  <div class="mt-6 card overflow-hidden">
+    <div class="overflow-x-auto">
+      <table class="table-base">
+        <thead class="table-head">
+          <tr>
+            <th class="px-4 py-3"><%= t('workerName') %></th>
+            <th class="px-4 py-3"><%= t('username') %></th>
+            <th class="px-4 py-3"><%= t('exportCount') %></th>
+            <th class="px-4 py-3"><%= t('totalExportAmount') %></th>
+            <th class="px-4 py-3"><%= t('creditCount') %></th>
+            <th class="px-4 py-3"><%= t('totalCreditAmount') %></th>
+            <th class="px-4 py-3 text-right"><%= t('actions') %></th>
+          </tr>
+        </thead>
+        <tbody>
+          <% if (rows.length === 0) { %>
+            <tr>
+              <td class="px-4 py-4 text-slate-500" colspan="7"><%= t('noWorkers') %></td>
+            </tr>
+          <% } %>
+          <% rows.forEach((row) => { %>
+            <tr class="table-row">
+              <td class="px-4 py-3 font-medium"><%= row.full_name %></td>
+              <td class="px-4 py-3"><%= row.username %></td>
+              <td class="px-4 py-3"><%= row.export_count %></td>
+              <td class="px-4 py-3"><%= row.export_total %></td>
+              <td class="px-4 py-3"><%= row.credit_count %></td>
+              <td class="px-4 py-3"><%= row.credit_total %></td>
+              <td class="px-4 py-3 text-right">
+                <a class="btn-outline" href="/admin/reports/worker-activity/<%= row.id %>?from=<%= from %>&to=<%= to %>"><%= t('viewHistory') %></a>
+              </td>
+            </tr>
+          <% }) %>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+<%- include('../partials/shell-end') %>

@@ -1,0 +1,149 @@
+<%- include('../partials/shell-start', { title }) %>
+<section class="py-8">
+  <div class="flex flex-wrap items-center justify-between gap-3">
+    <div>
+      <h1 class="text-3xl font-semibold"><%= worker.full_name %></h1>
+      <p class="text-slate-600"><%= t('workerDetailSubtitle') %></p>
+    </div>
+    <div class="flex flex-wrap gap-2">
+      <a class="btn-outline" href="/admin/workers"><%= t('back') %></a>
+      <a class="btn-outline" href="/admin/workers/<%= worker.id %>/print" target="_blank"><%= t('printDetails') %></a>
+      <a class="btn-primary" href="/admin/workers/<%= worker.id %>/edit"><%= t('edit') %></a>
+    </div>
+  </div>
+
+  <div class="mt-6 grid gap-4 lg:grid-cols-3">
+    <div class="card p-6">
+      <% if (document && document.photo_path) { %>
+        <img src="<%= document.photo_path %>" alt="worker" class="h-16 w-16 rounded-full object-cover" />
+      <% } else { %>
+        <div class="h-16 w-16 rounded-full bg-slate-200"></div>
+      <% } %>
+      <div class="mt-4 text-sm text-slate-600 space-y-1">
+        <p><strong><%= t('fullName') %>:</strong> <%= worker.full_name %></p>
+        <p><strong><%= t('username') %>:</strong> <%= worker.username %></p>
+        <p><strong><%= t('phone') %>:</strong> <%= worker.phone || '-' %></p>
+        <p><strong><%= t('status') %>:</strong> <%= Number(worker.is_active) === 1 ? t('active') : t('inactive') %></p>
+        <p><strong><%= t('startDate') %>:</strong> <%= worker.start_date || '-' %></p>
+        <p><strong><%= t('monthlySalary') %>:</strong> <%= worker.monthly_salary || 0 %></p>
+        <p><strong><%= t('dueSalary') %>:</strong> <%= dueSalary %></p>
+      </div>
+    </div>
+
+    <div class="card p-6 lg:col-span-2">
+      <h2 class="text-lg font-semibold"><%= t('salarySummary') %></h2>
+      <div class="mt-4 grid gap-3 text-sm sm:grid-cols-3">
+        <div class="card p-4">
+          <p class="text-slate-500"><%= t('totalPaid') %></p>
+          <p class="text-lg font-semibold"><%= totals.total %></p>
+        </div>
+        <div class="card p-4">
+          <p class="text-slate-500"><%= t('salaryPaid') %></p>
+          <p class="text-lg font-semibold"><%= totals.salary %></p>
+        </div>
+        <div class="card p-4">
+          <p class="text-slate-500"><%= t('advancePaid') %></p>
+          <p class="text-lg font-semibold"><%= totals.advance %></p>
+        </div>
+      </div>
+
+      <div class="mt-6">
+        <h3 class="text-sm font-semibold text-slate-700"><%= t('addSalaryPayment') %></h3>
+        <form class="mt-3 grid gap-3 sm:grid-cols-4" method="post" action="/admin/workers/<%= worker.id %>/payments">
+          <div>
+            <label class="label"><%= t('paymentType') %></label>
+            <select class="input" name="payment_type" required>
+              <option value="SALARY"><%= t('salaryPaid') %></option>
+              <option value="ADVANCE"><%= t('advancePaid') %></option>
+            </select>
+          </div>
+          <div>
+            <label class="label"><%= t('amount') %></label>
+            <input class="input" type="number" step="0.01" min="0" name="amount" required />
+          </div>
+          <div>
+            <label class="label"><%= t('date') %></label>
+            <input class="input" type="date" name="payment_date" value="<%= new Date().toISOString().slice(0,10) %>" required />
+          </div>
+          <div>
+            <label class="label"><%= t('note') %></label>
+            <input class="input" type="text" name="note" />
+          </div>
+          <div class="sm:col-span-4 flex flex-wrap gap-2">
+            <button class="btn-primary" type="submit"><%= t('save') %></button>
+            <button class="btn-outline" type="submit" name="print" value="1"><%= t('saveAndPrint') %></button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <div class="mt-6 card p-6">
+    <h2 class="text-lg font-semibold"><%= t('salaryHistory') %></h2>
+    <div class="mt-4 overflow-x-auto">
+      <table class="table-base text-sm">
+        <thead class="table-head">
+          <tr>
+            <th class="px-4 py-3"><%= t('date') %></th>
+            <th class="px-4 py-3"><%= t('receiptNo') %></th>
+            <th class="px-4 py-3"><%= t('paymentType') %></th>
+            <th class="px-4 py-3"><%= t('amount') %></th>
+            <th class="px-4 py-3"><%= t('note') %></th>
+            <th class="px-4 py-3"><%= t('recordedBy') %></th>
+            <th class="px-4 py-3 text-right"><%= t('actions') %></th>
+          </tr>
+        </thead>
+        <tbody>
+          <% if (!payments || payments.length === 0) { %>
+            <tr>
+              <td class="px-4 py-4 text-slate-500" colspan="7"><%= t('noSalaryHistory') %></td>
+            </tr>
+          <% } %>
+          <% payments.forEach((pay) => { %>
+            <tr class="table-row">
+              <td class="px-4 py-3"><%= pay.payment_date %></td>
+              <td class="px-4 py-3"><%= pay.receipt_no || (`#${pay.id}`) %></td>
+              <td class="px-4 py-3"><%= pay.payment_type === 'SALARY' ? t('salaryPaid') : t('advancePaid') %></td>
+              <td class="px-4 py-3"><%= pay.amount %></td>
+              <td class="px-4 py-3"><%= pay.note || '-' %></td>
+              <td class="px-4 py-3"><%= pay.recorded_by || '-' %></td>
+              <td class="px-4 py-3 text-right">
+                <div class="flex flex-wrap justify-end gap-2">
+                  <a class="btn-outline" href="/admin/workers/payments/<%= pay.id %>/edit"><%= t('edit') %></a>
+                  <a class="btn-outline" href="/admin/workers/payments/<%= pay.id %>/print" target="_blank"><%= t('printPaySlip') %></a>
+                  <form method="post" action="/admin/workers/payments/<%= pay.id %>/delete" onsubmit="return confirm('<%= t('deleteSalaryPaymentConfirm') %>');">
+                    <button class="btn-danger" type="submit"><%= t('delete') %></button>
+                  </form>
+                </div>
+              </td>
+            </tr>
+          <% }) %>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="mt-6 card p-6">
+    <h2 class="text-lg font-semibold"><%= t('staffDocumentTitle') %></h2>
+    <% if (!document || (!document.front_path && !document.back_path && !document.photo_path)) { %>
+      <p class="mt-2 text-sm text-slate-500"><%= t('noDocuments') %></p>
+    <% } else { %>
+      <p class="mt-2 text-sm text-slate-600">
+        <%= t('documentType') %>: <%= document.doc_type ? t(document.doc_type === 'CITIZENSHIP' ? 'docCitizenship' : document.doc_type === 'LICENSE' ? 'docLicense' : 'docPassport') : '-' %>
+      </p>
+      <div class="mt-4 grid gap-3 sm:grid-cols-2">
+        <% if (document.front_path) { %>
+          <a href="<%= document.front_path %>" target="_blank" class="block">
+            <img src="<%= document.front_path %>" alt="front" class="rounded-lg border border-slate-200" />
+          </a>
+        <% } %>
+        <% if (document.back_path) { %>
+          <a href="<%= document.back_path %>" target="_blank" class="block">
+            <img src="<%= document.back_path %>" alt="back" class="rounded-lg border border-slate-200" />
+          </a>
+        <% } %>
+      </div>
+    <% } %>
+  </div>
+</section>
+<%- include('../partials/shell-end') %>

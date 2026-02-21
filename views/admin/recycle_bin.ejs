@@ -1,0 +1,107 @@
+<%- include('../partials/shell-start', { title }) %>
+<section class="py-8">
+  <div class="flex flex-wrap items-start justify-between gap-3">
+    <div>
+      <h1 class="text-3xl font-semibold"><%= t('recycleBinTitle') %></h1>
+      <p class="text-slate-600"><%= t('recycleBinSubtitle') %></p>
+    </div>
+    <a class="btn-outline" href="/admin"><%= t('back') %></a>
+  </div>
+
+  <% if (error) { %>
+    <div class="mt-4 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700"><%= error %></div>
+  <% } %>
+  <% if (success) { %>
+    <div class="mt-4 rounded-lg bg-emerald-50 px-4 py-3 text-sm text-emerald-700"><%= success %></div>
+  <% } %>
+
+  <form class="mt-4 flex flex-wrap items-end gap-3" method="get" action="/admin/recycle-bin">
+    <div class="min-w-56 flex-1">
+      <label class="label"><%= t('search') %></label>
+      <input class="input" type="text" name="q" value="<%= q %>" />
+    </div>
+    <div>
+      <label class="label"><%= t('entity') %></label>
+      <select class="input" name="entity_type">
+        <option value="all" <%= entityType === 'all' ? 'selected' : '' %>><%= t('allItems') %></option>
+        <% (entityTypes || []).forEach((row) => { %>
+          <option value="<%= row %>" <%= entityType === row ? 'selected' : '' %>><%= row %></option>
+        <% }) %>
+      </select>
+    </div>
+    <div>
+      <label class="label"><%= t('status') %></label>
+      <select class="input" name="status">
+        <option value="active" <%= status === 'active' ? 'selected' : '' %>><%= t('recycleActive') %></option>
+        <option value="restored" <%= status === 'restored' ? 'selected' : '' %>><%= t('recycleStatusRestored') %></option>
+        <option value="all" <%= status === 'all' ? 'selected' : '' %>><%= t('recycleAll') %></option>
+      </select>
+    </div>
+    <button class="btn-outline" type="submit"><%= t('filter') %></button>
+  </form>
+
+  <div class="mt-6 card overflow-hidden">
+    <div class="overflow-x-auto">
+      <table class="table-base text-sm">
+        <thead class="table-head">
+          <tr>
+            <th class="px-4 py-3">ID</th>
+            <th class="px-4 py-3"><%= t('entity') %></th>
+            <th class="px-4 py-3"><%= t('details') %></th>
+            <th class="px-4 py-3"><%= t('date') %></th>
+            <th class="px-4 py-3"><%= t('restoreUntil') %></th>
+            <th class="px-4 py-3"><%= t('status') %></th>
+            <th class="px-4 py-3"><%= t('user') %></th>
+            <th class="px-4 py-3 text-right"><%= t('actions') %></th>
+          </tr>
+        </thead>
+        <tbody>
+          <% if (!rows || rows.length === 0) { %>
+            <tr><td class="px-4 py-4 text-slate-500" colspan="8"><%= t('recycleNoRows') %></td></tr>
+          <% } %>
+          <% (rows || []).forEach((row) => { %>
+            <% const restored = Boolean(row.restored_at); %>
+            <tr class="table-row">
+              <td class="px-4 py-3"><%= row.id %></td>
+              <td class="px-4 py-3">
+                <p class="font-medium"><%= row.entity_type %></p>
+                <p class="text-xs text-slate-500"><%= row.entity_id || '-' %></p>
+              </td>
+              <td class="px-4 py-3"><%= row.note || '-' %></td>
+              <td class="px-4 py-3"><%= row.deleted_at %></td>
+              <td class="px-4 py-3"><%= row.restore_until %></td>
+              <td class="px-4 py-3">
+                <% if (restored) { %>
+                  <span class="badge bg-emerald-100 text-emerald-700"><%= t('recycleStatusRestored') %></span>
+                <% } else if (row.is_expired) { %>
+                  <span class="badge bg-red-100 text-red-700"><%= t('recycleExpired') %></span>
+                <% } else { %>
+                  <span class="badge bg-amber-100 text-amber-700"><%= t('recycleActive') %></span>
+                <% } %>
+              </td>
+              <td class="px-4 py-3">
+                <p><%= row.deleted_by_name || '-' %></p>
+                <% if (restored && row.restored_by_name) { %>
+                  <p class="text-xs text-slate-500"><%= t('recycleStatusRestored') %>: <%= row.restored_by_name %></p>
+                <% } %>
+              </td>
+              <td class="px-4 py-3 text-right">
+                <div class="flex flex-wrap justify-end gap-2">
+                  <% if (!restored && !row.is_expired) { %>
+                    <form method="post" action="/admin/recycle-bin/<%= row.id %>/restore">
+                      <button class="btn-outline" type="submit"><%= t('recycleRestore') %></button>
+                    </form>
+                  <% } %>
+                  <form method="post" action="/admin/recycle-bin/<%= row.id %>/delete" onsubmit="return confirm('<%= t('recycleDeleteForever') %>');">
+                    <button class="btn-danger" type="submit"><%= t('delete') %></button>
+                  </form>
+                </div>
+              </td>
+            </tr>
+          <% }) %>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+<%- include('../partials/shell-end') %>

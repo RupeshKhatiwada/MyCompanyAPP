@@ -1,0 +1,120 @@
+<%- include('../partials/shell-start', { title }) %>
+<section class="py-8">
+  <div class="flex flex-wrap items-center justify-between gap-3">
+    <div>
+      <h1 class="text-3xl font-semibold"><%= t('savingsTitle') %></h1>
+      <p class="text-slate-600"><%= t('savingsSubtitle') %></p>
+    </div>
+  </div>
+
+  <form class="mt-4 flex flex-wrap items-end gap-3" method="get" action="/admin/savings">
+    <div>
+      <label class="label"><%= t('from') %></label>
+      <input class="input" type="date" name="from" value="<%= from %>" />
+    </div>
+    <div>
+      <label class="label"><%= t('to') %></label>
+      <input class="input" type="date" name="to" value="<%= to %>" />
+    </div>
+    <div>
+      <label class="label"><%= t('vehicle') %></label>
+      <select class="input" name="vehicle_id">
+        <option value="all"><%= t('allVehicles') %></option>
+        <% vehicles.forEach((vehicle) => { %>
+          <% const label = `${vehicle.owner_name} • ${vehicle.vehicle_number}`; %>
+          <option value="<%= vehicle.id %>" <%= String(vehicleId) === String(vehicle.id) ? 'selected' : '' %>><%= label %></option>
+        <% }) %>
+      </select>
+    </div>
+    <button class="btn-outline" type="submit"><%= t('filter') %></button>
+  </form>
+
+  <div class="mt-6 card p-6">
+    <h2 class="text-lg font-semibold"><%= t('addSavingsEntry') %></h2>
+    <form class="mt-4 grid gap-3 sm:grid-cols-5" method="post" action="/admin/savings">
+      <div class="sm:col-span-2">
+        <label class="label"><%= t('vehicle') %></label>
+        <select class="input" name="vehicle_id" required>
+          <option value=""><%= t('selectVehicle') %></option>
+          <% vehicles.forEach((vehicle) => { %>
+            <% const label = `${vehicle.owner_name} • ${vehicle.vehicle_number}`; %>
+            <option value="<%= vehicle.id %>"><%= label %></option>
+          <% }) %>
+        </select>
+      </div>
+      <div>
+        <label class="label"><%= t('savingsType') %></label>
+        <select class="input" name="entry_type" required>
+          <option value="deposit"><%= t('savingsDeposit') %></option>
+          <option value="withdraw"><%= t('savingsWithdraw') %></option>
+        </select>
+      </div>
+      <div>
+        <label class="label"><%= t('amount') %></label>
+        <input class="input" type="number" step="0.01" min="0" name="amount" required />
+      </div>
+      <div>
+        <label class="label"><%= t('date') %></label>
+        <input class="input" type="date" name="entry_date" value="<%= to %>" required />
+      </div>
+      <div class="sm:col-span-5">
+        <label class="label"><%= t('note') %></label>
+        <input class="input" type="text" name="note" placeholder="<%= t('optionalNote') %>" />
+      </div>
+      <div class="sm:col-span-5">
+        <button class="btn-primary" type="submit"><%= t('save') %></button>
+      </div>
+    </form>
+  </div>
+
+  <div class="mt-6 grid gap-3 sm:grid-cols-3">
+    <div class="card p-4">
+      <p class="text-slate-500"><%= t('totalSavings') %></p>
+      <p class="text-lg font-semibold"><%= totals.total %></p>
+    </div>
+    <div class="card p-4">
+      <p class="text-slate-500"><%= t('savingsDeposit') %></p>
+      <p class="text-lg font-semibold"><%= totals.deposits %></p>
+    </div>
+    <div class="card p-4">
+      <p class="text-slate-500"><%= t('savingsWithdraw') %></p>
+      <p class="text-lg font-semibold"><%= totals.withdraws %></p>
+    </div>
+  </div>
+
+  <div class="mt-6 card overflow-hidden">
+    <div class="overflow-x-auto">
+      <table class="table-base">
+        <thead class="table-head">
+          <tr>
+            <th class="px-4 py-3"><%= t('date') %></th>
+            <th class="px-4 py-3"><%= t('vehicle') %></th>
+            <th class="px-4 py-3"><%= t('amount') %></th>
+            <th class="px-4 py-3"><%= t('savingsBalance') %></th>
+            <th class="px-4 py-3"><%= t('note') %></th>
+            <th class="px-4 py-3"><%= t('recordedBy') %></th>
+          </tr>
+        </thead>
+        <tbody>
+          <% if (!entries || entries.length === 0) { %>
+            <tr>
+              <td class="px-4 py-4 text-slate-500" colspan="6"><%= t('noSavings') %></td>
+            </tr>
+          <% } %>
+          <% entries.forEach((row) => { %>
+            <% const label = `${row.owner_name} • ${row.vehicle_number}`; %>
+            <tr class="table-row">
+              <td class="px-4 py-3"><%= row.entry_date %></td>
+              <td class="px-4 py-3 font-medium"><%= label %></td>
+              <td class="px-4 py-3"><%= row.amount %></td>
+              <td class="px-4 py-3"><%= balances[row.vehicle_id] || 0 %></td>
+              <td class="px-4 py-3"><%= row.note || '-' %></td>
+              <td class="px-4 py-3"><%= row.recorded_by || '-' %></td>
+            </tr>
+          <% }) %>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+<%- include('../partials/shell-end') %>

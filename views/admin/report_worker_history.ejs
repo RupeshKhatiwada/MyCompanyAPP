@@ -1,0 +1,134 @@
+<%- include('../partials/shell-start', { title }) %>
+<section class="py-8">
+  <div class="flex flex-wrap items-center justify-between gap-3">
+    <div>
+      <h1 class="text-3xl font-semibold"><%= t('workerHistoryTitle') %></h1>
+      <p class="text-slate-600"><%= t('workerHistorySubtitle') %></p>
+      <p class="mt-2 text-sm text-slate-600"><%= worker.full_name %> (<%= worker.username %>)</p>
+    </div>
+    <a class="btn-outline" href="/admin/reports/worker-activity"><%= t('back') %></a>
+  </div>
+
+  <form class="mt-4 flex flex-wrap items-end gap-3" method="get" action="/admin/reports/worker-activity/<%= worker.id %>">
+    <div>
+      <label class="label"><%= t('from') %></label>
+      <input class="input" type="date" name="from" value="<%= from %>" />
+    </div>
+    <div>
+      <label class="label"><%= t('to') %></label>
+      <input class="input" type="date" name="to" value="<%= to %>" />
+    </div>
+    <div>
+      <label class="label"><%= t('vehicle') %></label>
+      <select class="input" name="vehicle">
+        <option value=""><%= t('all') %></option>
+        <% vehicles.forEach((v) => { %>
+          <option value="<%= v.id %>" <%= String(vehicle) === String(v.id) ? 'selected' : '' %>><%= v.vehicle_number %></option>
+        <% }) %>
+      </select>
+    </div>
+    <div class="min-w-[220px]">
+      <label class="label"><%= t('customerName') %></label>
+      <input class="input" type="text" name="customer" list="customerList" value="<%= customer %>" placeholder="<%= t('selectCustomer') %>" />
+      <datalist id="customerList">
+        <% (customers || []).forEach((name) => { %>
+          <option value="<%= name %>"></option>
+        <% }) %>
+      </datalist>
+    </div>
+    <button class="btn-outline" type="submit"><%= t('run') %></button>
+  </form>
+
+  <div class="mt-6 grid gap-4 lg:grid-cols-2">
+    <div class="card overflow-hidden">
+      <div class="flex flex-wrap items-center justify-between gap-2 px-6 pt-6">
+        <div>
+          <h2 class="text-lg font-semibold"><%= t('exportHistoryTitle') %></h2>
+          <p class="mt-1 text-xs text-slate-500"><%= t('records') %>: <%= exportTotals.count %></p>
+        </div>
+        <a class="btn-outline" href="/admin/reports/worker-activity/<%= worker.id %>/export-csv?from=<%= from %>&to=<%= to %>&vehicle=<%= vehicle || '' %>"><%= t('exportCsv') %></a>
+      </div>
+      <div class="px-6 pt-3 text-xs text-slate-500">
+        <span><%= t('totalJars') %>: <%= exportTotals.jars %></span>
+        <span class="mx-2">•</span>
+        <span><%= t('totalBottleCases') %>: <%= exportTotals.bottles %></span>
+        <span class="mx-2">•</span>
+        <span><%= t('totalExportAmount') %>: <%= exportTotals.total %></span>
+      </div>
+      <div class="overflow-x-auto p-6 pt-3">
+        <table class="table-base">
+          <thead class="table-head">
+            <tr>
+              <th class="px-4 py-3"><%= t('date') %></th>
+              <th class="px-4 py-3"><%= t('vehicle') %></th>
+              <th class="px-4 py-3"><%= t('jars') %></th>
+              <th class="px-4 py-3"><%= t('bottleCases') %></th>
+              <th class="px-4 py-3"><%= t('totalExportAmount') %></th>
+            </tr>
+          </thead>
+          <tbody>
+            <% if (exportsRows.length === 0) { %>
+              <tr>
+                <td class="px-4 py-4 text-slate-500" colspan="5"><%= t('noExports') %></td>
+              </tr>
+            <% } %>
+            <% exportsRows.forEach((row) => { %>
+              <tr class="table-row">
+                <td class="px-4 py-3"><%= row.export_date %></td>
+                <td class="px-4 py-3"><%= row.vehicle_number %></td>
+                <td class="px-4 py-3"><%= row.jar_count %></td>
+                <td class="px-4 py-3"><%= row.bottle_case_count %></td>
+                <td class="px-4 py-3"><%= row.total_amount %></td>
+              </tr>
+            <% }) %>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card overflow-hidden">
+      <div class="flex flex-wrap items-center justify-between gap-2 px-6 pt-6">
+        <div>
+          <h2 class="text-lg font-semibold"><%= t('creditHistoryTitle') %></h2>
+          <p class="mt-1 text-xs text-slate-500"><%= t('records') %>: <%= creditTotals.count %></p>
+        </div>
+        <a class="btn-outline" href="/admin/reports/worker-activity/<%= worker.id %>/credits-csv?from=<%= from %>&to=<%= to %>&customer=<%= encodeURIComponent(customer || '') %>"><%= t('exportCsv') %></a>
+      </div>
+      <div class="px-6 pt-3 text-xs text-slate-500">
+        <span><%= t('totalAmount') %>: <%= creditTotals.amount %></span>
+        <span class="mx-2">•</span>
+        <span><%= t('totalRemaining') %>: <%= creditTotals.remaining %></span>
+      </div>
+      <div class="overflow-x-auto p-6 pt-3">
+        <table class="table-base">
+          <thead class="table-head">
+            <tr>
+              <th class="px-4 py-3"><%= t('date') %></th>
+              <th class="px-4 py-3"><%= t('vehicle') %></th>
+              <th class="px-4 py-3"><%= t('customerName') %></th>
+              <th class="px-4 py-3"><%= t('amount') %></th>
+              <th class="px-4 py-3"><%= t('remainingAmount') %></th>
+            </tr>
+          </thead>
+          <tbody>
+            <% if (creditsRows.length === 0) { %>
+              <tr>
+                <td class="px-4 py-4 text-slate-500" colspan="5"><%= t('noCredits') %></td>
+              </tr>
+            <% } %>
+            <% creditsRows.forEach((row) => { %>
+              <tr class="table-row">
+                <td class="px-4 py-3"><%= row.credit_date %></td>
+                <td class="px-4 py-3"><%= row.vehicle_number %></td>
+                <td class="px-4 py-3"><%= row.customer_name %></td>
+                <td class="px-4 py-3"><%= row.amount %></td>
+                <td class="px-4 py-3"><%= row.remaining_amount %></td>
+              </tr>
+            <% }) %>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</section>
+<%- include('../partials/shell-end') %>

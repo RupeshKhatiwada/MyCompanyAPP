@@ -1,0 +1,64 @@
+<%- include('../partials/shell-start', { title }) %>
+<section class="py-8">
+  <div class="print-only mb-4">
+    <%- include('../partials/print-brand', { subtitle: t('salesReportTitle') }) %>
+  </div>
+  <div class="flex flex-wrap items-center justify-between gap-3">
+    <div>
+      <h1 class="text-3xl font-semibold"><%= t('salesReportTitle') %></h1>
+      <p class="text-slate-600"><%= t('salesReportSubtitle') %></p>
+    </div>
+    <div class="flex gap-2">
+      <a class="btn-outline" href="/admin/reports/summary"><%= t('summaryChart') %></a>
+      <a class="btn-outline" href="/admin/export/sales?from=<%= from %>&to=<%= to %>"><%= t('exportCsv') %></a>
+      <button class="btn-primary" onclick="window.print()"><%= t('print') %></button>
+    </div>
+  </div>
+
+  <form class="mt-4 flex flex-wrap items-end gap-3" method="get" action="/admin/reports/sales">
+    <div>
+      <label class="label"><%= t('from') %></label>
+      <input class="input" type="date" name="from" value="<%= from %>" />
+    </div>
+    <div>
+      <label class="label"><%= t('to') %></label>
+      <input class="input" type="date" name="to" value="<%= to %>" />
+    </div>
+    <button class="btn-outline" type="submit"><%= t('run') %></button>
+  </form>
+
+  <div class="mt-6 card overflow-hidden">
+    <div class="overflow-x-auto">
+      <table class="table-base">
+        <thead class="table-head">
+          <tr>
+            <th class="px-4 py-3"><%= t('date') %></th>
+            <th class="px-4 py-3"><%= t('vehicle') %></th>
+            <th class="px-4 py-3"><%= t('owner') %></th>
+            <th class="px-4 py-3"><%= t('totalSales') %></th>
+          </tr>
+        </thead>
+        <tbody>
+          <% if (rows.length === 0) { %>
+            <tr>
+              <td class="px-4 py-4 text-slate-500" colspan="4"><%= t('noSalesRange') %></td>
+            </tr>
+          <% } %>
+          <% rows.forEach((row) => { %>
+            <tr class="table-row">
+              <td class="px-4 py-3"><%= row.sale_date %></td>
+              <td class="px-4 py-3 font-medium"><%= row.vehicle_number %></td>
+              <td class="px-4 py-3"><%= row.owner_name %></td>
+              <td class="px-4 py-3"><%= row.total_sales %></td>
+            </tr>
+          <% }) %>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="mt-4 text-right text-lg font-semibold">
+    <%= t('total') %>: <%= total %>
+  </div>
+</section>
+<%- include('../partials/shell-end') %>

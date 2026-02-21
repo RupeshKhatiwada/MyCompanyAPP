@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="<%= lang %>">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title><%= t('staffAttendanceTitle') %> | AQUA MSK</title>
+  <link rel="stylesheet" href="/css/styles.css?v=<%= assetVersion %>" />
+  <style>
+    @media print { .print-hidden { display: none !important; } }
+  </style>
+</head>
+<body class="bg-white text-slate-900">
+  <div class="mx-auto max-w-4xl p-6">
+    <div class="flex items-center justify-between gap-4">
+      <div class="flex-1">
+        <%- include('../partials/print-brand', { subtitle: t('staffAttendanceTitle') }) %>
+      </div>
+      <button class="btn-primary print-hidden" onclick="window.print()"><%= t('print') %></button>
+    </div>
+
+    <div class="mt-4 text-xs text-slate-500">
+      <p><%= t('from') %>: <%= from %> — <%= t('to') %>: <%= to %></p>
+    </div>
+
+    <div class="mt-4 grid gap-3 sm:grid-cols-2">
+      <div class="card p-4">
+        <p class="text-slate-500"><%= t('present') %></p>
+        <p class="text-lg font-semibold"><%= totals.present %></p>
+      </div>
+      <div class="card p-4">
+        <p class="text-slate-500"><%= t('absent') %></p>
+        <p class="text-lg font-semibold"><%= totals.absent %></p>
+      </div>
+    </div>
+
+    <div class="mt-6 card overflow-hidden">
+      <div class="overflow-x-auto">
+        <table class="table-base">
+          <thead class="table-head">
+            <tr>
+              <th class="px-4 py-3"><%= t('date') %></th>
+              <th class="px-4 py-3"><%= t('fullName') %></th>
+              <th class="px-4 py-3"><%= t('status') %></th>
+              <th class="px-4 py-3"><%= t('recordedBy') %></th>
+            </tr>
+          </thead>
+          <tbody>
+            <% if (!rows.length) { %>
+              <tr>
+                <td class="px-4 py-4 text-slate-500" colspan="4"><%= t('noAttendanceHistory') %></td>
+              </tr>
+            <% } %>
+            <% rows.forEach((row) => { %>
+              <tr class="table-row">
+                <td class="px-4 py-3"><%= row.attendance_date %></td>
+                <td class="px-4 py-3"><%= row.full_name %></td>
+                <td class="px-4 py-3"><%= row.status === 'PRESENT' ? t('present') : t('absent') %></td>
+                <td class="px-4 py-3"><%= row.recorded_by || '-' %></td>
+              </tr>
+            <% }) %>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

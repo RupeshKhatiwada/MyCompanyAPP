@@ -1,0 +1,115 @@
+<%- include('../partials/shell-start', { title }) %>
+<section class="py-8">
+  <div class="flex flex-wrap items-center justify-between gap-3">
+    <div>
+      <h1 class="text-3xl font-semibold"><%= t('jarSalesTitle') %></h1>
+      <p class="text-slate-600"><%= t('jarSalesSubtitle') %></p>
+    </div>
+    <div class="flex flex-wrap gap-2">
+      <a class="btn-outline" href="/records/jar-sales/export?from=<%= from %>&to=<%= to %>&q=<%= encodeURIComponent(q || '') %>"><%= t('exportCsv') %></a>
+      <a class="btn-primary" href="/records/jar-sales/new"><%= t('addJarSaleTitle') %></a>
+    </div>
+  </div>
+
+  <form class="mt-4 flex flex-wrap items-end gap-3" method="get" action="/records/jar-sales">
+    <div>
+      <label class="label"><%= t('from') %></label>
+      <input class="input" type="date" name="from" value="<%= from %>" />
+    </div>
+    <div>
+      <label class="label"><%= t('to') %></label>
+      <input class="input" type="date" name="to" value="<%= to %>" />
+    </div>
+    <div class="min-w-[220px]">
+      <label class="label"><%= t('search') %></label>
+      <input class="input" type="text" name="q" value="<%= q || '' %>" placeholder="<%= t('searchPlaceholder') %>" />
+    </div>
+    <button class="btn-outline" type="submit"><%= t('filter') %></button>
+  </form>
+
+  <div class="mt-6 card overflow-hidden">
+    <div class="overflow-x-auto">
+      <table class="table-base">
+        <thead class="table-head">
+          <tr>
+            <th class="px-4 py-3"><%= t('date') %></th>
+            <th class="px-4 py-3"><%= t('jarType') %></th>
+            <th class="px-4 py-3"><%= t('personName') %></th>
+            <th class="px-4 py-3"><%= t('vehicleNumber') %></th>
+            <th class="px-4 py-3"><%= t('quantity') %></th>
+            <th class="px-4 py-3"><%= t('price') %></th>
+            <th class="px-4 py-3"><%= t('total') %></th>
+            <th class="px-4 py-3"><%= t('paidAmount') %></th>
+            <th class="px-4 py-3"><%= t('creditAmount') %></th>
+            <th class="px-4 py-3"><%= t('note') %></th>
+            <th class="px-4 py-3"><%= t('recordedBy') %></th>
+            <th class="px-4 py-3 text-right"><%= t('actions') %></th>
+          </tr>
+        </thead>
+        <tbody>
+          <% if (rows.length === 0) { %>
+            <tr>
+              <td class="px-4 py-4 text-slate-500" colspan="12"><%= t('noData') %></td>
+            </tr>
+          <% } %>
+          <% rows.forEach((row) => { %>
+            <% const vehicleNo = row.vehicle_number_ref || row.vehicle_number || '-'; %>
+            <% const vehicleLabel = row.owner_name ? `${row.owner_name} • ${vehicleNo}` : vehicleNo; %>
+            <tr class="table-row">
+              <td class="px-4 py-3"><%= row.sale_date %></td>
+              <td class="px-4 py-3 font-medium"><%= row.jar_name %></td>
+              <td class="px-4 py-3"><%= row.customer_name || '-' %></td>
+              <td class="px-4 py-3">
+                <div class="flex flex-wrap items-center gap-2">
+                  <span><%= vehicleLabel %></span>
+                  <% if (row.is_company) { %>
+                    <span class="badge bg-emerald-50 text-emerald-700"><%= t('companyVehicle') %></span>
+                  <% } %>
+                </div>
+              </td>
+              <td class="px-4 py-3"><%= row.quantity %></td>
+              <td class="px-4 py-3"><%= row.unit_price %></td>
+              <td class="px-4 py-3"><%= row.total_amount %></td>
+              <td class="px-4 py-3"><%= row.paid_amount %></td>
+              <td class="px-4 py-3"><%= row.credit_amount %></td>
+              <td class="px-4 py-3"><%= row.note || '-' %></td>
+              <td class="px-4 py-3"><%= row.recorded_by || '-' %></td>
+              <td class="px-4 py-3 text-right">
+                <details class="action-menu">
+                  <summary class="btn-outline h-9 w-9 flex items-center justify-center">⋯</summary>
+                  <div class="action-menu-panel">
+                    <a class="action-menu-item" href="/records/jar-sales/<%= row.id %>/print" target="_blank"><%= t('print') %></a>
+                    <a class="action-menu-item" href="/records/jar-sales/<%= row.id %>/edit"><%= t('edit') %></a>
+                    <form method="post" action="/records/jar-sales/<%= row.id %>/delete" onsubmit="return confirm('<%= t('deleteJarSaleConfirm') %>');">
+                      <button class="action-menu-item action-menu-danger" type="submit"><%= t('delete') %></button>
+                    </form>
+                  </div>
+                </details>
+              </td>
+            </tr>
+          <% }) %>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="mt-4 grid gap-3 text-sm sm:grid-cols-4">
+    <div class="card p-4">
+      <p class="text-slate-500"><%= t('quantity') %></p>
+      <p class="text-lg font-semibold"><%= totals.qty %></p>
+    </div>
+    <div class="card p-4">
+      <p class="text-slate-500"><%= t('total') %></p>
+      <p class="text-lg font-semibold"><%= totals.total %></p>
+    </div>
+    <div class="card p-4">
+      <p class="text-slate-500"><%= t('paidAmount') %></p>
+      <p class="text-lg font-semibold"><%= totals.paid %></p>
+    </div>
+    <div class="card p-4">
+      <p class="text-slate-500"><%= t('creditAmount') %></p>
+      <p class="text-lg font-semibold"><%= totals.credit %></p>
+    </div>
+  </div>
+</section>
+<%- include('../partials/shell-end') %>

@@ -1,0 +1,186 @@
+<%- include('../partials/shell-start', { title }) %>
+<section class="py-8">
+  <div class="flex flex-wrap items-start justify-between gap-3">
+    <div>
+      <h1 class="text-3xl font-semibold"><%= t('alertCenterTitle') %></h1>
+      <p class="text-slate-600"><%= t('alertCenterSubtitle') %></p>
+    </div>
+    <a class="btn-outline" href="/admin"><%= t('back') %></a>
+  </div>
+
+  <div class="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+    <div class="card p-4">
+      <p class="text-slate-500"><%= t('backupWarnings') %></p>
+      <p class="text-lg font-semibold"><%= summary.backupWarnings %></p>
+    </div>
+    <div class="card p-4">
+      <p class="text-slate-500"><%= t('lowStockAlerts') %></p>
+      <p class="text-lg font-semibold"><%= summary.lowStockItems %></p>
+    </div>
+    <div class="card p-4">
+      <p class="text-slate-500"><%= t('overdueCreditAlerts') %></p>
+      <p class="text-lg font-semibold"><%= summary.overdueCredits %></p>
+    </div>
+    <div class="card p-4">
+      <p class="text-slate-500"><%= t('unpaidSalaryAlerts') %></p>
+      <p class="text-lg font-semibold"><%= summary.unpaidSalaryPeople %></p>
+    </div>
+  </div>
+
+  <% if (backup.backupOverdue) { %>
+    <div class="mt-6 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+      <strong><%= t('backupWarnings') %>:</strong>
+      <%= t('backupReminderMessagePrefix') %>
+      <%= backup.lastBackupAt || t('backupNever') %>.
+      <%= t('backupReminderMessageSuffix') %>
+    </div>
+  <% } %>
+
+  <div class="mt-6 card p-6">
+    <div class="flex flex-wrap items-center justify-between gap-3">
+      <h2 class="text-lg font-semibold"><%= t('lowJarStockTitle') %></h2>
+      <span class="pill"><%= t('alertThreshold') %>: <%= thresholds.jarLowThreshold %></span>
+    </div>
+    <div class="mt-4 overflow-x-auto">
+      <table class="table-base text-sm">
+        <thead class="table-head">
+          <tr>
+            <th class="px-4 py-3"><%= t('itemType') %></th>
+            <th class="px-4 py-3"><%= t('balance') %></th>
+          </tr>
+        </thead>
+        <tbody>
+          <% if (!lowJarStocks || lowJarStocks.length === 0) { %>
+            <tr><td class="px-4 py-4 text-slate-500" colspan="2"><%= t('noLowStock') %></td></tr>
+          <% } %>
+          <% (lowJarStocks || []).forEach((row) => { %>
+            <tr class="table-row">
+              <td class="px-4 py-3"><%= row.type_name %></td>
+              <td class="px-4 py-3"><%= row.balance %></td>
+            </tr>
+          <% }) %>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="mt-6 card p-6">
+    <div class="flex flex-wrap items-center justify-between gap-3">
+      <h2 class="text-lg font-semibold"><%= t('lowItemStockTitle') %></h2>
+      <span class="pill"><%= t('alertThreshold') %>: <%= thresholds.itemLowThreshold %></span>
+    </div>
+    <div class="mt-4 overflow-x-auto">
+      <table class="table-base text-sm">
+        <thead class="table-head">
+          <tr>
+            <th class="px-4 py-3"><%= t('itemType') %></th>
+            <th class="px-4 py-3"><%= t('unit') %></th>
+            <th class="px-4 py-3"><%= t('balance') %></th>
+          </tr>
+        </thead>
+        <tbody>
+          <% if (!lowItemStocks || lowItemStocks.length === 0) { %>
+            <tr><td class="px-4 py-4 text-slate-500" colspan="3"><%= t('noLowStock') %></td></tr>
+          <% } %>
+          <% (lowItemStocks || []).forEach((row) => { %>
+            <tr class="table-row">
+              <td class="px-4 py-3"><%= row.item_name %></td>
+              <td class="px-4 py-3"><%= row.unit || '-' %></td>
+              <td class="px-4 py-3"><%= row.balance %></td>
+            </tr>
+          <% }) %>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="mt-6 card p-6">
+    <div class="flex flex-wrap items-center justify-between gap-3">
+      <h2 class="text-lg font-semibold"><%= t('overdueCreditsTitle') %></h2>
+      <span class="pill"><%= t('overdueDays') %>: <%= thresholds.overdueDays %>+</span>
+    </div>
+    <div class="mt-4 overflow-x-auto">
+      <table class="table-base text-sm">
+        <thead class="table-head">
+          <tr>
+            <th class="px-4 py-3"><%= t('date') %></th>
+            <th class="px-4 py-3"><%= t('vehicle') %></th>
+            <th class="px-4 py-3"><%= t('customerName') %></th>
+            <th class="px-4 py-3"><%= t('remainingAmount') %></th>
+            <th class="px-4 py-3"><%= t('overdueDays') %></th>
+          </tr>
+        </thead>
+        <tbody>
+          <% if (!overdueCredits || overdueCredits.length === 0) { %>
+            <tr><td class="px-4 py-4 text-slate-500" colspan="5"><%= t('noOverdueCredits') %></td></tr>
+          <% } %>
+          <% (overdueCredits || []).forEach((row) => { %>
+            <tr class="table-row">
+              <td class="px-4 py-3"><%= row.credit_date %></td>
+              <td class="px-4 py-3"><%= `${row.owner_name} • ${row.vehicle_number}` %></td>
+              <td class="px-4 py-3"><%= row.customer_name %></td>
+              <td class="px-4 py-3"><%= row.remaining_amount %></td>
+              <td class="px-4 py-3"><%= row.overdue_days %></td>
+            </tr>
+          <% }) %>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="mt-6 grid gap-4 lg:grid-cols-2">
+    <div class="card p-6">
+      <h2 class="text-lg font-semibold"><%= t('staffsTitle') %> - <%= t('unpaidSalariesTitle') %></h2>
+      <div class="mt-4 overflow-x-auto">
+        <table class="table-base text-sm">
+          <thead class="table-head">
+            <tr>
+              <th class="px-4 py-3"><%= t('fullName') %></th>
+              <th class="px-4 py-3"><%= t('monthlySalary') %></th>
+              <th class="px-4 py-3"><%= t('dueAmount') %></th>
+            </tr>
+          </thead>
+          <tbody>
+            <% if (!unpaidStaff || unpaidStaff.length === 0) { %>
+              <tr><td class="px-4 py-4 text-slate-500" colspan="3"><%= t('noUnpaidSalaries') %></td></tr>
+            <% } %>
+            <% (unpaidStaff || []).forEach((row) => { %>
+              <tr class="table-row">
+                <td class="px-4 py-3"><%= row.full_name %></td>
+                <td class="px-4 py-3"><%= row.monthly_salary %></td>
+                <td class="px-4 py-3"><%= row.due_salary %></td>
+              </tr>
+            <% }) %>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <div class="card p-6">
+      <h2 class="text-lg font-semibold"><%= t('workersTitle') %> - <%= t('unpaidSalariesTitle') %></h2>
+      <div class="mt-4 overflow-x-auto">
+        <table class="table-base text-sm">
+          <thead class="table-head">
+            <tr>
+              <th class="px-4 py-3"><%= t('fullName') %></th>
+              <th class="px-4 py-3"><%= t('monthlySalary') %></th>
+              <th class="px-4 py-3"><%= t('dueAmount') %></th>
+            </tr>
+          </thead>
+          <tbody>
+            <% if (!unpaidWorkers || unpaidWorkers.length === 0) { %>
+              <tr><td class="px-4 py-4 text-slate-500" colspan="3"><%= t('noUnpaidSalaries') %></td></tr>
+            <% } %>
+            <% (unpaidWorkers || []).forEach((row) => { %>
+              <tr class="table-row">
+                <td class="px-4 py-3"><%= row.full_name %></td>
+                <td class="px-4 py-3"><%= row.monthly_salary %></td>
+                <td class="px-4 py-3"><%= row.due_salary %></td>
+              </tr>
+            <% }) %>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</section>
+<%- include('../partials/shell-end') %>

@@ -1,0 +1,89 @@
+<%- include('../partials/shell-start', { title }) %>
+<section class="py-8">
+  <div class="flex flex-wrap items-center justify-between gap-3">
+    <div>
+      <h1 class="text-3xl font-semibold"><%= t('waterTestsTitle') %></h1>
+      <p class="text-slate-600"><%= t('waterTestsSubtitle') %></p>
+    </div>
+    <a class="btn-primary" href="/records/water-tests/new"><%= t('addWaterTestTitle') %></a>
+  </div>
+
+  <form class="mt-4 flex flex-wrap items-end gap-3" method="get" action="/records/water-tests">
+    <div>
+      <label class="label"><%= t('from') %></label>
+      <input class="input" type="date" name="from" value="<%= from %>" />
+    </div>
+    <div>
+      <label class="label"><%= t('to') %></label>
+      <input class="input" type="date" name="to" value="<%= to %>" />
+    </div>
+    <div class="min-w-[220px]">
+      <label class="label"><%= t('search') %></label>
+      <input class="input" type="text" name="q" value="<%= q || '' %>" placeholder="<%= t('searchPlaceholder') %>" />
+    </div>
+    <button class="btn-outline" type="submit"><%= t('filter') %></button>
+  </form>
+
+  <div class="mt-6 card overflow-hidden">
+    <div class="overflow-x-auto">
+      <table class="table-base">
+        <thead class="table-head">
+          <tr>
+            <th class="px-4 py-3"><%= t('date') %></th>
+            <th class="px-4 py-3">pH</th>
+            <th class="px-4 py-3">TDS</th>
+            <th class="px-4 py-3"><%= t('coliform') %></th>
+            <th class="px-4 py-3"><%= t('companyTestSectionTitle') %></th>
+            <th class="px-4 py-3"><%= t('externalLabSectionTitle') %></th>
+            <th class="px-4 py-3"><%= t('note') %></th>
+            <th class="px-4 py-3"><%= t('recordedBy') %></th>
+            <th class="px-4 py-3 text-right"><%= t('actions') %></th>
+          </tr>
+        </thead>
+        <tbody>
+          <% if (!rows || rows.length === 0) { %>
+            <tr>
+              <td class="px-4 py-4 text-slate-500" colspan="9"><%= t('noWaterTests') %></td>
+            </tr>
+          <% } %>
+          <% rows.forEach((row) => { %>
+            <tr class="table-row">
+              <td class="px-4 py-3"><%= row.test_date %></td>
+              <td class="px-4 py-3"><%= row.ph_value %></td>
+              <td class="px-4 py-3"><%= row.tds_value %></td>
+              <td class="px-4 py-3"><%= row.coliform || '-' %></td>
+              <td class="px-4 py-3">
+                <% if (row.forensic_report_path) { %>
+                  <a class="btn-outline" href="<%= row.forensic_report_path %>" target="_blank"><%= t('viewFile') %></a>
+                <% } else { %>
+                  -
+                <% } %>
+              </td>
+              <td class="px-4 py-3">
+                <% if (row.government_report_path) { %>
+                  <a class="btn-outline" href="<%= row.government_report_path %>" target="_blank"><%= t('viewFile') %></a>
+                <% } else { %>
+                  -
+                <% } %>
+              </td>
+              <td class="px-4 py-3"><%= row.note || '-' %></td>
+              <td class="px-4 py-3"><%= row.recorded_by || '-' %></td>
+              <td class="px-4 py-3 text-right">
+                <details class="action-menu">
+                  <summary class="btn-outline h-9 w-9 flex items-center justify-center">⋯</summary>
+                  <div class="action-menu-panel">
+                    <a class="action-menu-item" href="/records/water-tests/<%= row.id %>/edit"><%= t('edit') %></a>
+                    <form method="post" action="/records/water-tests/<%= row.id %>/delete" onsubmit="return confirm('<%= t('deleteWaterTestConfirm') %>');">
+                      <button class="action-menu-item action-menu-danger" type="submit"><%= t('delete') %></button>
+                    </form>
+                  </div>
+                </details>
+              </td>
+            </tr>
+          <% }) %>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+<%- include('../partials/shell-end') %>

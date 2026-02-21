@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="<%= lang %>">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title><%= t('savingsTitle') %> | AQUA MSK</title>
+  <link rel="stylesheet" href="/css/styles.css?v=<%= assetVersion %>" />
+  <style>
+    @media print { .print-hidden { display: none !important; } }
+  </style>
+</head>
+<body class="bg-white text-slate-900">
+  <div class="mx-auto max-w-5xl p-6">
+    <div class="flex flex-wrap items-start justify-between gap-4">
+      <div class="flex-1">
+        <%- include('../partials/print-brand', { subtitle: t('savingsTitle') }) %>
+        <p class="mt-2 text-sm text-slate-600">
+          <%= t('from') %>: <%= from %> | <%= t('to') %>: <%= to %>
+        </p>
+        <p class="text-xs text-slate-500"><%= t('printedOn') %>: <%= printedAt %></p>
+      </div>
+      <button class="btn-primary print-hidden" onclick="window.print()"><%= t('print') %></button>
+    </div>
+
+    <div class="mt-6 overflow-hidden rounded-2xl border border-slate-200">
+      <table class="table-base">
+        <thead class="table-head">
+          <tr>
+            <th class="px-4 py-3"><%= t('date') %></th>
+            <th class="px-4 py-3"><%= t('vehicle') %></th>
+            <th class="px-4 py-3"><%= t('savingsType') %></th>
+            <th class="px-4 py-3"><%= t('amount') %></th>
+            <th class="px-4 py-3"><%= t('note') %></th>
+          </tr>
+        </thead>
+        <tbody>
+          <% if (entries.length === 0) { %>
+            <tr>
+              <td class="px-4 py-4 text-slate-500" colspan="5"><%= t('noSavings') %></td>
+            </tr>
+          <% } %>
+          <% entries.forEach((row) => { %>
+            <% const label = `${row.owner_name} • ${row.vehicle_number}`; %>
+            <% const entryType = row.amount < 0 ? 'withdraw' : 'deposit'; %>
+            <tr class="table-row">
+              <td class="px-4 py-3"><%= row.entry_date %></td>
+              <td class="px-4 py-3"><%= label %></td>
+              <td class="px-4 py-3"><%= entryType === 'withdraw' ? t('savingsWithdraw') : t('savingsDeposit') %></td>
+              <td class="px-4 py-3"><%= Math.abs(row.amount) %></td>
+              <td class="px-4 py-3"><%= row.note || '-' %></td>
+            </tr>
+          <% }) %>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="mt-6 grid gap-3 text-sm sm:grid-cols-3">
+      <div class="card p-4">
+        <p class="text-slate-500"><%= t('totalSavings') %></p>
+        <p class="text-lg font-semibold"><%= totals.total %></p>
+      </div>
+      <div class="card p-4">
+        <p class="text-slate-500"><%= t('savingsDeposit') %></p>
+        <p class="text-lg font-semibold"><%= totals.deposits %></p>
+      </div>
+      <div class="card p-4">
+        <p class="text-slate-500"><%= t('savingsWithdraw') %></p>
+        <p class="text-lg font-semibold"><%= totals.withdraws %></p>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

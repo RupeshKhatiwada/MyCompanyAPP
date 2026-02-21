@@ -1,0 +1,111 @@
+<%- include('../partials/shell-start', { title }) %>
+<section class="py-8">
+  <div class="flex flex-wrap items-center justify-between gap-3">
+    <div>
+      <h1 class="text-3xl font-semibold"><%= t('details') %> · <%= record.receipt_no || (`#${record.id}`) %></h1>
+      <p class="text-slate-600"><%= t('exportsTitle') %></p>
+    </div>
+    <div class="flex flex-wrap gap-2">
+      <% if (Number(record.is_company) !== 1 && Number(record.credit_amount || 0) > 0) { %>
+        <a class="btn-outline" href="/records/exports/<%= record.id %>/pay-credit"><%= t('payCredit') %></a>
+      <% } %>
+      <a class="btn-outline" href="/records/exports/<%= record.id %>/print" target="_blank"><%= t('print') %></a>
+      <a class="btn-outline" href="/records/exports/<%= record.id %>/edit"><%= t('edit') %></a>
+      <a class="btn-outline" href="/records/exports?from=<%= record.export_date %>&to=<%= record.export_date %>"><%= t('back') %></a>
+    </div>
+  </div>
+
+  <% const netJars = Math.max(0, (record.jar_count || 0) - (record.return_jar_count || 0) - (record.leakage_jar_count || 0)); %>
+  <% const netBottles = Math.max(0, (record.bottle_case_count || 0) - (record.return_bottle_case_count || 0)); %>
+  <% const collectionAmount = Number(record.collection_amount || 0); %>
+
+  <div class="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+    <div class="card p-4">
+      <p class="text-slate-500"><%= t('date') %></p>
+      <p class="text-lg font-semibold"><%= record.export_date %></p>
+    </div>
+    <div class="card p-4">
+      <p class="text-slate-500"><%= t('vehicleNumber') %></p>
+      <p class="text-lg font-semibold"><%= record.vehicle_number %></p>
+    </div>
+    <div class="card p-4">
+      <p class="text-slate-500"><%= t('ownerName') %></p>
+      <p class="text-lg font-semibold"><%= record.owner_name %></p>
+    </div>
+    <div class="card p-4">
+      <p class="text-slate-500"><%= t('recordedBy') %></p>
+      <p class="text-lg font-semibold"><%= record.recorded_by || '-' %></p>
+    </div>
+  </div>
+
+  <div class="mt-4 grid gap-3 sm:grid-cols-2">
+    <div class="card p-4">
+      <p class="text-slate-500"><%= t('checkedByStaff') %></p>
+      <p class="font-semibold"><%= record.checked_by_name || '-' %></p>
+    </div>
+    <div class="card p-4">
+      <p class="text-slate-500"><%= t('forceWashBy') %></p>
+      <p class="font-semibold"><%= record.force_wash_staff_name || '-' %></p>
+    </div>
+  </div>
+
+  <div class="mt-6 card overflow-hidden">
+    <div class="overflow-x-auto">
+      <table class="table-base">
+        <thead class="table-head">
+          <tr>
+            <th class="px-4 py-3"><%= t('jars') %></th>
+            <th class="px-4 py-3"><%= t('returnJars') %></th>
+            <th class="px-4 py-3"><%= t('leakageJars') %></th>
+            <th class="px-4 py-3"><%= t('netJars') %></th>
+            <th class="px-4 py-3"><%= t('bottleCases') %></th>
+            <th class="px-4 py-3"><%= t('returnBottleCases') %></th>
+            <th class="px-4 py-3"><%= t('netBottles') %></th>
+            <th class="px-4 py-3"><%= t('dispensers') %></th>
+            <th class="px-4 py-3"><%= t('totalExportAmount') %></th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr class="table-row">
+            <td class="px-4 py-3"><%= record.jar_count %></td>
+            <td class="px-4 py-3"><%= record.return_jar_count %></td>
+            <td class="px-4 py-3"><%= record.leakage_jar_count %></td>
+            <td class="px-4 py-3"><%= netJars %></td>
+            <td class="px-4 py-3"><%= record.bottle_case_count %></td>
+            <td class="px-4 py-3"><%= record.return_bottle_case_count %></td>
+            <td class="px-4 py-3"><%= netBottles %></td>
+            <td class="px-4 py-3"><%= record.dispenser_count || 0 %></td>
+            <td class="px-4 py-3"><%= record.total_amount %></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+    <% if (Number(record.is_company) === 1) { %>
+      <div class="card p-4">
+        <p class="text-slate-500"><%= t('collectionAmount') %></p>
+        <p class="text-lg font-semibold"><%= collectionAmount %></p>
+      </div>
+    <% } else { %>
+      <div class="card p-4">
+        <p class="text-slate-500"><%= t('paidAmount') %></p>
+        <p class="text-lg font-semibold"><%= record.paid_amount %></p>
+      </div>
+      <div class="card p-4">
+        <p class="text-slate-500"><%= t('creditAmount') %></p>
+        <p class="text-lg font-semibold"><%= record.credit_amount %></p>
+      </div>
+    <% } %>
+    <div class="card p-4">
+      <p class="text-slate-500"><%= t('route') %></p>
+      <p class="text-lg font-semibold"><%= record.route || '-' %></p>
+    </div>
+    <div class="card p-4">
+      <p class="text-slate-500"><%= t('note') %></p>
+      <p class="text-lg font-semibold"><%= record.note || '-' %></p>
+    </div>
+  </div>
+</section>
+<%- include('../partials/shell-end') %>

@@ -1,0 +1,70 @@
+<%- include('../partials/shell-start', { title }) %>
+<section class="py-8">
+  <div class="flex flex-wrap items-center justify-between gap-3">
+    <div>
+      <h1 class="text-3xl font-semibold"><%= t('importItemTypesTitle') %></h1>
+      <p class="text-slate-600"><%= t('importItemTypesSubtitle') %></p>
+    </div>
+    <a class="btn-primary" href="/admin/import-item-types/new"><%= t('addImportItemTypeTitle') %></a>
+  </div>
+
+  <% if (error) { %>
+    <div class="mt-4 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700"><%= error %></div>
+  <% } %>
+  <% if (success) { %>
+    <div class="mt-4 rounded-lg bg-emerald-50 px-4 py-3 text-sm text-emerald-700"><%= success %></div>
+  <% } %>
+
+  <div class="mt-6 card p-6">
+    <h2 class="text-lg font-semibold"><%= t('specialItemTypesTitle') %></h2>
+    <p class="mt-1 text-sm text-slate-600"><%= t('specialItemTypesSubtitle') %></p>
+    <div class="mt-4 flex flex-wrap items-center gap-2">
+      <a class="btn-outline" href="/admin/jar-types"><%= t('manageJarTypes') %></a>
+      <span class="pill"><%= t('jarTypesTitle') %>: <%= (jarTypes || []).length %></span>
+      <a class="btn-outline" href="/admin/jar-cap-types"><%= t('manageJarCapTypes') %></a>
+      <span class="pill"><%= t('jarCapTypesTitle') %>: <%= (jarCapTypes || []).length %></span>
+    </div>
+  </div>
+
+  <div class="mt-6 card overflow-hidden">
+    <div class="overflow-x-auto">
+      <table class="table-base">
+        <thead class="table-head">
+          <tr>
+            <th class="px-4 py-3"><%= t('itemType') %></th>
+            <th class="px-4 py-3">Code</th>
+            <th class="px-4 py-3"><%= t('unit') %></th>
+            <th class="px-4 py-3"><%= t('usageStatus') %></th>
+            <th class="px-4 py-3"><%= t('status') %></th>
+            <th class="px-4 py-3 text-right"><%= t('actions') %></th>
+          </tr>
+        </thead>
+        <tbody>
+          <% if (!types || types.length === 0) { %>
+            <tr>
+              <td class="px-4 py-4 text-slate-500" colspan="6"><%= t('noData') %></td>
+            </tr>
+          <% } %>
+          <% types.forEach((row) => { %>
+            <tr class="table-row">
+              <td class="px-4 py-3"><%= row.label %></td>
+              <td class="px-4 py-3 font-mono text-xs"><%= row.code %></td>
+              <td class="px-4 py-3"><%= row.unit_label || '-' %></td>
+              <td class="px-4 py-3"><%= Number(row.uses_direction) === 1 ? t('usedUnused') : t('unusedOnly') %></td>
+              <td class="px-4 py-3"><%= Number(row.is_active) === 1 ? t('active') : t('inactive') %></td>
+              <td class="px-4 py-3 text-right">
+                <div class="flex flex-wrap justify-end gap-2">
+                  <a class="btn-outline" href="/admin/import-item-types/<%= row.id %>/edit"><%= t('edit') %></a>
+                  <form method="post" action="/admin/import-item-types/<%= row.id %>/delete" onsubmit="return confirm('<%= t('deleteImportItemTypeConfirm') %>');">
+                    <button class="btn-danger" type="submit"><%= t('delete') %></button>
+                  </form>
+                </div>
+              </td>
+            </tr>
+          <% }) %>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+<%- include('../partials/shell-end') %>

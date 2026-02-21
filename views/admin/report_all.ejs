@@ -1,0 +1,259 @@
+<%- include('../partials/shell-start', { title }) %>
+<section class="py-8">
+  <div class="flex flex-wrap items-center justify-between gap-3">
+    <div>
+      <h1 class="text-3xl font-semibold"><%= t('allReportsTitle') %></h1>
+      <p class="text-slate-600"><%= t('allReportsSubtitle') %></p>
+    </div>
+    <div class="flex flex-wrap gap-2">
+      <a class="btn-outline" href="/admin/reports/all/export?from=<%= from %>&to=<%= to %>"><%= t('exportCsv') %></a>
+      <button class="btn-primary" onclick="window.print()"><%= t('print') %></button>
+    </div>
+  </div>
+
+  <form class="mt-4 flex flex-wrap items-end gap-3 print-hidden" method="get" action="/admin/reports/all">
+    <div>
+      <label class="label"><%= t('from') %></label>
+      <input class="input" type="date" name="from" value="<%= from %>" />
+    </div>
+    <div>
+      <label class="label"><%= t('to') %></label>
+      <input class="input" type="date" name="to" value="<%= to %>" />
+    </div>
+    <button class="btn-outline" type="submit"><%= t('filter') %></button>
+    <a class="btn-outline" href="/admin/reports/all?from=<%= today %>&to=<%= today %>"><%= t('presetToday') %></a>
+    <a class="btn-outline" href="/admin/reports/all?from=<%= weekStart %>&to=<%= today %>"><%= t('presetThisWeek') %></a>
+    <a class="btn-outline" href="/admin/reports/all?from=<%= monthStart %>&to=<%= today %>"><%= t('presetThisMonth') %></a>
+    <a class="btn-outline" href="/admin/reports/all?from=<%= yearStart %>&to=<%= today %>"><%= t('presetThisYear') %></a>
+  </form>
+
+  <% const importLabels = { JAR_CONTAINER: t('importItemJarContainer'), JAR_CAP: t('importItemJarCap'), CHEMICAL_LABEL: t('importItemChemicalLabel'), LABEL_STICKER: t('importItemLabelSticker'), DATE_LABEL: t('importItemDateLabel') }; %>
+  <div class="mt-6 grid gap-4">
+    <div class="card p-6">
+      <h2 class="text-lg font-semibold"><%= t('exportsTitle') %></h2>
+      <div class="mt-4 grid gap-3 text-sm sm:grid-cols-3 lg:grid-cols-6">
+        <div class="card p-4"><p class="text-slate-500"><%= t('tripCount') %></p><p class="text-lg font-semibold"><%= exportTotals.total_trips %></p></div>
+        <div class="card p-4"><p class="text-slate-500"><%= t('totalJars') %></p><p class="text-lg font-semibold"><%= exportTotals.total_jars %></p></div>
+        <div class="card p-4"><p class="text-slate-500"><%= t('totalBottleCases') %></p><p class="text-lg font-semibold"><%= exportTotals.total_bottles %></p></div>
+        <div class="card p-4"><p class="text-slate-500"><%= t('totalExportAmount') %></p><p class="text-lg font-semibold"><%= exportTotals.total_amount %></p></div>
+        <div class="card p-4"><p class="text-slate-500"><%= t('totalPaidAmount') %></p><p class="text-lg font-semibold"><%= exportTotals.total_paid %></p></div>
+        <div class="card p-4"><p class="text-slate-500"><%= t('totalCreditAmount') %></p><p class="text-lg font-semibold"><%= exportTotals.total_credit %></p></div>
+      </div>
+      <details class="mt-6">
+        <summary class="cursor-pointer text-sm font-semibold text-slate-700"><%= t('viewAll') %></summary>
+        <div class="mt-4 overflow-x-auto">
+          <table class="table-base text-sm">
+            <thead class="table-head">
+              <tr>
+                <th class="px-4 py-3"><%= t('date') %></th>
+                <th class="px-4 py-3"><%= t('vehicle') %></th>
+                <th class="px-4 py-3"><%= t('jars') %></th>
+                <th class="px-4 py-3"><%= t('bottleCases') %></th>
+                <th class="px-4 py-3"><%= t('totalExportAmount') %></th>
+                <th class="px-4 py-3"><%= t('paidAmount') %></th>
+                <th class="px-4 py-3"><%= t('creditAmount') %></th>
+              </tr>
+            </thead>
+            <tbody>
+              <% if (!exportsRows || exportsRows.length === 0) { %>
+                <tr><td class="px-4 py-4 text-slate-500" colspan="7"><%= t('noExports') %></td></tr>
+              <% } %>
+              <% exportsRows.forEach((row) => { %>
+                <tr class="table-row">
+                  <td class="px-4 py-3"><%= row.export_date %></td>
+                  <td class="px-4 py-3"><%= `${row.owner_name} • ${row.vehicle_number}` %></td>
+                  <td class="px-4 py-3"><%= row.jar_count %></td>
+                  <td class="px-4 py-3"><%= row.bottle_case_count %></td>
+                  <td class="px-4 py-3"><%= row.total_amount %></td>
+                  <td class="px-4 py-3"><%= row.paid_amount %></td>
+                  <td class="px-4 py-3"><%= row.credit_amount %></td>
+                </tr>
+              <% }) %>
+            </tbody>
+          </table>
+        </div>
+      </details>
+    </div>
+
+    <div class="card p-6">
+      <h2 class="text-lg font-semibold"><%= t('creditsTitle') %></h2>
+      <div class="mt-4 grid gap-3 text-sm sm:grid-cols-3 lg:grid-cols-5">
+        <div class="card p-4"><p class="text-slate-500"><%= t('totalAmount') %></p><p class="text-lg font-semibold"><%= creditTotals.total_amount %></p></div>
+        <div class="card p-4"><p class="text-slate-500"><%= t('totalPaidAmount') %></p><p class="text-lg font-semibold"><%= creditTotals.total_paid %></p></div>
+        <div class="card p-4"><p class="text-slate-500"><%= t('remainingAmount') %></p><p class="text-lg font-semibold"><%= creditTotals.total_remaining %></p></div>
+        <div class="card p-4"><p class="text-slate-500"><%= t('creditJars') %></p><p class="text-lg font-semibold"><%= creditTotals.total_jars %></p></div>
+        <div class="card p-4"><p class="text-slate-500"><%= t('creditBottleCases') %></p><p class="text-lg font-semibold"><%= creditTotals.total_bottles %></p></div>
+      </div>
+      <details class="mt-6">
+        <summary class="cursor-pointer text-sm font-semibold text-slate-700"><%= t('viewAll') %></summary>
+        <div class="mt-4 overflow-x-auto">
+          <table class="table-base text-sm">
+            <thead class="table-head">
+              <tr>
+                <th class="px-4 py-3"><%= t('date') %></th>
+                <th class="px-4 py-3"><%= t('vehicle') %></th>
+                <th class="px-4 py-3"><%= t('customerName') %></th>
+                <th class="px-4 py-3"><%= t('amount') %></th>
+                <th class="px-4 py-3"><%= t('paidAmount') %></th>
+                <th class="px-4 py-3"><%= t('remainingAmount') %></th>
+              </tr>
+            </thead>
+            <tbody>
+              <% if (!creditsRows || creditsRows.length === 0) { %>
+                <tr><td class="px-4 py-4 text-slate-500" colspan="6"><%= t('noCredits') %></td></tr>
+              <% } %>
+              <% creditsRows.forEach((row) => { %>
+                <tr class="table-row">
+                  <td class="px-4 py-3"><%= row.credit_date %></td>
+                  <td class="px-4 py-3"><%= `${row.owner_name} • ${row.vehicle_number}` %></td>
+                  <td class="px-4 py-3"><%= row.customer_name %></td>
+                  <td class="px-4 py-3"><%= row.amount %></td>
+                  <td class="px-4 py-3"><%= row.paid_amount %></td>
+                  <td class="px-4 py-3"><%= row.remaining_amount %></td>
+                </tr>
+              <% }) %>
+            </tbody>
+          </table>
+        </div>
+      </details>
+    </div>
+
+    <div class="card p-6">
+      <h2 class="text-lg font-semibold"><%= t('jarSalesTitle') %></h2>
+      <div class="mt-4 grid gap-3 text-sm sm:grid-cols-4">
+        <div class="card p-4"><p class="text-slate-500"><%= t('quantity') %></p><p class="text-lg font-semibold"><%= jarSalesTotals.qty %></p></div>
+        <div class="card p-4"><p class="text-slate-500"><%= t('total') %></p><p class="text-lg font-semibold"><%= jarSalesTotals.total %></p></div>
+        <div class="card p-4"><p class="text-slate-500"><%= t('paidAmount') %></p><p class="text-lg font-semibold"><%= jarSalesTotals.paid %></p></div>
+        <div class="card p-4"><p class="text-slate-500"><%= t('creditAmount') %></p><p class="text-lg font-semibold"><%= jarSalesTotals.credit %></p></div>
+      </div>
+      <details class="mt-6">
+        <summary class="cursor-pointer text-sm font-semibold text-slate-700"><%= t('viewAll') %></summary>
+        <div class="mt-4 overflow-x-auto">
+          <table class="table-base text-sm">
+            <thead class="table-head">
+              <tr>
+                <th class="px-4 py-3"><%= t('date') %></th>
+                <th class="px-4 py-3"><%= t('jarType') %></th>
+                <th class="px-4 py-3"><%= t('personName') %></th>
+                <th class="px-4 py-3"><%= t('vehicleNumber') %></th>
+                <th class="px-4 py-3"><%= t('quantity') %></th>
+                <th class="px-4 py-3"><%= t('total') %></th>
+              </tr>
+            </thead>
+            <tbody>
+              <% if (!jarSalesRows || jarSalesRows.length === 0) { %>
+                <tr><td class="px-4 py-4 text-slate-500" colspan="6"><%= t('noData') %></td></tr>
+              <% } %>
+              <% jarSalesRows.forEach((row) => { %>
+                <% const vehicleNo = row.vehicle_number_ref || row.vehicle_number || '-'; %>
+                <% const vehicleLabel = row.owner_name ? `${row.owner_name} • ${vehicleNo}` : vehicleNo; %>
+                <tr class="table-row">
+                  <td class="px-4 py-3"><%= row.sale_date %></td>
+                  <td class="px-4 py-3"><%= row.jar_name %></td>
+                  <td class="px-4 py-3"><%= row.customer_name || '-' %></td>
+                  <td class="px-4 py-3"><%= vehicleLabel %></td>
+                  <td class="px-4 py-3"><%= row.quantity %></td>
+                  <td class="px-4 py-3"><%= row.total_amount %></td>
+                </tr>
+              <% }) %>
+            </tbody>
+          </table>
+        </div>
+      </details>
+    </div>
+
+    <div class="card p-6">
+      <h2 class="text-lg font-semibold"><%= t('importsTitle') %></h2>
+      <div class="mt-4 grid gap-3 text-sm sm:grid-cols-3">
+        <div class="card p-4"><p class="text-slate-500"><%= t('unused') %></p><p class="text-lg font-semibold"><%= importTotals.incoming %></p></div>
+        <div class="card p-4"><p class="text-slate-500"><%= t('used') %></p><p class="text-lg font-semibold"><%= importTotals.outgoing %></p></div>
+        <div class="card p-4"><p class="text-slate-500"><%= t('netBalance') %></p><p class="text-lg font-semibold"><%= importTotals.total %></p></div>
+      </div>
+      <div class="mt-4 grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-5">
+        <div class="card p-4"><p class="text-slate-500"><%= t('importItemJarContainer') %></p><p class="text-lg font-semibold"><%= importTotals.byItem.JAR_CONTAINER || 0 %></p></div>
+        <div class="card p-4"><p class="text-slate-500"><%= t('importItemJarCap') %></p><p class="text-lg font-semibold"><%= importTotals.byItem.JAR_CAP || 0 %></p></div>
+        <div class="card p-4"><p class="text-slate-500"><%= t('importItemChemicalLabel') %></p><p class="text-lg font-semibold"><%= importTotals.byItem.CHEMICAL_LABEL || 0 %></p></div>
+        <div class="card p-4"><p class="text-slate-500"><%= t('importItemLabelSticker') %></p><p class="text-lg font-semibold"><%= importTotals.byItem.LABEL_STICKER || 0 %></p></div>
+        <div class="card p-4"><p class="text-slate-500"><%= t('importItemDateLabel') %></p><p class="text-lg font-semibold"><%= importTotals.byItem.DATE_LABEL || 0 %></p></div>
+      </div>
+      <details class="mt-6">
+        <summary class="cursor-pointer text-sm font-semibold text-slate-700"><%= t('viewAll') %></summary>
+        <div class="mt-4 overflow-x-auto">
+          <table class="table-base text-sm">
+            <thead class="table-head">
+              <tr>
+                <th class="px-4 py-3"><%= t('date') %></th>
+                <th class="px-4 py-3"><%= t('itemType') %></th>
+                <th class="px-4 py-3"><%= t('jarContainerType') %></th>
+                <th class="px-4 py-3"><%= t('jarCapType') %></th>
+                <th class="px-4 py-3"><%= t('usageStatus') %></th>
+                <th class="px-4 py-3"><%= t('quantity') %></th>
+                <th class="px-4 py-3"><%= t('note') %></th>
+                <th class="px-4 py-3 text-right"><%= t('actions') %></th>
+              </tr>
+            </thead>
+            <tbody>
+              <% if (!importsRows || importsRows.length === 0) { %>
+                <tr><td class="px-4 py-4 text-slate-500" colspan="8"><%= t('noImports') %></td></tr>
+              <% } %>
+              <% importsRows.forEach((row) => { %>
+                <tr class="table-row">
+                  <td class="px-4 py-3"><%= row.entry_date %></td>
+                  <td class="px-4 py-3"><%= importLabels[row.item_type] || row.item_type %></td>
+                  <td class="px-4 py-3"><%= row.item_type === 'JAR_CONTAINER' ? (row.jar_type_name || '-') : '-' %></td>
+                  <td class="px-4 py-3"><%= row.item_type === 'JAR_CAP' ? (row.jar_cap_type_name || '-') : '-' %></td>
+                  <td class="px-4 py-3"><%= row.direction === 'OUT' ? t('used') : t('unused') %></td>
+                  <td class="px-4 py-3"><%= row.quantity %></td>
+                  <td class="px-4 py-3"><%= row.note || '-' %></td>
+                  <td class="px-4 py-3 text-right">
+                    <form method="post" action="/admin/imports/<%= row.id %>/delete" onsubmit="return confirm('<%= t('deleteImportConfirm') %>');">
+                      <button class="btn-danger" type="submit"><%= t('delete') %></button>
+                    </form>
+                  </td>
+                </tr>
+              <% }) %>
+            </tbody>
+          </table>
+        </div>
+      </details>
+    </div>
+
+    <div class="card p-6">
+      <h2 class="text-lg font-semibold"><%= t('savingsTitle') %></h2>
+      <div class="mt-4 grid gap-3 text-sm sm:grid-cols-3">
+        <div class="card p-4"><p class="text-slate-500"><%= t('totalSavings') %></p><p class="text-lg font-semibold"><%= savingsTotals.total %></p></div>
+        <div class="card p-4"><p class="text-slate-500"><%= t('savingsDeposit') %></p><p class="text-lg font-semibold"><%= savingsTotals.deposits %></p></div>
+        <div class="card p-4"><p class="text-slate-500"><%= t('savingsWithdraw') %></p><p class="text-lg font-semibold"><%= savingsTotals.withdraws %></p></div>
+      </div>
+      <details class="mt-6">
+        <summary class="cursor-pointer text-sm font-semibold text-slate-700"><%= t('viewAll') %></summary>
+        <div class="mt-4 overflow-x-auto">
+          <table class="table-base text-sm">
+            <thead class="table-head">
+              <tr>
+                <th class="px-4 py-3"><%= t('date') %></th>
+                <th class="px-4 py-3"><%= t('vehicle') %></th>
+                <th class="px-4 py-3"><%= t('amount') %></th>
+                <th class="px-4 py-3"><%= t('note') %></th>
+              </tr>
+            </thead>
+            <tbody>
+              <% if (!savingsRows || savingsRows.length === 0) { %>
+                <tr><td class="px-4 py-4 text-slate-500" colspan="4"><%= t('noSavings') %></td></tr>
+              <% } %>
+              <% savingsRows.forEach((row) => { %>
+                <tr class="table-row">
+                  <td class="px-4 py-3"><%= row.entry_date %></td>
+                  <td class="px-4 py-3"><%= `${row.owner_name} • ${row.vehicle_number}` %></td>
+                  <td class="px-4 py-3"><%= row.amount %></td>
+                  <td class="px-4 py-3"><%= row.note || '-' %></td>
+                </tr>
+              <% }) %>
+            </tbody>
+          </table>
+        </div>
+      </details>
+    </div>
+  </div>
+</section>
+<%- include('../partials/shell-end') %>

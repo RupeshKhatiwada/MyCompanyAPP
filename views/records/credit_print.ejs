@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="<%= lang %>">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title><%= t('creditsTitle') %> | AQUA MSK</title>
+  <link rel="stylesheet" href="/css/styles.css?v=<%= assetVersion %>" />
+  <style>
+    @media print { .print-hidden { display: none !important; } }
+  </style>
+</head>
+<body class="bg-white text-slate-900">
+  <div class="mx-auto max-w-3xl p-6">
+    <div class="flex items-center justify-between gap-4">
+      <div class="flex-1">
+        <%- include('../partials/print-brand', { subtitle: t('creditsTitle') }) %>
+      </div>
+      <button class="btn-primary print-hidden" onclick="window.print()"><%= t('print') %></button>
+    </div>
+
+    <div class="mt-6 card p-6">
+      <div class="grid gap-4 sm:grid-cols-2 text-sm">
+        <div>
+          <p class="text-slate-500"><%= t('vehicleNumber') %></p>
+          <p class="font-semibold"><%= `${record.owner_name} • ${record.vehicle_number}` %></p>
+        </div>
+        <div>
+          <p class="text-slate-500"><%= t('receiptNo') %></p>
+          <p class="font-semibold"><%= record.receipt_no || (`#${record.id}`) %></p>
+        </div>
+        <div>
+          <p class="text-slate-500"><%= t('customerName') %></p>
+          <p class="font-semibold"><%= record.customer_name %></p>
+        </div>
+        <div>
+          <p class="text-slate-500"><%= t('phone') %></p>
+          <p class="font-semibold"><%= record.phone || '-' %></p>
+        </div>
+        <div>
+          <p class="text-slate-500"><%= t('creditDate') %></p>
+          <p class="font-semibold"><%= record.credit_date %></p>
+        </div>
+        <div>
+          <p class="text-slate-500"><%= t('linkedTrip') %></p>
+          <p class="font-semibold"><%= record.trip_receipt_no || '-' %></p>
+        </div>
+        <div>
+          <p class="text-slate-500"><%= t('tripDate') %></p>
+          <p class="font-semibold"><%= record.trip_date || '-' %></p>
+        </div>
+        <div>
+          <p class="text-slate-500"><%= t('pricePerJar') %></p>
+          <p class="font-semibold"><%= record.jar_price || 0 %></p>
+        </div>
+        <div>
+          <p class="text-slate-500"><%= t('pricePerBottleCase') %></p>
+          <p class="font-semibold"><%= record.bottle_case_price || 0 %></p>
+        </div>
+        <div>
+          <p class="text-slate-500"><%= t('pricePerDispenser') %></p>
+          <p class="font-semibold"><%= record.dispenser_price || 0 %></p>
+        </div>
+        <div>
+          <p class="text-slate-500"><%= t('jarContainerPrice') %></p>
+          <p class="font-semibold"><%= record.jar_container_price || 0 %></p>
+        </div>
+      </div>
+
+      <div class="mt-6 overflow-hidden rounded-2xl border border-slate-200">
+        <table class="table-base">
+          <thead class="table-head">
+            <tr>
+              <th class="px-4 py-3"><%= t('amount') %></th>
+              <th class="px-4 py-3"><%= t('paidAmount') %></th>
+              <th class="px-4 py-3"><%= t('remainingAmount') %></th>
+              <th class="px-4 py-3"><%= t('creditJars') %></th>
+              <th class="px-4 py-3"><%= t('creditBottleCases') %></th>
+              <th class="px-4 py-3"><%= t('creditDispensers') %></th>
+              <th class="px-4 py-3"><%= t('creditJarContainers') %></th>
+              <th class="px-4 py-3"><%= t('status') %></th>
+            </tr>
+          </thead>
+          <tbody>
+            <% const isPaid = record.paid_amount >= record.amount; %>
+            <% const isPartial = !isPaid && record.paid_amount > 0; %>
+            <% const statusLabel = isPaid ? t('paid') : (isPartial ? t('statusPartial') : t('unpaid')); %>
+            <tr class="table-row">
+              <td class="px-4 py-3"><%= record.amount %></td>
+              <td class="px-4 py-3"><%= record.paid_amount %></td>
+              <td class="px-4 py-3"><%= Math.max(0, record.amount - record.paid_amount) %></td>
+              <td class="px-4 py-3"><%= record.credit_jars %></td>
+              <td class="px-4 py-3"><%= record.credit_bottle_cases %></td>
+              <td class="px-4 py-3"><%= record.credit_dispensers || 0 %></td>
+              <td class="px-4 py-3"><%= record.credit_jar_containers || 0 %></td>
+              <td class="px-4 py-3"><%= statusLabel %></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

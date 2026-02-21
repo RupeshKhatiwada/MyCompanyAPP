@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="<%= lang %>">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title><%= t('customerLedgerTitle') %> | AQUA MSK</title>
+  <link rel="stylesheet" href="/css/styles.css?v=<%= assetVersion %>" />
+  <style>
+    @media print { .print-hidden { display: none !important; } }
+  </style>
+</head>
+<body class="bg-white text-slate-900">
+  <div class="mx-auto max-w-5xl p-6">
+    <div class="flex flex-wrap items-start justify-between gap-4">
+      <div class="flex-1">
+        <%- include('../partials/print-brand', { subtitle: t('customerLedgerTitle') }) %>
+        <p class="mt-2 text-sm text-slate-600"><%= t('customerName') %>: <%= customer %></p>
+        <p class="text-sm text-slate-600"><%= t('from') %>: <%= from %> | <%= t('to') %>: <%= to %></p>
+      </div>
+      <button class="btn-primary print-hidden" onclick="window.print()"><%= t('print') %></button>
+    </div>
+
+    <div class="mt-6 overflow-hidden rounded-2xl border border-slate-200">
+      <table class="table-base">
+        <thead class="table-head">
+          <tr>
+            <th class="px-4 py-3"><%= t('date') %></th>
+            <th class="px-4 py-3"><%= t('vehicle') %></th>
+            <th class="px-4 py-3"><%= t('details') %></th>
+            <th class="px-4 py-3"><%= t('creditAmount') %></th>
+            <th class="px-4 py-3"><%= t('paidAmount') %></th>
+            <th class="px-4 py-3"><%= t('balance') %></th>
+          </tr>
+        </thead>
+        <tbody>
+          <% if (entries.length === 0) { %>
+            <tr>
+              <td class="px-4 py-4 text-slate-500" colspan="6"><%= t('noData') %></td>
+            </tr>
+          <% } %>
+          <% entries.forEach((entry) => { %>
+            <tr class="table-row">
+              <td class="px-4 py-3"><%= entry.date %></td>
+              <td class="px-4 py-3"><%= entry.vehicle %></td>
+              <td class="px-4 py-3"><%= entry.note %></td>
+              <td class="px-4 py-3"><%= entry.type === 'credit' ? Math.abs(entry.amount) : '-' %></td>
+              <td class="px-4 py-3"><%= entry.type === 'payment' ? Math.abs(entry.amount) : '-' %></td>
+              <td class="px-4 py-3"><%= entry.balance %></td>
+            </tr>
+          <% }) %>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="mt-6 grid gap-3 text-sm sm:grid-cols-3">
+      <div class="card p-4">
+        <p class="text-slate-500"><%= t('totalCredits') %></p>
+        <p class="text-lg font-semibold"><%= totals.credit_total %></p>
+      </div>
+      <div class="card p-4">
+        <p class="text-slate-500"><%= t('totalPayments') %></p>
+        <p class="text-lg font-semibold"><%= totals.payment_total %></p>
+      </div>
+      <div class="card p-4">
+        <p class="text-slate-500"><%= t('remainingAmount') %></p>
+        <p class="text-lg font-semibold"><%= totals.balance %></p>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

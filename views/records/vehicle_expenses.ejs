@@ -1,0 +1,159 @@
+<%- include('../partials/shell-start', { title }) %>
+<section class="py-8">
+  <div class="flex flex-wrap items-center justify-between gap-3">
+    <div>
+      <h1 class="text-3xl font-semibold"><%= t('vehicleExpensesTitle') %></h1>
+      <p class="text-slate-600"><%= t('vehicleExpensesSubtitle') %></p>
+    </div>
+  </div>
+
+  <% if (error) { %>
+    <div class="mt-4 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700"><%= error %></div>
+  <% } %>
+  <% if (success) { %>
+    <div class="mt-4 rounded-lg bg-emerald-50 px-4 py-3 text-sm text-emerald-700"><%= success %></div>
+  <% } %>
+
+  <form class="mt-4 flex flex-wrap items-end gap-3" method="get" action="/records/vehicle-expenses">
+    <div>
+      <label class="label"><%= t('from') %></label>
+      <input class="input" type="date" name="from" value="<%= from %>" />
+    </div>
+    <div>
+      <label class="label"><%= t('to') %></label>
+      <input class="input" type="date" name="to" value="<%= to %>" />
+    </div>
+    <div>
+      <label class="label"><%= t('vehicle') %></label>
+      <select class="input" name="vehicle_id">
+        <option value="all" <%= vehicleId === 'all' ? 'selected' : '' %>><%= t('allVehicles') %></option>
+        <% vehicles.forEach((vehicle) => { %>
+          <option value="<%= vehicle.id %>" <%= vehicleId === String(vehicle.id) ? 'selected' : '' %>><%= `${vehicle.vehicle_number} • ${vehicle.owner_name}` %></option>
+        <% }) %>
+      </select>
+    </div>
+    <div>
+      <label class="label"><%= t('expenseType') %></label>
+      <select class="input" name="expense_type">
+        <option value="ALL" <%= expenseType === 'ALL' ? 'selected' : '' %>><%= t('all') %></option>
+        <option value="FUEL" <%= expenseType === 'FUEL' ? 'selected' : '' %>><%= t('vehicleExpenseTypeFuel') %></option>
+        <option value="REPAIR" <%= expenseType === 'REPAIR' ? 'selected' : '' %>><%= t('vehicleExpenseTypeRepair') %></option>
+        <option value="SERVICE" <%= expenseType === 'SERVICE' ? 'selected' : '' %>><%= t('vehicleExpenseTypeService') %></option>
+        <option value="OTHER" <%= expenseType === 'OTHER' ? 'selected' : '' %>><%= t('vehicleExpenseTypeOther') %></option>
+      </select>
+    </div>
+    <div class="min-w-[220px]">
+      <label class="label"><%= t('search') %></label>
+      <input class="input" type="text" name="q" value="<%= q || '' %>" placeholder="<%= t('searchPlaceholder') %>" />
+    </div>
+    <button class="btn-outline" type="submit"><%= t('filter') %></button>
+  </form>
+
+  <div class="mt-6 card p-6">
+    <h2 class="text-lg font-semibold"><%= t('addVehicleExpenseTitle') %></h2>
+    <form class="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-5" method="post" action="/records/vehicle-expenses">
+      <div>
+        <label class="label"><%= t('date') %></label>
+        <input class="input" type="date" name="expense_date" value="<%= to %>" required />
+      </div>
+      <div class="lg:col-span-2">
+        <label class="label"><%= t('vehicle') %></label>
+        <select class="input" name="vehicle_id" required>
+          <option value=""><%= t('selectVehicle') %></option>
+          <% vehicles.forEach((vehicle) => { %>
+            <option value="<%= vehicle.id %>"><%= `${vehicle.vehicle_number} • ${vehicle.owner_name}` %></option>
+          <% }) %>
+        </select>
+      </div>
+      <div>
+      <label class="label"><%= t('expenseType') %></label>
+      <select class="input" name="expense_type">
+        <option value="FUEL"><%= t('vehicleExpenseTypeFuel') %></option>
+        <option value="REPAIR"><%= t('vehicleExpenseTypeRepair') %></option>
+        <option value="SERVICE"><%= t('vehicleExpenseTypeService') %></option>
+        <option value="OTHER"><%= t('vehicleExpenseTypeOther') %></option>
+      </select>
+    </div>
+      <div>
+        <label class="label"><%= t('amount') %></label>
+        <input class="input" type="number" min="0" step="0.01" name="amount" required />
+      </div>
+      <div class="sm:col-span-2 lg:col-span-5">
+        <label class="label"><%= t('note') %></label>
+        <input class="input" type="text" name="note" />
+      </div>
+      <div class="sm:col-span-2 lg:col-span-5">
+        <button class="btn-primary" type="submit"><%= t('save') %></button>
+      </div>
+    </form>
+  </div>
+
+  <div class="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+    <div class="card p-4">
+      <p class="text-slate-500"><%= t('total') %></p>
+      <p class="text-lg font-semibold"><%= totals.total %></p>
+    </div>
+    <div class="card p-4">
+      <p class="text-slate-500"><%= t('vehicleExpenseTypeFuel') %></p>
+      <p class="text-lg font-semibold"><%= totals.fuel %></p>
+    </div>
+    <div class="card p-4">
+      <p class="text-slate-500"><%= t('vehicleExpenseTypeRepair') %></p>
+      <p class="text-lg font-semibold"><%= totals.repair %></p>
+    </div>
+    <div class="card p-4">
+      <p class="text-slate-500"><%= t('vehicleExpenseTypeService') %></p>
+      <p class="text-lg font-semibold"><%= totals.service %></p>
+    </div>
+    <div class="card p-4">
+      <p class="text-slate-500"><%= t('vehicleExpenseTypeOther') %></p>
+      <p class="text-lg font-semibold"><%= totals.other || 0 %></p>
+    </div>
+  </div>
+
+  <div class="mt-6 card overflow-hidden">
+    <div class="overflow-x-auto">
+      <table class="table-base">
+        <thead class="table-head">
+          <tr>
+            <th class="px-4 py-3"><%= t('date') %></th>
+            <th class="px-4 py-3"><%= t('vehicle') %></th>
+            <th class="px-4 py-3"><%= t('expenseType') %></th>
+            <th class="px-4 py-3"><%= t('amount') %></th>
+            <th class="px-4 py-3"><%= t('note') %></th>
+            <th class="px-4 py-3"><%= t('recordedBy') %></th>
+            <th class="px-4 py-3 text-right"><%= t('actions') %></th>
+          </tr>
+        </thead>
+        <tbody>
+          <% if (!rows || rows.length === 0) { %>
+            <tr>
+              <td class="px-4 py-4 text-slate-500" colspan="7"><%= t('noVehicleExpenses') %></td>
+            </tr>
+          <% } %>
+          <% rows.forEach((row) => { %>
+            <tr class="table-row">
+              <td class="px-4 py-3"><%= row.expense_date %></td>
+              <td class="px-4 py-3"><%= `${row.vehicle_number} • ${row.owner_name}` %></td>
+              <td class="px-4 py-3"><%= resolveExpenseTypeLabel(row.expense_type) %></td>
+              <td class="px-4 py-3"><%= row.amount %></td>
+              <td class="px-4 py-3"><%= row.note || '-' %></td>
+              <td class="px-4 py-3"><%= row.recorded_by || '-' %></td>
+              <td class="px-4 py-3 text-right">
+                <details class="action-menu">
+                  <summary class="btn-outline h-9 w-9 flex items-center justify-center">⋯</summary>
+                  <div class="action-menu-panel">
+                    <form method="post" action="/records/vehicle-expenses/<%= row.id %>/delete" onsubmit="return confirm('<%= t('deleteVehicleExpenseConfirm') %>');">
+                      <button class="action-menu-item action-menu-danger" type="submit"><%= t('delete') %></button>
+                    </form>
+                  </div>
+                </details>
+              </td>
+            </tr>
+          <% }) %>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+<%- include('../partials/shell-end') %>

@@ -1,0 +1,111 @@
+<%- include('../partials/shell-start', { title }) %>
+<section class="py-8">
+  <div class="flex flex-wrap items-center justify-between gap-3">
+    <div>
+      <h1 class="text-3xl font-semibold"><%= t('customerStatementTitle') %></h1>
+      <p class="text-slate-600"><%= t('customerStatementSubtitle') %></p>
+    </div>
+    <div class="flex flex-wrap gap-2">
+      <% if (customer) { %>
+        <% const shareText = `${t('customerStatementTitle')}\n${t('customerName')}: ${customer}\n${t('from')}: ${from}\n${t('to')}: ${to}\n${t('totalCredits')}: ${totals.credit_total}\n${t('totalPayments')}: ${totals.payment_total}\n${t('remainingAmount')}: ${totals.balance}`; %>
+        <a class="btn-outline" href="https://wa.me/?text=<%= encodeURIComponent(shareText) %>" target="_blank"><%= t('shareWhatsapp') %></a>
+        <button class="btn-outline" type="button" data-copy="<%= encodeURIComponent(shareText) %>"><%= t('copyMessage') %></button>
+        <a class="btn-outline" href="/admin/reports/customer-statement/print?customer=<%= encodeURIComponent(customer) %>&from=<%= from %>&to=<%= to %>" target="_blank"><%= t('print') %></a>
+      <% } %>
+    </div>
+  </div>
+
+  <form class="mt-4 flex flex-wrap items-end gap-3" method="get" action="/admin/reports/customer-statement">
+    <div class="min-w-[220px]">
+      <label class="label"><%= t('customerName') %></label>
+      <select class="input" name="customer">
+        <option value=""><%= t('selectCustomer') %></option>
+        <% customers.forEach((name) => { %>
+          <option value="<%= name %>" <%= name === customer ? 'selected' : '' %>><%= name %></option>
+        <% }) %>
+      </select>
+    </div>
+    <div>
+      <label class="label"><%= t('from') %></label>
+      <input class="input" type="date" name="from" value="<%= from %>" />
+    </div>
+    <div>
+      <label class="label"><%= t('to') %></label>
+      <input class="input" type="date" name="to" value="<%= to %>" />
+    </div>
+    <button class="btn-outline" type="submit"><%= t('run') %></button>
+  </form>
+
+  <% if (!customer) { %>
+    <p class="mt-6 text-sm text-slate-600"><%= t('customerStatementHint') %></p>
+  <% } %>
+
+  <% if (customer) { %>
+    <div class="mt-6 card overflow-hidden">
+      <div class="overflow-x-auto">
+        <table class="table-base">
+          <thead class="table-head">
+            <tr>
+              <th class="px-4 py-3"><%= t('date') %></th>
+              <th class="px-4 py-3"><%= t('vehicle') %></th>
+              <th class="px-4 py-3"><%= t('details') %></th>
+              <th class="px-4 py-3"><%= t('creditAmount') %></th>
+              <th class="px-4 py-3"><%= t('paidAmount') %></th>
+              <th class="px-4 py-3"><%= t('balance') %></th>
+            </tr>
+          </thead>
+          <tbody>
+            <% if (entries.length === 0) { %>
+              <tr>
+                <td class="px-4 py-4 text-slate-500" colspan="6"><%= t('noData') %></td>
+              </tr>
+            <% } %>
+            <% entries.forEach((entry) => { %>
+              <tr class="table-row">
+                <td class="px-4 py-3"><%= entry.date %></td>
+                <td class="px-4 py-3"><%= entry.vehicle %></td>
+                <td class="px-4 py-3"><%= entry.note %></td>
+                <td class="px-4 py-3"><%= entry.type === 'credit' ? Math.abs(entry.amount) : '-' %></td>
+                <td class="px-4 py-3"><%= entry.type === 'payment' ? Math.abs(entry.amount) : '-' %></td>
+                <td class="px-4 py-3"><%= entry.balance %></td>
+              </tr>
+            <% }) %>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="mt-4 grid gap-3 text-sm sm:grid-cols-3">
+      <div class="card p-4">
+        <p class="text-slate-500"><%= t('totalCredits') %></p>
+        <p class="text-lg font-semibold"><%= totals.credit_total %></p>
+      </div>
+      <div class="card p-4">
+        <p class="text-slate-500"><%= t('totalPayments') %></p>
+        <p class="text-lg font-semibold"><%= totals.payment_total %></p>
+      </div>
+      <div class="card p-4">
+        <p class="text-slate-500"><%= t('remainingAmount') %></p>
+        <p class="text-lg font-semibold"><%= totals.balance %></p>
+      </div>
+    </div>
+  <% } %>
+</section>
+
+<script>
+  (() => {
+    const btn = document.querySelector('[data-copy]');
+    if (!btn || !navigator.clipboard) return;
+    btn.addEventListener('click', async () => {
+      try {
+        const text = decodeURIComponent(btn.getAttribute('data-copy') || '');
+        await navigator.clipboard.writeText(text);
+        btn.textContent = '<%= t('messageCopied') %>';
+        setTimeout(() => { btn.textContent = '<%= t('copyMessage') %>'; }, 2000);
+      } catch (err) {
+        // ignore
+      }
+    });
+  })();
+</script>
+<%- include('../partials/shell-end') %>

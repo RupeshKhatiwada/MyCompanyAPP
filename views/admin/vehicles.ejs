@@ -1,0 +1,59 @@
+<%- include('../partials/shell-start', { title }) %>
+<% const routeBase = typeof vehicleRouteBase === 'string' && vehicleRouteBase ? vehicleRouteBase : '/admin/vehicles'; %>
+<section class="py-8">
+  <div class="flex flex-wrap items-center justify-between gap-3">
+    <div>
+      <h1 class="text-3xl font-semibold"><%= t('vehicles') %></h1>
+      <p class="text-slate-600"><%= t('manageVehicles') %></p>
+    </div>
+    <a class="btn-primary" href="<%= routeBase %>/new"><%= t('addVehicle') %></a>
+  </div>
+
+  <div class="mt-6 card overflow-hidden">
+    <div class="overflow-x-auto">
+      <table class="table-base">
+        <thead class="table-head">
+          <tr>
+            <th class="px-4 py-3"><%= t('photo') %></th>
+            <th class="px-4 py-3"><%= t('vehicleNumber') %></th>
+            <th class="px-4 py-3"><%= t('owner') %></th>
+            <th class="px-4 py-3"><%= t('phone') %></th>
+            <th class="px-4 py-3"><%= t('vehicleType') %></th>
+            <th class="px-4 py-3 text-right"><%= t('actions') %></th>
+          </tr>
+        </thead>
+        <tbody>
+          <% if (vehicles.length === 0) { %>
+            <tr>
+              <td class="px-4 py-4 text-slate-500" colspan="6"><%= t('noVehicles') %></td>
+            </tr>
+          <% } %>
+          <% vehicles.forEach((vehicle) => { %>
+            <tr class="table-row">
+              <td class="px-4 py-3">
+                <% if (vehicle.profile_pic_path) { %>
+                  <img src="<%= vehicle.profile_pic_path %>" alt="vehicle" class="h-10 w-10 rounded-full object-cover" />
+                <% } else { %>
+                  <div class="h-10 w-10 rounded-full bg-slate-200"></div>
+                <% } %>
+              </td>
+              <td class="px-4 py-3 font-medium"><%= vehicle.vehicle_number %></td>
+              <td class="px-4 py-3"><%= vehicle.owner_name %></td>
+              <td class="px-4 py-3"><%= vehicle.phone || '-' %></td>
+              <td class="px-4 py-3"><%= vehicle.is_company ? t('companyVehicle') : t('partnerVehicle') %></td>
+              <td class="px-4 py-3 text-right">
+                <div class="flex justify-end gap-2">
+                  <a class="btn-outline" href="<%= routeBase %>/<%= vehicle.id %>/edit"><%= t('edit') %></a>
+                  <form method="post" action="<%= routeBase %>/<%= vehicle.id %>/delete" onsubmit="return confirm('<%= t('deleteVehicleConfirm') %>');">
+                    <button class="btn-danger" type="submit"><%= t('delete') %></button>
+                  </form>
+                </div>
+              </td>
+            </tr>
+          <% }) %>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+<%- include('../partials/shell-end') %>

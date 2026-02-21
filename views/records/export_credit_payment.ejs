@@ -1,0 +1,52 @@
+<%- include('../partials/shell-start', { title }) %>
+<section class="py-8">
+  <div class="mx-auto max-w-2xl card p-6">
+    <div class="flex flex-wrap items-center justify-between gap-3">
+      <div>
+        <h1 class="text-2xl font-semibold"><%= t('payExportCreditTitle') %></h1>
+        <p class="text-slate-600"><%= t('payExportCreditSubtitle') %></p>
+      </div>
+      <a class="btn-outline" href="/records/exports?from=<%= record.export_date %>&to=<%= record.export_date %>"><%= t('back') %></a>
+    </div>
+
+    <% if (error) { %>
+      <div class="mt-4 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700"><%= error %></div>
+    <% } %>
+
+    <div class="mt-4 grid gap-3 sm:grid-cols-2">
+      <div class="card p-4">
+        <p class="text-slate-500"><%= t('date') %></p>
+        <p class="font-semibold"><%= record.export_date %></p>
+      </div>
+      <div class="card p-4">
+        <p class="text-slate-500"><%= t('receiptNo') %></p>
+        <p class="font-semibold"><%= record.receipt_no || (`#${record.id}`) %></p>
+      </div>
+      <div class="card p-4 sm:col-span-2">
+        <p class="text-slate-500"><%= t('vehicle') %></p>
+        <p class="font-semibold"><%= `${record.owner_name} • ${record.vehicle_number}` %></p>
+      </div>
+      <div class="card p-4">
+        <p class="text-slate-500"><%= t('totalExportAmount') %></p>
+        <p class="font-semibold"><%= Number(record.total_amount || 0).toFixed(2) %></p>
+      </div>
+      <div class="card p-4">
+        <p class="text-slate-500"><%= t('paidAmount') %></p>
+        <p class="font-semibold"><%= Number(record.paid_amount || 0).toFixed(2) %></p>
+      </div>
+      <div class="card p-4 sm:col-span-2">
+        <p class="text-slate-500"><%= t('remainingAmount') %></p>
+        <p class="text-lg font-semibold"><%= Number(remaining || 0).toFixed(2) %></p>
+      </div>
+    </div>
+
+    <form class="mt-6 space-y-4" method="post" action="/records/exports/<%= record.id %>/pay-credit">
+      <div>
+        <label class="label"><%= t('paymentAmount') %></label>
+        <input class="input" type="number" min="0.01" step="0.01" max="<%= Number(remaining || 0).toFixed(2) %>" name="payment_amount" required />
+      </div>
+      <button class="btn-primary" type="submit"><%= t('addPayment') %></button>
+    </form>
+  </div>
+</section>
+<%- include('../partials/shell-end') %>

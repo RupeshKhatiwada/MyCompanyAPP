@@ -1,0 +1,57 @@
+<%- include('../partials/shell-start', { title }) %>
+<section class="py-8">
+  <div class="flex flex-wrap items-start justify-between gap-3">
+    <div>
+      <h1 class="text-3xl font-semibold"><%= t('windowsKitTitle') %></h1>
+      <p class="text-slate-600"><%= t('windowsKitSubtitle') %></p>
+    </div>
+    <a class="btn-outline" href="/admin"><%= t('back') %></a>
+  </div>
+
+  <% if (error) { %>
+    <div class="mt-4 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700"><%= error %></div>
+  <% } %>
+  <% if (success) { %>
+    <div class="mt-4 rounded-lg bg-emerald-50 px-4 py-3 text-sm text-emerald-700"><%= success %></div>
+  <% } %>
+
+  <div class="mt-6 card p-6">
+    <form method="post" action="/admin/windows-kit/generate">
+      <button class="btn-primary" type="submit"><%= t('generateWindowsKit') %></button>
+    </form>
+    <p class="mt-3 text-sm text-slate-600"><%= t('windowsKitPath') %>: <code>windows-kit</code></p>
+    <p class="mt-1 text-sm text-slate-600"><%= t('windowsKitUseCommand') %>: <code>npm run make:windows-kit</code></p>
+  </div>
+
+  <div class="mt-6 card p-6">
+    <h2 class="text-lg font-semibold"><%= t('windowsKitFiles') %></h2>
+    <div class="mt-3 overflow-hidden rounded-2xl border border-slate-200">
+      <table class="table-base text-sm">
+        <thead class="table-head">
+          <tr>
+            <th class="px-4 py-3"><%= t('file') %></th>
+          </tr>
+        </thead>
+        <tbody>
+          <% if (!files || files.length === 0) { %>
+            <tr><td class="px-4 py-4 text-slate-500"><%= t('noData') %></td></tr>
+          <% } %>
+          <% (files || []).forEach((name) => { %>
+            <tr class="table-row">
+              <td class="px-4 py-3 font-mono text-xs"><%= name %></td>
+            </tr>
+          <% }) %>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="mt-6 card p-6 text-sm text-slate-700 space-y-2">
+    <p><strong>1.</strong> <%= t('windowsKitStep1') %></p>
+    <p><strong>2.</strong> <%= t('windowsKitStep2') %></p>
+    <p><strong>3.</strong> <%= t('windowsKitStep3') %></p>
+    <p><strong>4.</strong> <%= t('windowsKitStep4') %></p>
+    <p><strong>5.</strong> <%= t('windowsKitStep5') %></p>
+  </div>
+</section>
+<%- include('../partials/shell-end') %>

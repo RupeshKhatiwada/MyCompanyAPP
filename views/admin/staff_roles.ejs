@@ -1,0 +1,94 @@
+<%- include('../partials/shell-start', { title }) %>
+<section class="py-8">
+  <div class="flex flex-wrap items-center justify-between gap-3">
+    <div>
+      <h1 class="text-3xl font-semibold"><%= t('staffRolesTitle') %></h1>
+      <p class="text-slate-600"><%= t('staffRolesSubtitle') %></p>
+    </div>
+    <a class="btn-outline" href="/admin/staffs"><%= t('back') %></a>
+  </div>
+
+  <% if (error) { %>
+    <div class="mt-4 rounded-lg bg-amber-50 px-4 py-3 text-sm text-amber-700"><%= error %></div>
+  <% } %>
+  <% if (success) { %>
+    <div class="mt-4 rounded-lg bg-emerald-50 px-4 py-3 text-sm text-emerald-700"><%= success %></div>
+  <% } %>
+
+  <div class="mt-6 card p-6">
+    <h2 class="text-lg font-semibold"><%= t('addStaffRole') %></h2>
+    <form method="post" action="/admin/staff-roles" class="mt-4 grid gap-3 sm:grid-cols-4">
+      <div class="sm:col-span-2">
+        <label class="label"><%= t('staffRoleName') %></label>
+        <input class="input" type="text" name="name" required />
+      </div>
+      <div class="sm:col-span-1 flex items-end">
+        <label class="inline-flex items-center gap-2 text-sm">
+          <input type="checkbox" name="is_active" checked />
+          <span><%= t('active') %></span>
+        </label>
+      </div>
+      <div class="sm:col-span-1 flex items-end">
+        <label class="inline-flex items-center gap-2 text-sm">
+          <input type="checkbox" name="show_in_exports" checked />
+          <span><%= t('showInExports') %></span>
+        </label>
+      </div>
+      <div class="sm:col-span-4">
+        <button class="btn-primary" type="submit"><%= t('save') %></button>
+      </div>
+    </form>
+  </div>
+
+  <div class="mt-6 card overflow-hidden">
+    <div class="overflow-x-auto">
+      <table class="table-base">
+        <thead class="table-head">
+          <tr>
+            <th class="px-4 py-3"><%= t('staffRoleName') %></th>
+            <th class="px-4 py-3">Code</th>
+            <th class="px-4 py-3"><%= t('status') %></th>
+            <th class="px-4 py-3"><%= t('showInExports') %></th>
+            <th class="px-4 py-3"><%= t('staffsTitle') %></th>
+            <th class="px-4 py-3 text-right"><%= t('actions') %></th>
+          </tr>
+        </thead>
+        <tbody>
+          <% if (!roles || roles.length === 0) { %>
+            <tr>
+              <td class="px-4 py-4 text-slate-500" colspan="6"><%= t('noData') %></td>
+            </tr>
+          <% } %>
+          <% roles.forEach((role) => { %>
+            <tr class="table-row">
+              <td class="px-4 py-3">
+                <form method="post" action="/admin/staff-roles/<%= role.id %>" class="flex flex-wrap items-center gap-2">
+                  <input class="input h-9 min-w-[180px]" type="text" name="name" value="<%= role.name %>" required />
+                  <label class="inline-flex items-center gap-1 text-xs text-slate-600">
+                    <input type="checkbox" name="is_active" <%= Number(role.is_active) === 1 ? 'checked' : '' %> />
+                    <span><%= t('active') %></span>
+                  </label>
+                  <label class="inline-flex items-center gap-1 text-xs text-slate-600">
+                    <input type="checkbox" name="show_in_exports" <%= Number(role.show_in_exports || 0) === 1 ? 'checked' : '' %> />
+                    <span><%= t('showInExports') %></span>
+                  </label>
+                  <button class="btn-outline h-9" type="submit"><%= t('save') %></button>
+                </form>
+              </td>
+              <td class="px-4 py-3 font-mono text-xs"><%= role.code %></td>
+              <td class="px-4 py-3"><%= Number(role.is_active) === 1 ? t('active') : t('inactive') %></td>
+              <td class="px-4 py-3"><%= Number(role.show_in_exports || 0) === 1 ? t('yes') : t('no') %></td>
+              <td class="px-4 py-3"><%= Number(role.staff_count || 0) %></td>
+              <td class="px-4 py-3 text-right">
+                <form method="post" action="/admin/staff-roles/<%= role.id %>/delete" onsubmit="return confirm('<%= t('deleteStaffRoleConfirm') %>');">
+                  <button class="btn-danger" type="submit"><%= t('delete') %></button>
+                </form>
+              </td>
+            </tr>
+          <% }) %>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+<%- include('../partials/shell-end') %>

@@ -1,0 +1,116 @@
+<%- include('../partials/shell-start', { title }) %>
+<section class="py-8">
+  <div class="print-only mb-4">
+    <%- include('../partials/print-brand', { subtitle: t('creditAgingTitle') }) %>
+  </div>
+  <div class="flex flex-wrap items-center justify-between gap-3">
+    <div>
+      <h1 class="text-3xl font-semibold"><%= t('creditAgingTitle') %></h1>
+      <p class="text-slate-600"><%= t('creditAgingSubtitle') %></p>
+    </div>
+    <div class="flex flex-wrap gap-2">
+      <button class="btn-primary" onclick="window.print()"><%= t('print') %></button>
+    </div>
+  </div>
+
+  <form class="mt-4 flex flex-wrap items-end gap-3" method="get" action="/admin/reports/credit-aging">
+    <div>
+      <label class="label"><%= t('asOfDate') %></label>
+      <input class="input" type="date" name="asOf" value="<%= asOf %>" />
+    </div>
+    <button class="btn-outline" type="submit"><%= t('run') %></button>
+  </form>
+
+  <div class="mt-6 grid gap-4 lg:grid-cols-3">
+    <div class="card p-6 lg:col-span-2">
+      <h2 class="text-lg font-semibold"><%= t('agingChartTitle') %></h2>
+      <div class="mt-4">
+        <canvas id="agingChart" height="120"></canvas>
+      </div>
+    </div>
+    <div class="card p-6">
+      <h2 class="text-lg font-semibold"><%= t('summaryLabel') %></h2>
+      <div class="mt-4 space-y-2 text-sm">
+        <div class="flex items-center justify-between">
+          <span class="text-slate-600"><%= t('totalOutstanding') %></span>
+          <span class="font-semibold"><%= totalOutstanding %></span>
+        </div>
+        <div class="flex items-center justify-between">
+          <span class="text-slate-600"><%= t('totalCredits') %></span>
+          <span class="font-semibold"><%= rows.length %></span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="mt-6 grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-5">
+    <% bucketRows.forEach((bucket) => { %>
+      <div class="card p-4">
+        <p class="text-slate-500"><%= bucket.label %></p>
+        <p class="text-lg font-semibold"><%= bucket.totalRemaining %></p>
+        <p class="text-xs text-slate-500"><%= bucket.count %> <%= t('creditsLabel') %></p>
+      </div>
+    <% }) %>
+  </div>
+
+  <div class="mt-6 card overflow-hidden">
+    <div class="overflow-x-auto">
+      <table class="table-base">
+        <thead class="table-head">
+          <tr>
+            <th class="px-4 py-3"><%= t('date') %></th>
+            <th class="px-4 py-3"><%= t('vehicle') %></th>
+            <th class="px-4 py-3"><%= t('customerName') %></th>
+            <th class="px-4 py-3"><%= t('daysOutstanding') %></th>
+            <th class="px-4 py-3"><%= t('remainingAmount') %></th>
+          </tr>
+        </thead>
+        <tbody>
+          <% if (rows.length === 0) { %>
+            <tr>
+              <td class="px-4 py-4 text-slate-500" colspan="5"><%= t('noCredits') %></td>
+            </tr>
+          <% } %>
+          <% rows.forEach((row) => { %>
+            <tr class="table-row">
+              <td class="px-4 py-3"><%= row.credit_date %></td>
+              <td class="px-4 py-3 font-medium"><%= row.vehicle_number %></td>
+              <td class="px-4 py-3"><%= row.customer_name %></td>
+              <td class="px-4 py-3"><%= row.days %></td>
+              <td class="px-4 py-3"><%= row.remaining %></td>
+            </tr>
+          <% }) %>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<script src="/vendor/chart.umd.js"></script>
+<script>
+  const agingLabels = <%- JSON.stringify(bucketRows.map((row) => row.label)) %>;
+  const agingValues = <%- JSON.stringify(bucketRows.map((row) => Number(row.totalRemaining || 0))) %>;
+  const ctx = document.getElementById('agingChart');
+  if (ctx) {
+    new Chart(ctx, {
+      type: 'bar',
+      data: {
+        labels: agingLabels,
+        datasets: [
+          {
+            label: '<%= t('remainingAmount') %>',
+            data: agingValues,
+            backgroundColor: 'rgba(18, 164, 164, 0.35)',
+            borderColor: '#12a4a4'
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        plugins: { legend: { display: false } },
+        scales: { y: { beginAtZero: true } }
+      }
+    });
+  }
+</script>
+<%- include('../partials/shell-end') %>

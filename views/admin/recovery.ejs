@@ -1,0 +1,66 @@
+<%- include('../partials/shell-start', { title }) %>
+<section class="py-8">
+  <div class="flex flex-wrap items-center justify-between gap-3">
+    <div>
+      <h1 class="text-3xl font-semibold"><%= t('recoveryTitle') %></h1>
+      <p class="text-slate-600"><%= t('recoverySubtitle') %></p>
+    </div>
+    <a class="btn-outline" href="/admin"><%= t('back') %></a>
+  </div>
+
+  <% if (error) { %>
+    <div class="mt-4 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700"><%= error %></div>
+  <% } %>
+  <% if (success) { %>
+    <div class="mt-4 rounded-lg bg-emerald-50 px-4 py-3 text-sm text-emerald-700"><%= success %></div>
+  <% } %>
+
+  <div class="mt-6 grid gap-4 lg:grid-cols-2">
+    <div class="card p-6">
+      <h2 class="text-lg font-semibold"><%= t('recoveryKeyTitle') %></h2>
+      <p class="mt-2 text-sm text-slate-600"><%= t('recoveryKeyHint') %></p>
+      <div class="mt-4 flex items-center gap-3">
+        <span class="pill">
+          <%= recovery && recovery.key_hash ? t('recoveryKeySet') : t('recoveryKeyNotSet') %>
+        </span>
+        <% if (recovery && recovery.key_created_at) { %>
+          <span class="text-xs text-slate-500"><%= t('createdAt') %>: <%= recovery.key_created_at %></span>
+        <% } %>
+      </div>
+      <% if (newKey) { %>
+        <div class="mt-4 rounded-lg bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          <p class="font-semibold"><%= t('recoveryKeyGenerated') %></p>
+          <p class="mt-1 text-xs"><%= t('recoveryKeySave') %></p>
+          <div class="mt-3 rounded-lg bg-white px-3 py-2 font-mono text-sm text-slate-900"><%= newKey %></div>
+        </div>
+      <% } %>
+      <form class="mt-4" method="post" action="/admin/recovery/key">
+        <button class="btn-primary" type="submit"><%= t('generateRecoveryKey') %></button>
+      </form>
+    </div>
+
+    <div class="card p-6">
+      <h2 class="text-lg font-semibold"><%= t('recoveryQuestionsTitle') %></h2>
+      <p class="mt-2 text-sm text-slate-600"><%= t('recoveryQuestionsHint') %></p>
+      <form class="mt-4 space-y-3" method="post" action="/admin/recovery/questions">
+        <div>
+          <label class="label"><%= t('question1') %></label>
+          <input class="input" type="text" name="q1" value="<%= recovery ? recovery.q1 || '' : '' %>" required />
+          <input class="input mt-2" type="text" name="a1" placeholder="<%= t('answer1') %>" required />
+        </div>
+        <div>
+          <label class="label"><%= t('question2') %></label>
+          <input class="input" type="text" name="q2" value="<%= recovery ? recovery.q2 || '' : '' %>" required />
+          <input class="input mt-2" type="text" name="a2" placeholder="<%= t('answer2') %>" required />
+        </div>
+        <div>
+          <label class="label"><%= t('question3') %></label>
+          <input class="input" type="text" name="q3" value="<%= recovery ? recovery.q3 || '' : '' %>" required />
+          <input class="input mt-2" type="text" name="a3" placeholder="<%= t('answer3') %>" required />
+        </div>
+        <button class="btn-primary" type="submit"><%= t('saveQuestions') %></button>
+      </form>
+    </div>
+  </div>
+</section>
+<%- include('../partials/shell-end') %>

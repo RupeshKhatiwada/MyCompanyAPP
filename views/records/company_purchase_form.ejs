@@ -1,0 +1,155 @@
+<%- include('../partials/shell-start', { title }) %>
+<section class="py-8">
+  <div class="flex flex-wrap items-center justify-between gap-3">
+    <div>
+      <h1 class="text-3xl font-semibold"><%= t('editPurchaseTitle') %></h1>
+      <p class="text-slate-600"><%= t('companyPurchasesSubtitle') %></p>
+    </div>
+    <a class="btn-outline" href="/records/company-purchases"><%= t('back') %></a>
+  </div>
+
+  <div class="mt-6 card p-6">
+    <% if (error) { %>
+      <div class="mb-4 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700"><%= error %></div>
+    <% } %>
+    <% if (success) { %>
+      <div class="mb-4 rounded-lg bg-emerald-50 px-4 py-3 text-sm text-emerald-700"><%= success %></div>
+    <% } %>
+    <form class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4" method="post" action="/records/company-purchases/<%= record.id %>">
+      <div>
+        <label class="label"><%= t('date') %></label>
+        <input class="input" type="date" name="purchase_date" value="<%= record.purchase_date %>" required />
+      </div>
+      <div class="sm:col-span-2">
+        <label class="label"><%= t('itemName') %></label>
+        <input class="input" type="text" name="item_name" value="<%= record.item_name %>" required />
+      </div>
+      <div>
+        <label class="label"><%= t('sellerName') %></label>
+        <input class="input" type="text" name="seller_name" value="<%= record.seller_name || '' %>" />
+      </div>
+      <div>
+        <label class="label"><%= t('amount') %></label>
+        <input class="input" type="number" min="0" step="0.01" name="amount" value="<%= record.amount %>" required />
+      </div>
+      <div>
+        <label class="label"><%= t('paidAmount') %></label>
+        <input class="input" type="number" value="<%= paymentTotals ? paymentTotals.paid : (record.paid_amount || 0) %>" disabled />
+      </div>
+      <div>
+        <label class="label"><%= t('remaining') %></label>
+        <input class="input" type="number" value="<%= typeof dueAmount !== 'undefined' ? dueAmount : Math.max(0, Number(record.amount || 0) - Number(record.paid_amount || 0)) %>" disabled />
+      </div>
+      <div class="sm:col-span-2 lg:col-span-4">
+        <label class="inline-flex items-center gap-2 text-sm">
+          <input type="checkbox" name="is_credit" value="1" <%= Number(record.is_credit) === 1 ? 'checked' : '' %> />
+          <span><%= t('purchaseOnCredit') %></span>
+        </label>
+      </div>
+      <div class="sm:col-span-2 lg:col-span-4">
+        <label class="inline-flex items-center gap-2 text-sm">
+          <input type="checkbox" name="is_machinery" value="1" data-machinery-toggle <%= Number(record.is_machinery) === 1 ? 'checked' : '' %> />
+          <span><%= t('isMachineryWork') %></span>
+        </label>
+      </div>
+      <div class="sm:col-span-2 machinery-only hidden">
+        <label class="label"><%= t('machineryName') %></label>
+        <input class="input" type="text" name="machinery_name" value="<%= record.machinery_name || '' %>" />
+      </div>
+      <div class="machinery-only hidden">
+        <label class="label"><%= t('technicianName') %></label>
+        <input class="input" type="text" name="technician_name" data-tech-name value="<%= record.technician_name || '' %>" />
+      </div>
+      <div class="machinery-only hidden">
+        <label class="label"><%= t('technicianPhone') %></label>
+        <input class="input" type="text" name="technician_phone" value="<%= record.technician_phone || '' %>" />
+      </div>
+      <div class="sm:col-span-2 machinery-only hidden">
+        <label class="label"><%= t('workDetails') %></label>
+        <input class="input" type="text" name="work_details" value="<%= record.work_details || '' %>" />
+      </div>
+      <div class="sm:col-span-2 lg:col-span-4">
+        <label class="label"><%= t('note') %></label>
+        <input class="input" type="text" name="note" value="<%= record.note || '' %>" />
+      </div>
+      <div class="sm:col-span-2 lg:col-span-4">
+        <button class="btn-primary" type="submit"><%= t('save') %></button>
+      </div>
+    </form>
+  </div>
+
+  <div class="mt-6 card p-6">
+    <h2 class="text-lg font-semibold"><%= t('addPayment') %></h2>
+    <form class="mt-4 grid gap-3 sm:grid-cols-4" method="post" action="/records/company-purchases/<%= record.id %>/payments">
+      <div>
+        <label class="label"><%= t('date') %></label>
+        <input class="input" type="date" name="payment_date" value="<%= new Date().toISOString().slice(0, 10) %>" required />
+      </div>
+      <div>
+        <label class="label"><%= t('amount') %></label>
+        <input class="input" type="number" min="0.01" step="0.01" name="amount" required />
+      </div>
+      <div class="sm:col-span-2">
+        <label class="label"><%= t('note') %></label>
+        <input class="input" type="text" name="note" placeholder="<%= t('paymentForWhatHint') %>" />
+      </div>
+      <div class="sm:col-span-4">
+        <button class="btn-primary" type="submit"><%= t('savePayment') %></button>
+      </div>
+    </form>
+  </div>
+
+  <div class="mt-6 card p-6">
+    <h2 class="text-lg font-semibold"><%= t('paymentHistory') %></h2>
+    <div class="mt-4 overflow-x-auto">
+      <table class="table-base text-sm">
+        <thead class="table-head">
+          <tr>
+            <th class="px-4 py-3"><%= t('date') %></th>
+            <th class="px-4 py-3"><%= t('amount') %></th>
+            <th class="px-4 py-3"><%= t('note') %></th>
+            <th class="px-4 py-3"><%= t('recordedBy') %></th>
+            <th class="px-4 py-3 text-right"><%= t('actions') %></th>
+          </tr>
+        </thead>
+        <tbody>
+          <% if (!payments || payments.length === 0) { %>
+            <tr>
+              <td class="px-4 py-4 text-slate-500" colspan="5"><%= t('noPaymentHistory') %></td>
+            </tr>
+          <% } %>
+          <% (payments || []).forEach((payment) => { %>
+            <tr class="table-row">
+              <td class="px-4 py-3"><%= payment.payment_date %></td>
+              <td class="px-4 py-3"><%= payment.amount %></td>
+              <td class="px-4 py-3"><%= payment.note || '-' %></td>
+              <td class="px-4 py-3"><%= payment.recorded_by || '-' %></td>
+              <td class="px-4 py-3 text-right">
+                <form method="post" action="/records/company-purchases/payments/<%= payment.id %>/delete" onsubmit="return confirm('<%= t('deletePaymentConfirm') %>');">
+                  <button class="btn-danger" type="submit"><%= t('delete') %></button>
+                </form>
+              </td>
+            </tr>
+          <% }) %>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<script>
+  (() => {
+    const toggle = document.querySelector('[data-machinery-toggle]');
+    const blocks = document.querySelectorAll('.machinery-only');
+    const techName = document.querySelector('[data-tech-name]');
+    if (!toggle || !blocks.length) return;
+    const sync = () => {
+      const on = toggle.checked;
+      blocks.forEach((node) => node.classList.toggle('hidden', !on));
+      if (techName) techName.required = on;
+    };
+    toggle.addEventListener('change', sync);
+    sync();
+  })();
+</script>
+<%- include('../partials/shell-end') %>

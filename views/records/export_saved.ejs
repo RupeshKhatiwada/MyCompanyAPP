@@ -1,0 +1,35 @@
+<%- include('../partials/shell-start', { title }) %>
+<section class="py-8">
+  <div class="mx-auto max-w-2xl card p-6">
+    <h1 class="text-2xl font-semibold"><%= t('exportSavedTitle') %></h1>
+    <p class="mt-2 text-slate-600"><%= t('exportSavedSubtitle') %></p>
+
+    <div class="mt-4 grid gap-3 text-sm sm:grid-cols-2">
+      <div class="card p-4">
+        <p class="text-slate-500"><%= t('date') %></p>
+        <p class="text-base font-semibold"><%= record.export_date %></p>
+      </div>
+      <div class="card p-4">
+        <p class="text-slate-500"><%= t('receiptNo') %></p>
+        <p class="text-base font-semibold"><%= record.receipt_no || (`#${record.id}`) %></p>
+      </div>
+      <div class="card p-4 sm:col-span-2">
+        <p class="text-slate-500"><%= t('vehicle') %></p>
+        <p class="text-base font-semibold"><%= record.owner_name %> • <%= record.vehicle_number %></p>
+      </div>
+    </div>
+
+    <div class="mt-6 flex flex-wrap gap-2">
+      <% if (!record.is_company) { %>
+        <a
+          class="btn-primary"
+          href="/records/credits/new?vehicle_id=<%= record.vehicle_id %>&credit_date=<%= record.export_date %>&trip_date=<%= record.export_date %>"
+        ><%= t('addCreditNow') %></a>
+      <% } %>
+      <a class="btn-outline" href="/records/exports/<%= record.id %>/print" target="_blank"><%= t('print') %></a>
+      <a class="btn-outline" href="/records/exports?from=<%= record.export_date %>&to=<%= record.export_date %>"><%= t('goBackToExports') %></a>
+      <a class="btn-outline" href="/records/exports/new"><%= t('addAnotherExport') %></a>
+    </div>
+  </div>
+</section>
+<%- include('../partials/shell-end') %>

@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="<%= lang %>">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title><%= t('stockLedgerTitle') %> | AQUA MSK</title>
+  <link rel="stylesheet" href="/css/styles.css?v=<%= assetVersion %>" />
+  <style>
+    @media print { .print-hidden { display: none !important; } }
+  </style>
+</head>
+<body class="bg-white text-slate-900">
+  <div class="mx-auto max-w-5xl p-6">
+    <div class="flex flex-wrap items-start justify-between gap-4">
+      <div class="flex-1">
+        <%- include('../partials/print-brand', { subtitle: t('stockLedgerTitle') }) %>
+        <p class="mt-2 text-sm text-slate-600"><%= t('from') %>: <%= from %> | <%= t('to') %>: <%= to %></p>
+      </div>
+      <button class="btn-primary print-hidden" onclick="window.print()"><%= t('print') %></button>
+    </div>
+
+    <div class="mt-6 overflow-hidden rounded-2xl border border-slate-200">
+      <table class="table-base">
+        <thead class="table-head">
+          <tr>
+            <th class="px-4 py-3"><%= t('date') %></th>
+            <th class="px-4 py-3"><%= t('itemType') %></th>
+            <th class="px-4 py-3"><%= t('direction') %></th>
+            <th class="px-4 py-3"><%= t('quantity') %></th>
+            <th class="px-4 py-3"><%= t('note') %></th>
+          </tr>
+        </thead>
+        <tbody>
+          <% if (entries.length === 0) { %>
+            <tr>
+              <td class="px-4 py-4 text-slate-500" colspan="5"><%= t('noData') %></td>
+            </tr>
+          <% } %>
+          <% entries.forEach((row) => { %>
+            <tr class="table-row">
+              <td class="px-4 py-3"><%= row.entry_date %></td>
+              <td class="px-4 py-3"><%= row.item_type === 'JAR' ? t('containerJars') : t('bottleCases') %></td>
+              <td class="px-4 py-3"><%= row.direction === 'IN' ? t('incoming') : t('outgoing') %></td>
+              <td class="px-4 py-3"><%= row.quantity %></td>
+              <td class="px-4 py-3"><%= row.note || '-' %></td>
+            </tr>
+          <% }) %>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</body>
+</html>

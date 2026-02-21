@@ -1,0 +1,388 @@
+<%- include('../partials/shell-start', { title }) %>
+<section class="py-8">
+  <div class="flex flex-wrap items-center justify-between gap-3">
+    <div>
+      <h1 class="text-3xl font-semibold"><%= t('importsTitle') %></h1>
+      <p class="text-slate-600"><%= t('importsSubtitle') %></p>
+    </div>
+  </div>
+  <% if (error) { %>
+    <div class="mt-4 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700"><%= error %></div>
+  <% } %>
+  <% if (success) { %>
+    <div class="mt-4 rounded-lg bg-emerald-50 px-4 py-3 text-sm text-emerald-700"><%= success %></div>
+  <% } %>
+
+  <% const safeItemTypes = typeof itemTypes !== 'undefined' ? itemTypes : []; %>
+  <% const safeQ = typeof q !== 'undefined' ? q : ''; %>
+  <% const safeJarTypes = typeof jarTypes !== 'undefined' ? jarTypes : []; %>
+  <% const safeJarCapTypes = typeof jarCapTypes !== 'undefined' ? jarCapTypes : []; %>
+  <% const safeTotals = typeof totals !== 'undefined' ? totals : { total: 0, incoming: 0, outgoing: 0, byItem: {} }; %>
+  <% const safePayableTotals = typeof payableTotals !== 'undefined' ? payableTotals : { total: 0, paid: 0, due: 0, open_count: 0 }; %>
+  <% const safeJarTypeBalances = typeof jarTypeBalances !== 'undefined' ? jarTypeBalances : {}; %>
+  <% const safeJarContainerBalance = typeof jarContainerBalance !== 'undefined' ? jarContainerBalance : 0; %>
+  <% const safeBottleCaseBalance = typeof bottleCaseBalance !== 'undefined' ? bottleCaseBalance : 0; %>
+  <% const safeEntries = typeof entries !== 'undefined' ? entries : []; %>
+  <% const safePaymentRows = typeof paymentRows !== 'undefined' ? paymentRows : []; %>
+  <% const safeItemMetaByCode = typeof itemMetaByCode !== 'undefined' ? itemMetaByCode : {}; %>
+  <% const safeResolveImportItemLabel = typeof resolveImportItemLabel !== 'undefined' ? resolveImportItemLabel : ((code, name) => name || code); %>
+  <% const safeResolveImportItemUnit = typeof resolveImportItemUnit !== 'undefined' ? resolveImportItemUnit : (() => ""); %>
+  <% const itemLabelMap = {}; %>
+  <% const itemUnitMap = {}; %>
+  <% safeItemTypes.forEach((entry) => { itemLabelMap[entry.code] = entry.label; itemUnitMap[entry.code] = entry.unit || ''; }); %>
+
+  <form class="mt-4 flex flex-wrap items-end gap-3" method="get" action="/records/imports">
+    <div>
+      <label class="label"><%= t('from') %></label>
+      <input class="input" type="date" name="from" value="<%= from %>" />
+    </div>
+    <div>
+      <label class="label"><%= t('to') %></label>
+      <input class="input" type="date" name="to" value="<%= to %>" />
+    </div>
+    <div>
+      <label class="label"><%= t('itemType') %></label>
+      <select class="input" name="item">
+        <option value="all" <%= item === 'all' ? 'selected' : '' %>><%= t('allItems') %></option>
+        <% safeItemTypes.forEach((entry) => { %>
+          <option value="<%= entry.code %>" <%= item === entry.code ? 'selected' : '' %>><%= entry.label %></option>
+        <% }) %>
+      </select>
+    </div>
+    <div class="min-w-56 flex-1">
+      <label class="label"><%= t('search') %></label>
+      <input class="input" type="text" name="q" value="<%= safeQ %>" placeholder="<%= t('sellerName') %> / <%= t('note') %>" />
+    </div>
+    <button class="btn-outline" type="submit"><%= t('filter') %></button>
+  </form>
+
+  <div id="quick-import-entry" class="mt-6 card p-6">
+    <h2 class="text-lg font-semibold"><%= t('addImportEntry') %></h2>
+    <form class="mt-4 grid gap-3 sm:grid-cols-6" method="post" action="/records/imports">
+      <div class="sm:col-span-2">
+        <label class="label"><%= t('itemType') %></label>
+        <select class="input" name="item_type" required>
+          <% safeItemTypes.forEach((entry) => { %>
+            <option value="<%= entry.code %>"><%= entry.label %></option>
+          <% }) %>
+        </select>
+      </div>
+      <div class="sm:col-span-2" id="jarTypeWrap" style="display: none;">
+        <label class="label"><%= t('jarContainerType') %></label>
+        <select class="input" name="jar_type_id" id="jarTypeSelect">
+          <option value=""><%= t('selectJarContainerType') %></option>
+          <% safeJarTypes.forEach((type) => { %>
+            <option value="<%= type.id %>" data-default-qty="<%= type.default_qty || 0 %>"><%= type.name %></option>
+          <% }) %>
+        </select>
+      </div>
+      <div class="sm:col-span-2" id="jarCapTypeWrap" style="display: none;">
+        <label class="label"><%= t('jarCapType') %></label>
+        <select class="input" name="jar_cap_type_id" id="jarCapTypeSelect">
+          <option value=""><%= t('selectJarCapType') %></option>
+          <% safeJarCapTypes.forEach((type) => { %>
+            <option value="<%= type.id %>" data-default-qty="<%= type.default_qty || 0 %>"><%= type.name %></option>
+          <% }) %>
+        </select>
+      </div>
+      <div>
+        <label class="label"><%= t('usageStatus') %></label>
+        <select class="input" name="direction" data-direction required>
+          <option value="IN"><%= t('unused') %></option>
+          <option value="OUT"><%= t('used') %></option>
+        </select>
+      </div>
+      <div>
+        <label class="label" id="quantityLabel"><%= t('quantity') %></label>
+        <input class="input" type="number" min="1" name="quantity" value="1" required />
+      </div>
+      <div>
+        <label class="label"><%= t('date') %></label>
+        <input class="input" type="date" name="entry_date" value="<%= to %>" required />
+      </div>
+      <div class="sm:col-span-2">
+        <label class="label"><%= t('sellerName') %></label>
+        <input class="input" type="text" name="seller_name" />
+      </div>
+      <div>
+        <label class="label"><%= t('totalAmount') %></label>
+        <input class="input" type="number" min="0" step="0.01" name="total_amount" value="0" />
+      </div>
+      <div>
+        <label class="label"><%= t('paidAmount') %></label>
+        <input class="input" type="number" min="0" step="0.01" name="paid_amount" value="0" />
+      </div>
+      <div class="sm:col-span-2">
+        <label class="inline-flex items-center gap-2 text-sm pt-8">
+          <input type="checkbox" name="is_credit" value="1" />
+          <span><%= t('purchaseOnCredit') %></span>
+        </label>
+      </div>
+      <div>
+        <label class="label"><%= t('note') %></label>
+        <input class="input" type="text" name="note" placeholder="<%= t('optionalNote') %>" />
+      </div>
+      <div class="sm:col-span-6">
+        <button class="btn-primary" type="submit"><%= t('save') %></button>
+      </div>
+    </form>
+  </div>
+
+  <div class="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+    <div class="card p-4">
+      <p class="text-slate-500"><%= t('unused') %></p>
+      <p class="text-lg font-semibold"><%= safeTotals.incoming %></p>
+    </div>
+    <div class="card p-4">
+      <p class="text-slate-500"><%= t('used') %></p>
+      <p class="text-lg font-semibold"><%= safeTotals.outgoing %></p>
+    </div>
+    <div class="card p-4">
+      <p class="text-slate-500"><%= t('netBalance') %></p>
+      <p class="text-lg font-semibold"><%= safeTotals.total %></p>
+    </div>
+    <div class="card p-4">
+      <p class="text-slate-500"><%= t('jarContainerBalance') %></p>
+      <p class="text-lg font-semibold"><%= safeJarContainerBalance %></p>
+    </div>
+  </div>
+
+  <div class="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+    <div class="card p-4">
+      <p class="text-slate-500"><%= t('totalAmount') %></p>
+      <p class="text-lg font-semibold"><%= safePayableTotals.total %></p>
+    </div>
+    <div class="card p-4">
+      <p class="text-slate-500"><%= t('totalPaid') %></p>
+      <p class="text-lg font-semibold"><%= safePayableTotals.paid %></p>
+    </div>
+    <div class="card p-4">
+      <p class="text-slate-500"><%= t('totalDue') %></p>
+      <p class="text-lg font-semibold"><%= safePayableTotals.due %></p>
+    </div>
+    <div class="card p-4">
+      <p class="text-slate-500"><%= t('openCredits') %></p>
+      <p class="text-lg font-semibold"><%= safePayableTotals.open_count %></p>
+    </div>
+  </div>
+
+  <div class="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+    <div class="card p-4">
+      <p class="text-slate-500"><%= t('bottleCaseBalance') %></p>
+      <p class="text-lg font-semibold"><%= safeBottleCaseBalance %></p>
+      <% if (safeBottleCaseBalance <= 0) { %>
+        <p class="mt-1 text-xs text-red-600"><%= t('bottleCaseOutOfStock') %></p>
+      <% } %>
+    </div>
+  </div>
+
+  <div class="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+    <% safeItemTypes.forEach((entry) => { %>
+      <% const unit = entry.unit || ''; %>
+      <div class="card p-4">
+        <p class="text-slate-500"><%= entry.label %></p>
+        <p class="text-lg font-semibold"><%= safeTotals.byItem[entry.code] || 0 %><%= unit ? ` ${unit}` : '' %></p>
+      </div>
+    <% }) %>
+  </div>
+
+  <div class="mt-6 card p-6">
+    <h2 class="text-lg font-semibold"><%= t('jarContainerBalancesTitle') %></h2>
+    <p class="text-sm text-slate-600"><%= t('jarContainerBalancesSubtitle') %></p>
+    <div class="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <% if (!safeJarTypes || safeJarTypes.length === 0) { %>
+        <div class="text-sm text-slate-500"><%= t('noJarTypes') %></div>
+      <% } else { %>
+        <% safeJarTypes.forEach((type) => { %>
+          <% const balance = safeJarTypeBalances ? (safeJarTypeBalances[type.id] || 0) : 0; %>
+          <div class="card p-4">
+            <p class="text-slate-500"><%= type.name %></p>
+            <p class="text-lg font-semibold"><%= balance %></p>
+            <% if (balance <= 0) { %>
+              <p class="mt-1 text-xs text-red-600"><%= t('jarContainerOutOfStock') %></p>
+            <% } %>
+          </div>
+        <% }) %>
+      <% } %>
+    </div>
+  </div>
+
+  <details class="mt-6 card p-6" open>
+    <summary class="flex cursor-pointer items-center justify-between text-sm font-semibold">
+      <span><%= t('importsEntriesTableTitle') %></span>
+      <span class="text-xs text-slate-500"><%= t('tapToExpand') %></span>
+    </summary>
+    <div class="mt-4 overflow-x-auto">
+      <table class="table-base">
+        <thead class="table-head">
+          <tr>
+            <th class="px-4 py-3"><%= t('date') %></th>
+            <th class="px-4 py-3"><%= t('itemType') %></th>
+            <th class="px-4 py-3"><%= t('sellerName') %></th>
+            <th class="px-4 py-3"><%= t('jarContainerType') %></th>
+            <th class="px-4 py-3"><%= t('jarCapType') %></th>
+            <th class="px-4 py-3"><%= t('usageStatus') %></th>
+            <th class="px-4 py-3"><%= t('quantity') %></th>
+            <th class="px-4 py-3"><%= t('totalAmount') %></th>
+            <th class="px-4 py-3"><%= t('paidAmount') %></th>
+            <th class="px-4 py-3"><%= t('remaining') %></th>
+            <th class="px-4 py-3"><%= t('note') %></th>
+            <th class="px-4 py-3"><%= t('recordedBy') %></th>
+            <th class="px-4 py-3 text-right"><%= t('actions') %></th>
+          </tr>
+        </thead>
+        <tbody>
+          <% if (!safeEntries || safeEntries.length === 0) { %>
+            <tr>
+              <td class="px-4 py-4 text-slate-500" colspan="13"><%= t('noImports') %></td>
+            </tr>
+          <% } %>
+          <% safeEntries.forEach((row) => { %>
+            <% const rowTotal = Number(row.total_amount || 0); %>
+            <% const rowPaid = Number(row.paid_amount || 0); %>
+            <% const rowDue = Math.max(0, rowTotal - rowPaid); %>
+            <tr class="table-row">
+              <td class="px-4 py-3"><%= row.entry_date %></td>
+              <td class="px-4 py-3"><%= itemLabelMap[row.item_type] || safeResolveImportItemLabel(row.item_type, row.item_type_name, t) %></td>
+              <td class="px-4 py-3"><%= row.seller_name || '-' %></td>
+              <td class="px-4 py-3"><%= row.item_type === 'JAR_CONTAINER' ? (row.jar_type_name || '-') : '-' %></td>
+              <td class="px-4 py-3"><%= row.item_type === 'JAR_CAP' ? (row.jar_cap_type_name || '-') : '-' %></td>
+              <% const unit = itemUnitMap[row.item_type] || safeResolveImportItemUnit(row.item_type, row.item_unit_label, t); %>
+              <td class="px-4 py-3"><%= row.direction === 'OUT' ? t('used') : t('unused') %></td>
+              <td class="px-4 py-3"><%= row.quantity %><%= unit ? ` ${unit}` : '' %></td>
+              <td class="px-4 py-3"><%= rowTotal %></td>
+              <td class="px-4 py-3"><%= rowPaid %></td>
+              <td class="px-4 py-3"><%= rowDue %></td>
+              <td class="px-4 py-3"><%= row.note || '-' %></td>
+              <td class="px-4 py-3"><%= row.recorded_by || '-' %></td>
+              <td class="px-4 py-3 text-right">
+                <details class="action-menu">
+                  <summary class="btn-outline h-9 w-9 flex items-center justify-center">⋯</summary>
+                  <div class="action-menu-panel">
+                    <a class="action-menu-item" href="/records/imports/<%= row.id %>/edit"><%= t('edit') %></a>
+                    <a class="action-menu-item" href="/records/imports/<%= row.id %>/edit"><%= t('paymentHistory') %></a>
+                    <form method="post" action="/records/imports/<%= row.id %>/delete" onsubmit="return confirm('<%= t('deleteImportConfirm') %>');">
+                      <button class="action-menu-item action-menu-danger" type="submit"><%= t('delete') %></button>
+                    </form>
+                  </div>
+                </details>
+              </td>
+            </tr>
+          <% }) %>
+        </tbody>
+      </table>
+    </div>
+  </details>
+
+  <details class="mt-6 card p-6">
+    <summary class="flex cursor-pointer items-center justify-between text-sm font-semibold">
+      <span><%= t('paymentHistory') %></span>
+      <span class="text-xs text-slate-500"><%= t('tapToExpand') %></span>
+    </summary>
+    <div class="mt-4 overflow-x-auto">
+      <table class="table-base">
+        <thead class="table-head">
+          <tr>
+            <th class="px-4 py-3"><%= t('date') %></th>
+            <th class="px-4 py-3"><%= t('itemType') %></th>
+            <th class="px-4 py-3"><%= t('sellerName') %></th>
+            <th class="px-4 py-3"><%= t('amount') %></th>
+            <th class="px-4 py-3"><%= t('note') %></th>
+            <th class="px-4 py-3"><%= t('recordedBy') %></th>
+          </tr>
+        </thead>
+        <tbody>
+          <% if (!safePaymentRows.length) { %>
+            <tr>
+              <td class="px-4 py-4 text-slate-500" colspan="6"><%= t('noPaymentHistory') %></td>
+            </tr>
+          <% } %>
+          <% safePaymentRows.forEach((row) => { %>
+            <tr class="table-row">
+              <td class="px-4 py-3"><%= row.payment_date %></td>
+              <td class="px-4 py-3"><%= itemLabelMap[row.item_type] || safeResolveImportItemLabel(row.item_type, row.item_type_name, t) %></td>
+              <td class="px-4 py-3"><%= row.seller_name || '-' %></td>
+              <td class="px-4 py-3"><%= row.amount %></td>
+              <td class="px-4 py-3"><%= row.note || '-' %></td>
+              <td class="px-4 py-3"><%= row.recorded_by || '-' %></td>
+            </tr>
+          <% }) %>
+        </tbody>
+      </table>
+    </div>
+  </details>
+</section>
+<script>
+  (() => {
+    const itemMeta = <%- JSON.stringify(safeItemMetaByCode || {}) %>;
+    const itemSelect = document.querySelector('select[name="item_type"]');
+    const directionSelect = document.querySelector('[data-direction]');
+    const jarTypeWrap = document.getElementById('jarTypeWrap');
+    const jarTypeSelect = document.getElementById('jarTypeSelect');
+    const jarCapTypeWrap = document.getElementById('jarCapTypeWrap');
+    const jarCapTypeSelect = document.getElementById('jarCapTypeSelect');
+    const quantityLabel = document.getElementById('quantityLabel');
+    const quantityInput = document.querySelector('input[name="quantity"]');
+    if (!itemSelect || !quantityLabel) return;
+
+    const updateLabel = () => {
+      const meta = itemMeta[itemSelect.value] || { unit: "", usesDirection: true };
+      const unit = meta.unit || "";
+      quantityLabel.textContent = unit ? `<%= t('quantity') %> (${unit})` : `<%= t('quantity') %>`;
+      if (directionSelect) {
+        const isJarContainer = itemSelect.value === "JAR_CONTAINER";
+        const allowDirection = Boolean(meta.usesDirection) && !isJarContainer;
+        directionSelect.disabled = !allowDirection;
+        if (isJarContainer) {
+          directionSelect.value = "IN";
+        } else if (!allowDirection) {
+          directionSelect.value = "IN";
+        }
+      }
+      if (jarTypeWrap && jarTypeSelect) {
+        const isJarContainer = itemSelect.value === "JAR_CONTAINER";
+        jarTypeWrap.style.display = isJarContainer ? "" : "none";
+        if (!isJarContainer) {
+          jarTypeSelect.value = "";
+          jarTypeSelect.required = false;
+          if (quantityInput) quantityInput.readOnly = false;
+        } else if (quantityInput) {
+          jarTypeSelect.required = true;
+          const selected = jarTypeSelect.selectedOptions[0];
+          const defaultQty = Number(selected?.dataset?.defaultQty || 0);
+          if (defaultQty > 0) {
+            quantityInput.value = defaultQty;
+            quantityInput.readOnly = true;
+          } else {
+            quantityInput.readOnly = false;
+          }
+        }
+      }
+      if (jarCapTypeWrap && jarCapTypeSelect) {
+        const isJarCap = itemSelect.value === "JAR_CAP";
+        jarCapTypeWrap.style.display = isJarCap ? "" : "none";
+        if (!isJarCap) {
+          jarCapTypeSelect.value = "";
+          jarCapTypeSelect.required = false;
+        } else {
+          jarCapTypeSelect.required = true;
+          const selected = jarCapTypeSelect.selectedOptions[0];
+          const defaultQty = Number(selected?.dataset?.defaultQty || 0);
+          if (quantityInput && defaultQty > 0 && Number(quantityInput.value || 0) <= 0) {
+            quantityInput.value = defaultQty;
+          }
+        }
+      }
+    };
+    itemSelect.addEventListener('change', updateLabel);
+    if (jarTypeSelect) {
+      jarTypeSelect.addEventListener('change', updateLabel);
+    }
+    if (jarCapTypeSelect) {
+      jarCapTypeSelect.addEventListener('change', updateLabel);
+    }
+    updateLabel();
+  })();
+
+</script>
+<%- include('../partials/shell-end') %>

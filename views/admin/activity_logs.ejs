@@ -1,0 +1,100 @@
+<%- include('../partials/shell-start', { title }) %>
+<section class="py-8">
+  <div class="flex flex-wrap items-center justify-between gap-3">
+    <div>
+      <h1 class="text-3xl font-semibold"><%= t('activityLogTitle') %></h1>
+      <p class="text-slate-600"><%= t('activityLogSubtitle') %></p>
+    </div>
+    <div class="flex flex-wrap gap-2">
+      <button class="btn-primary" onclick="window.print()"><%= t('print') %></button>
+    </div>
+  </div>
+
+  <form class="mt-4 flex flex-wrap items-end gap-3" method="get" action="/admin/activity">
+    <div>
+      <label class="label"><%= t('from') %></label>
+      <input class="input" type="date" name="from" value="<%= from %>" />
+    </div>
+    <div>
+      <label class="label"><%= t('to') %></label>
+      <input class="input" type="date" name="to" value="<%= to %>" />
+    </div>
+    <div>
+      <label class="label"><%= t('user') %></label>
+      <select class="input" name="user_id">
+        <option value="all"><%= t('all') %></option>
+        <% users.forEach((u) => { %>
+          <option value="<%= u.id %>" <%= String(userId) === String(u.id) ? 'selected' : '' %>><%= u.full_name %> (<%= u.role %>)</option>
+        <% }) %>
+      </select>
+    </div>
+    <div>
+      <label class="label"><%= t('action') %></label>
+      <select class="input" name="action">
+        <option value="all" <%= action === 'all' ? 'selected' : '' %>><%= t('all') %></option>
+        <option value="create" <%= action === 'create' ? 'selected' : '' %>><%= t('activityCreate') %></option>
+        <option value="update" <%= action === 'update' ? 'selected' : '' %>><%= t('activityUpdate') %></option>
+        <option value="delete" <%= action === 'delete' ? 'selected' : '' %>><%= t('activityDelete') %></option>
+        <option value="payment" <%= action === 'payment' ? 'selected' : '' %>><%= t('activityPayment') %></option>
+        <option value="backup" <%= action === 'backup' ? 'selected' : '' %>><%= t('activityBackup') %></option>
+        <option value="restore" <%= action === 'restore' ? 'selected' : '' %>><%= t('activityRestore') %></option>
+      </select>
+    </div>
+    <div>
+      <label class="label"><%= t('entity') %></label>
+      <select class="input" name="entity">
+        <option value="all" <%= entity === 'all' ? 'selected' : '' %>><%= t('all') %></option>
+        <option value="export" <%= entity === 'export' ? 'selected' : '' %>><%= t('exports') %></option>
+        <option value="credit" <%= entity === 'credit' ? 'selected' : '' %>><%= t('credits') %></option>
+        <option value="jar_sale" <%= entity === 'jar_sale' ? 'selected' : '' %>><%= t('jarSalesTitle') %></option>
+        <option value="vehicle" <%= entity === 'vehicle' ? 'selected' : '' %>><%= t('vehicles') %></option>
+        <option value="worker" <%= entity === 'worker' ? 'selected' : '' %>><%= t('workers') %></option>
+        <option value="admin" <%= entity === 'admin' ? 'selected' : '' %>><%= t('admins') %></option>
+        <option value="jar_type" <%= entity === 'jar_type' ? 'selected' : '' %>><%= t('jarTypesTitle') %></option>
+        <option value="import_entry" <%= entity === 'import_entry' ? 'selected' : '' %>><%= t('importsTitle') %></option>
+        <option value="vehicle_savings" <%= entity === 'vehicle_savings' ? 'selected' : '' %>><%= t('savingsTitle') %></option>
+        <option value="staff" <%= entity === 'staff' ? 'selected' : '' %>><%= t('staffsTitle') %></option>
+        <option value="staff_salary" <%= entity === 'staff_salary' ? 'selected' : '' %>><%= t('salaryHistory') %></option>
+        <option value="settings" <%= entity === 'settings' ? 'selected' : '' %>><%= t('settingsTitle') %></option>
+        <option value="branding" <%= entity === 'branding' ? 'selected' : '' %>><%= t('brandImageTitle') %></option>
+        <option value="recovery" <%= entity === 'recovery' ? 'selected' : '' %>><%= t('recoveryTitle') %></option>
+        <option value="stock_ledger" <%= entity === 'stock_ledger' ? 'selected' : '' %>><%= t('stockLedgerTitle') %></option>
+        <option value="system" <%= entity === 'system' ? 'selected' : '' %>><%= t('system') %></option>
+      </select>
+    </div>
+    <button class="btn-outline" type="submit"><%= t('filter') %></button>
+  </form>
+
+  <div class="mt-6 card overflow-hidden">
+    <div class="overflow-x-auto">
+      <table class="table-base">
+        <thead class="table-head">
+          <tr>
+            <th class="px-4 py-3"><%= t('date') %></th>
+            <th class="px-4 py-3"><%= t('user') %></th>
+            <th class="px-4 py-3"><%= t('action') %></th>
+            <th class="px-4 py-3"><%= t('entity') %></th>
+            <th class="px-4 py-3"><%= t('details') %></th>
+          </tr>
+        </thead>
+        <tbody>
+          <% if (rows.length === 0) { %>
+            <tr>
+              <td class="px-4 py-4 text-slate-500" colspan="5"><%= t('noActivity') %></td>
+            </tr>
+          <% } %>
+          <% rows.forEach((row) => { %>
+            <tr class="table-row">
+              <td class="px-4 py-3"><%= row.created_at %></td>
+              <td class="px-4 py-3"><%= row.full_name || '-' %></td>
+              <td class="px-4 py-3"><%= row.actionLabel || row.action %></td>
+              <td class="px-4 py-3"><%= row.entityLabel || row.entity_type %></td>
+              <td class="px-4 py-3"><%= row.detailLabel || row.details || '-' %></td>
+            </tr>
+          <% }) %>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+<%- include('../partials/shell-end') %>

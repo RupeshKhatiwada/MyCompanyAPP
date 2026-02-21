@@ -1,0 +1,52 @@
+<%- include('../partials/shell-start', { title }) %>
+<section class="py-8">
+  <div class="flex flex-wrap items-center justify-between gap-3">
+    <div>
+      <h1 class="text-3xl font-semibold"><%= t('jarTypesTitle') %></h1>
+      <p class="text-slate-600"><%= t('jarTypesSubtitle') %></p>
+    </div>
+    <div class="flex flex-wrap gap-2">
+      <a class="btn-primary" href="/admin/jar-types/new"><%= t('addJarTypeTitle') %></a>
+    </div>
+  </div>
+
+  <div class="mt-6 card overflow-hidden">
+    <div class="overflow-x-auto">
+      <table class="table-base">
+        <thead class="table-head">
+          <tr>
+            <th class="px-4 py-3"><%= t('name') %></th>
+            <th class="px-4 py-3"><%= t('price') %></th>
+            <th class="px-4 py-3"><%= t('defaultQuantity') %></th>
+            <th class="px-4 py-3"><%= t('status') %></th>
+            <th class="px-4 py-3 text-right"><%= t('actions') %></th>
+          </tr>
+        </thead>
+        <tbody>
+          <% if (!types || types.length === 0) { %>
+            <tr>
+              <td class="px-4 py-4 text-slate-500" colspan="4"><%= t('noJarTypes') %></td>
+            </tr>
+          <% } %>
+          <% types.forEach((row) => { %>
+            <tr class="table-row">
+              <td class="px-4 py-3 font-medium"><%= row.name %></td>
+              <td class="px-4 py-3"><%= row.price %></td>
+              <td class="px-4 py-3"><%= row.default_qty || 0 %></td>
+              <td class="px-4 py-3"><%= row.active ? t('active') : t('inactive') %></td>
+              <td class="px-4 py-3 text-right">
+                <div class="flex justify-end gap-2">
+                  <a class="btn-outline" href="/admin/jar-types/<%= row.id %>/edit"><%= t('edit') %></a>
+                  <form method="post" action="/admin/jar-types/<%= row.id %>/delete" onsubmit="return confirm('<%= t('deleteJarTypeConfirm') %>');">
+                    <button class="btn-danger" type="submit"><%= t('delete') %></button>
+                  </form>
+                </div>
+              </td>
+            </tr>
+          <% }) %>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+<%- include('../partials/shell-end') %>

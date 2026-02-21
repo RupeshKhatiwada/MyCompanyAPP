@@ -1,0 +1,321 @@
+<%- include('../partials/shell-start', { title }) %>
+<section class="py-8">
+  <div class="flex items-center justify-between">
+    <div>
+      <h1 class="text-3xl font-semibold"><%= record ? t('editExportTitle') : t('addExportTitle') %></h1>
+      <p class="text-slate-600"><%= t('exportFormSubtitle') %></p>
+    </div>
+    <a class="btn-outline" href="/records/exports"><%= t('back') %></a>
+  </div>
+
+  <div class="mt-6 card p-6">
+    <% if (error) { %>
+      <div class="mb-4 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700"><%= error %></div>
+    <% } %>
+    <%
+      const safeFormValues = typeof formValues !== 'undefined' && formValues ? formValues : {};
+      const safeStaffOptions = typeof staffOptions !== 'undefined' ? staffOptions : [];
+      const safeNameSuggestions = typeof nameSuggestions !== 'undefined' ? nameSuggestions : safeStaffOptions.map((staff) => staff.full_name);
+      const pickValue = (key, fallback = '') => {
+        if (Object.prototype.hasOwnProperty.call(safeFormValues, key)) return safeFormValues[key];
+        if (record && typeof record[key] !== 'undefined' && record[key] !== null) return record[key];
+        return fallback;
+      };
+      const selectedVehicleValueRaw = typeof selectedVehicleId !== 'undefined' && selectedVehicleId !== null && selectedVehicleId !== ''
+        ? selectedVehicleId
+        : pickValue('vehicle_id', '');
+      const selectedVehicleValue = String(selectedVehicleValueRaw || '');
+      const useExternalVehicleValue = typeof useExternalVehicle !== 'undefined'
+        ? Boolean(useExternalVehicle)
+        : String(pickValue('use_external_vehicle', '')).toLowerCase() === 'on';
+      const externalVehicleNumberValue = typeof externalVehicleNumber !== 'undefined' ? externalVehicleNumber : pickValue('external_vehicle_number', '');
+      const externalOwnerNameValue = typeof externalOwnerName !== 'undefined' ? externalOwnerName : pickValue('external_owner_name', '');
+      const externalPhoneValue = typeof externalPhone !== 'undefined' ? externalPhone : pickValue('external_phone', '');
+      const externalOrganizationValue = typeof externalOrganization !== 'undefined' ? externalOrganization : pickValue('external_organization', '');
+      const checkedByNameValue = typeof checkedByStaffName !== 'undefined' ? checkedByStaffName : pickValue('checked_by_staff_name', '');
+      const forceWashByValue = typeof forceWashStaffName !== 'undefined' ? forceWashStaffName : pickValue('force_wash_staff_name', '');
+    %>
+    <form method="post" action="<%= record ? '/records/exports/' + record.id : '/records/exports' %>" class="space-y-4">
+      <label class="inline-flex items-center gap-2 text-sm text-slate-700">
+        <input type="checkbox" name="use_external_vehicle" data-use-external-vehicle <%= useExternalVehicleValue ? 'checked' : '' %> />
+        <span><%= t('useExternalVehicle') %></span>
+      </label>
+      <div>
+        <label class="label"><%= t('vehicle') %></label>
+        <select class="input" name="vehicle_id">
+          <option value=""><%= t('selectVehicle') %></option>
+          <% vehicles.forEach((vehicle) => { %>
+            <% const label = `${vehicle.owner_name} • ${vehicle.vehicle_number}`; %>
+            <option value="<%= vehicle.id %>" data-company="<%= vehicle.is_company ? '1' : '0' %>" <%= String(vehicle.id) === selectedVehicleValue ? 'selected' : '' %>><%= label %></option>
+          <% }) %>
+        </select>
+      </div>
+      <div id="externalVehicleFields" class="<%= useExternalVehicleValue ? '' : 'hidden' %>">
+        <div class="grid gap-3 sm:grid-cols-2">
+          <div>
+            <label class="label"><%= t('externalVehicleNumber') %></label>
+            <input class="input" type="text" name="external_vehicle_number" data-external-vehicle-number value="<%= externalVehicleNumberValue %>" />
+          </div>
+          <div>
+            <label class="label"><%= t('externalPersonName') %></label>
+            <input class="input" type="text" name="external_owner_name" data-external-owner-name value="<%= externalOwnerNameValue %>" />
+          </div>
+          <div>
+            <label class="label"><%= t('phone') %></label>
+            <input class="input" type="text" name="external_phone" value="<%= externalPhoneValue %>" />
+          </div>
+          <div>
+            <label class="label"><%= t('externalOrganization') %></label>
+            <input class="input" type="text" name="external_organization" value="<%= externalOrganizationValue %>" />
+          </div>
+        </div>
+        <p class="mt-1 text-xs text-slate-500"><%= t('externalVehicleHint') %></p>
+      </div>
+      <div>
+        <label class="label"><%= t('checkedByStaffName') %></label>
+        <input class="input" type="text" name="checked_by_staff_name" value="<%= checkedByNameValue %>" placeholder="<%= t('checkedByStaffNamePlaceholder') %>" list="checkedStaffNameList" />
+        <datalist id="checkedStaffNameList">
+          <% safeNameSuggestions.forEach((name) => { %>
+            <option value="<%= name %>"></option>
+          <% }) %>
+        </datalist>
+      </div>
+      <div>
+        <label class="label"><%= t('forceWashBy') %></label>
+        <input class="input" type="text" name="force_wash_staff_name" value="<%= forceWashByValue %>" placeholder="<%= t('forceWashByPlaceholder') %>" list="forceWashStaffList" />
+        <datalist id="forceWashStaffList">
+          <% safeNameSuggestions.forEach((name) => { %>
+            <option value="<%= name %>"></option>
+          <% }) %>
+        </datalist>
+      </div>
+      <div>
+        <label class="label"><%= t('date') %></label>
+        <input class="input" type="date" name="export_date" value="<%= pickValue('export_date', defaultDate) %>" required />
+      </div>
+      <div>
+        <label class="label"><%= t('route') %></label>
+        <input class="input" type="text" name="route" value="<%= pickValue('route', '') %>" placeholder="<%= t('routePlaceholder') %>" />
+      </div>
+      <div class="grid gap-3 sm:grid-cols-2">
+        <div>
+          <label class="label"><%= t('jarCount') %></label>
+          <input class="input" type="number" min="0" name="jar_count" value="<%= pickValue('jar_count', 0) %>" data-jar />
+        </div>
+        <div>
+          <label class="label"><%= t('bottleCaseCount') %></label>
+          <input class="input" type="number" min="0" name="bottle_case_count" value="<%= pickValue('bottle_case_count', 0) %>" data-bottle />
+        </div>
+        <div class="price-only">
+          <label class="label"><%= t('pricePerJar') %></label>
+          <input class="input" type="number" min="0" step="0.01" name="jar_unit_price" value="<%= pickValue('jar_unit_price', 0) %>" data-jar-price />
+        </div>
+        <div class="price-only">
+          <label class="label"><%= t('pricePerBottleCase') %></label>
+          <input class="input" type="number" min="0" step="0.01" name="bottle_case_unit_price" value="<%= pickValue('bottle_case_unit_price', 0) %>" data-bottle-price />
+        </div>
+        <div>
+          <label class="label"><%= t('dispenserCount') %></label>
+          <input class="input" type="number" min="0" name="dispenser_count" value="<%= pickValue('dispenser_count', 0) %>" data-dispenser />
+        </div>
+        <div class="price-only">
+          <label class="label"><%= t('pricePerDispenser') %></label>
+          <input class="input" type="number" min="0" step="0.01" name="dispenser_unit_price" value="<%= pickValue('dispenser_unit_price', 0) %>" data-dispenser-price />
+        </div>
+      </div>
+      <div class="grid gap-3 sm:grid-cols-3">
+        <div>
+          <label class="label"><%= t('returnJars') %></label>
+          <input class="input" type="number" min="0" name="return_jar_count" value="<%= pickValue('return_jar_count', 0) %>" data-return-jar />
+        </div>
+        <div>
+          <label class="label"><%= t('returnBottleCases') %></label>
+          <input class="input" type="number" min="0" name="return_bottle_case_count" value="<%= pickValue('return_bottle_case_count', 0) %>" data-return-bottle />
+        </div>
+        <div>
+          <label class="label"><%= t('leakageJars') %></label>
+          <input class="input" type="number" min="0" name="leakage_jar_count" value="<%= pickValue('leakage_jar_count', 0) %>" data-leakage-jar />
+        </div>
+      </div>
+      <div id="soldJarWrap" class="grid gap-3 sm:grid-cols-2">
+        <div>
+          <label class="label"><%= t('soldJars') %></label>
+          <input class="input" type="number" min="0" name="sold_jar_count" value="<%= pickValue('sold_jar_count', 0) %>" data-sold-jar />
+        </div>
+        <div>
+          <label class="label"><%= t('soldJarPrice') %></label>
+          <input class="input" type="number" min="0" step="0.01" name="sold_jar_price" value="<%= pickValue('sold_jar_price', 0) %>" data-sold-price />
+        </div>
+      </div>
+      <div id="paidWrap">
+        <label class="label"><%= t('paidAmount') %></label>
+        <input class="input" type="number" min="0" step="0.01" name="paid_amount" value="<%= pickValue('paid_amount', '') %>" data-paid />
+      </div>
+      <div id="collectionWrap" class="hidden">
+        <label class="label"><%= t('collectionAmount') %></label>
+        <input class="input" type="number" min="0" step="0.01" name="collection_amount" value="<%= pickValue('collection_amount', 0) %>" data-collection />
+        <p class="mt-1 text-xs text-slate-500"><%= t('collectionHint') %></p>
+      </div>
+      <div>
+        <label class="label"><%= t('note') %></label>
+        <input class="input" type="text" name="note" value="<%= pickValue('note', '') %>" />
+      </div>
+      <div class="grid gap-3 text-sm sm:grid-cols-3">
+        <div class="card p-4">
+          <p class="text-slate-500"><%= t('netJars') %></p>
+          <p class="text-lg font-semibold" id="netJars">0</p>
+        </div>
+        <div class="card p-4">
+          <p class="text-slate-500"><%= t('netBottles') %></p>
+          <p class="text-lg font-semibold" id="netBottles">0</p>
+        </div>
+        <div class="card p-4">
+          <p class="text-slate-500"><%= t('soldJarAmount') %></p>
+          <p class="text-lg font-semibold" id="soldJarAmount">0</p>
+        </div>
+        <div class="card p-4">
+          <p class="text-slate-500"><%= t('dispenserAmount') %></p>
+          <p class="text-lg font-semibold" id="dispenserAmount">0</p>
+        </div>
+        <div class="card p-4">
+          <p class="text-slate-500"><%= t('amountToPay') %></p>
+          <p class="text-lg font-semibold" id="totalAmount">0</p>
+        </div>
+        <div class="card p-4">
+          <p class="text-slate-500"><%= t('creditAmount') %></p>
+          <p class="text-lg font-semibold" id="creditAmount">0</p>
+        </div>
+      </div>
+      <button class="btn-primary" type="submit"><%= t('save') %></button>
+    </form>
+  </div>
+</section>
+
+<script>
+  (() => {
+    const jarInput = document.querySelector('[data-jar]');
+    const bottleInput = document.querySelector('[data-bottle]');
+    const dispenserInput = document.querySelector('[data-dispenser]');
+    const jarPriceInput = document.querySelector('[data-jar-price]');
+    const bottlePriceInput = document.querySelector('[data-bottle-price]');
+    const dispenserPriceInput = document.querySelector('[data-dispenser-price]');
+    const paidInput = document.querySelector('[data-paid]');
+    const returnJarInput = document.querySelector('[data-return-jar]');
+    const returnBottleInput = document.querySelector('[data-return-bottle]');
+    const leakageJarInput = document.querySelector('[data-leakage-jar]');
+    const soldJarInput = document.querySelector('[data-sold-jar]');
+    const soldPriceInput = document.querySelector('[data-sold-price]');
+    const vehicleSelect = document.querySelector('select[name="vehicle_id"]');
+    const useExternalToggle = document.querySelector('[data-use-external-vehicle]');
+    const externalVehicleFields = document.getElementById('externalVehicleFields');
+    const externalVehicleNumberInput = document.querySelector('[data-external-vehicle-number]');
+    const externalOwnerNameInput = document.querySelector('[data-external-owner-name]');
+    const priceFields = Array.from(document.querySelectorAll('.price-only'));
+    const paidWrap = document.getElementById('paidWrap');
+    const collectionWrap = document.getElementById('collectionWrap');
+    const soldJarWrap = document.getElementById('soldJarWrap');
+    const collectionInput = document.querySelector('[data-collection]');
+    const totalEl = document.getElementById('totalAmount');
+    const creditEl = document.getElementById('creditAmount');
+    const netJarsEl = document.getElementById('netJars');
+    const netBottlesEl = document.getElementById('netBottles');
+    const soldAmountEl = document.getElementById('soldJarAmount');
+    const dispenserAmountEl = document.getElementById('dispenserAmount');
+    const isUsingExternalVehicle = () => !!(useExternalToggle && useExternalToggle.checked);
+
+    const isCompanyVehicle = () => {
+      if (isUsingExternalVehicle()) return false;
+      const selected = vehicleSelect && vehicleSelect.selectedOptions ? vehicleSelect.selectedOptions[0] : null;
+      return !!(selected && selected.dataset && selected.dataset.company === '1');
+    };
+
+    const recalc = () => {
+      const jarCount = Number(jarInput?.value || 0);
+      const bottleCount = Number(bottleInput?.value || 0);
+      const dispenserCount = Number(dispenserInput?.value || 0);
+      const jarPrice = Number(jarPriceInput?.value || 0);
+      const bottlePrice = Number(bottlePriceInput?.value || 0);
+      const dispenserPrice = Number(dispenserPriceInput?.value || 0);
+      const returnJars = Number(returnJarInput?.value || 0);
+      const returnBottles = Number(returnBottleInput?.value || 0);
+      const leakageJars = Number(leakageJarInput?.value || 0);
+      const soldJars = Number(soldJarInput?.value || 0);
+      const soldPrice = Number(soldPriceInput?.value || 0);
+      const paidRaw = paidInput ? String(paidInput.value || "").trim() : "";
+      const paidParsed = paidRaw === "" ? 0 : Number(paidRaw);
+      let paid = Number.isFinite(paidParsed) ? paidParsed : 0;
+      const collection = Number(collectionInput?.value || 0);
+      const netJars = Math.max(0, jarCount - returnJars - leakageJars);
+      const netBottles = Math.max(0, bottleCount - returnBottles);
+      const dispenserAmount = Math.max(0, dispenserCount) * Math.max(0, dispenserPrice);
+      const soldAmount = Math.max(0, soldJars) * Math.max(0, soldPrice);
+      const total = netJars * jarPrice + netBottles * bottlePrice + dispenserAmount + soldAmount;
+      const companyVehicle = isCompanyVehicle();
+      if (paid < 0) paid = 0;
+      const safeCollection = Math.max(collection, 0);
+      let paidSafe = 0;
+      if (companyVehicle) {
+        paidSafe = safeCollection;
+        if (paidInput) paidInput.value = paidSafe.toFixed(2);
+      } else {
+        paidSafe = Math.min(Math.max(paid, 0), total);
+        if (paidInput && paidSafe !== paid) paidInput.value = paidSafe.toFixed(2);
+      }
+      if (netJarsEl) netJarsEl.textContent = netJars;
+      if (netBottlesEl) netBottlesEl.textContent = netBottles;
+      if (soldAmountEl) soldAmountEl.textContent = soldAmount.toFixed(2);
+      if (dispenserAmountEl) dispenserAmountEl.textContent = dispenserAmount.toFixed(2);
+      if (totalEl) totalEl.textContent = (companyVehicle ? safeCollection : total).toFixed(2);
+      if (creditEl) creditEl.textContent = companyVehicle ? "0.00" : Math.max(0, total - paidSafe).toFixed(2);
+    };
+
+    const toggleExternalVehicle = () => {
+      const useExternal = isUsingExternalVehicle();
+      if (vehicleSelect) {
+        vehicleSelect.required = !useExternal;
+        vehicleSelect.disabled = useExternal;
+      }
+      if (externalVehicleFields) externalVehicleFields.classList.toggle('hidden', !useExternal);
+      if (externalVehicleNumberInput) externalVehicleNumberInput.required = useExternal;
+      if (externalOwnerNameInput) externalOwnerNameInput.required = useExternal;
+      toggleCollection();
+    };
+
+    const toggleCollection = () => {
+      if (!vehicleSelect || !collectionWrap) return;
+      const isCompany = isCompanyVehicle();
+      if (paidWrap) paidWrap.classList.toggle('hidden', isCompany);
+      collectionWrap.classList.toggle('hidden', !isCompany);
+      if (soldJarWrap) soldJarWrap.classList.toggle('hidden', !isCompany);
+      priceFields.forEach((el) => el.classList.toggle('hidden', isCompany));
+      if (!isCompany) {
+        if (soldJarInput) soldJarInput.value = "0";
+        if (soldPriceInput) soldPriceInput.value = "0";
+        if (collectionInput) collectionInput.value = "0";
+      }
+      if (jarPriceInput) {
+        if (isCompany) jarPriceInput.value = "0";
+        jarPriceInput.readOnly = isCompany;
+      }
+      if (bottlePriceInput) {
+        if (isCompany) bottlePriceInput.value = "0";
+        bottlePriceInput.readOnly = isCompany;
+      }
+      if (dispenserPriceInput) {
+        if (isCompany) dispenserPriceInput.value = "0";
+        dispenserPriceInput.readOnly = isCompany;
+      }
+      if (paidInput) paidInput.readOnly = isCompany;
+      recalc();
+    };
+
+    [jarInput, bottleInput, dispenserInput, jarPriceInput, bottlePriceInput, dispenserPriceInput, returnJarInput, returnBottleInput, leakageJarInput, soldJarInput, soldPriceInput, paidInput, collectionInput].forEach((el) => {
+      if (el) el.addEventListener('input', recalc);
+    });
+    if (vehicleSelect) vehicleSelect.addEventListener('change', toggleCollection);
+    if (useExternalToggle) useExternalToggle.addEventListener('change', toggleExternalVehicle);
+    toggleExternalVehicle();
+    recalc();
+  })();
+</script>
+<%- include('../partials/shell-end') %>

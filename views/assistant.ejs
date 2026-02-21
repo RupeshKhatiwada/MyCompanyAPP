@@ -1,0 +1,99 @@
+<%- include('partials/shell-start', { title }) %>
+<section class="py-8">
+  <div class="flex flex-wrap items-center justify-between gap-3">
+    <div>
+      <h1 class="text-3xl font-semibold"><%= t('assistantTitle') %></h1>
+      <p class="text-slate-600"><%= t('assistantSubtitle') %></p>
+    </div>
+  </div>
+
+  <% const isOpenAIEnabled = typeof openAIEnabled !== 'undefined' && openAIEnabled; %>
+  <div class="mt-6 grid gap-4 lg:grid-cols-3">
+    <div class="card p-6 lg:col-span-2">
+      <div id="chatLog" class="space-y-3 text-sm"></div>
+      <form id="assistantForm" class="mt-4 flex flex-wrap gap-2">
+        <input class="input flex-1" type="text" name="message" placeholder="<%= t('assistantPrompt') %>" required />
+        <button class="btn-primary" type="submit"><%= t('assistantAsk') %></button>
+      </form>
+      <div class="mt-3 flex flex-wrap gap-2 text-xs">
+        <button class="btn-outline" type="button" data-example="Who has the most credit this week?"><%= t('assistantExample1') %></button>
+        <button class="btn-outline" type="button" data-example="आजको कुल ढुवानी कति छ?"><%= t('assistantExample2') %></button>
+        <button class="btn-outline" type="button" data-example="Find vehicle BA 1 PA 1234"><%= t('assistantExample3') %></button>
+      </div>
+    </div>
+    <div class="card p-6">
+      <h2 class="text-lg font-semibold"><%= t('assistantTipsTitle') %></h2>
+      <ul class="mt-3 space-y-2 text-sm text-slate-600">
+        <li>• <%= t('assistantTip1') %></li>
+        <li>• <%= t('assistantTip2') %></li>
+        <li>• <%= t('assistantTip3') %></li>
+      </ul>
+      <% if (isOpenAIEnabled) { %>
+        <div class="mt-4 rounded-lg bg-emerald-50 px-4 py-3 text-xs text-emerald-700">
+          <%= t('assistantOnlineReady') %>
+        </div>
+      <% } else { %>
+        <div class="mt-4 rounded-lg bg-slate-50 px-4 py-3 text-xs text-slate-600">
+          <%= t('assistantOnlineMissing') %>
+        </div>
+      <% } %>
+      <div class="mt-4 rounded-lg bg-slate-50 px-4 py-3 text-xs text-slate-600">
+        <%= t('assistantOfflineHint') %>
+      </div>
+    </div>
+  </div>
+</section>
+
+<script>
+  (() => {
+    const form = document.getElementById('assistantForm');
+    const log = document.getElementById('chatLog');
+    const input = form.querySelector('input[name="message"]');
+
+    const addMessage = (role, text) => {
+      const wrap = document.createElement('div');
+      wrap.className = role === 'user' ? 'rounded-xl bg-slate-100 px-4 py-3' : 'rounded-xl bg-aqua-50 px-4 py-3';
+      const label = document.createElement('strong');
+      label.className = 'block text-xs uppercase text-slate-500';
+      label.textContent = role === 'user' ? 'You' : 'AQUA AI';
+      const body = document.createElement('div');
+      body.className = 'mt-1 whitespace-pre-line';
+      body.textContent = text;
+      wrap.appendChild(label);
+      wrap.appendChild(body);
+      log.appendChild(wrap);
+      log.scrollTop = log.scrollHeight;
+    };
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const message = input.value.trim();
+      if (!message) return;
+      addMessage('user', message);
+      input.value = '';
+      addMessage('ai', '<%= t('assistantThinking') %>');
+      const thinking = log.lastElementChild;
+      try {
+        const res = await fetch('/assistant/ask', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message })
+        });
+        const data = await res.json();
+        if (thinking) thinking.remove();
+        addMessage('ai', data.answer || '<%= t('assistantEmpty') %>');
+      } catch (err) {
+        if (thinking) thinking.remove();
+        addMessage('ai', '<%= t('assistantError') %>');
+      }
+    });
+
+    document.querySelectorAll('[data-example]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        input.value = btn.getAttribute('data-example');
+        input.focus();
+      });
+    });
+  })();
+</script>
+<%- include('partials/shell-end') %>
