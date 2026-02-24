@@ -4,11 +4,11 @@
 
 @layer base {
   :root {
-    --app-bg-main: #fff8f8;
-    --app-bg-soft: #fff1f1;
+    --app-bg-main: #ffffff;
+    --app-bg-soft: #fff7f7;
     --app-text-main: #0f172a;
     --app-border: rgba(148, 163, 184, 0.28);
-    --app-surface: rgba(255, 255, 255, 0.88);
+    --app-surface: rgba(255, 255, 255, 0.94);
     --app-shadow: 0 10px 30px rgba(15, 23, 42, 0.07);
   }
 
@@ -19,11 +19,11 @@
     color: var(--app-text-main);
     background-color: var(--app-bg-main);
     background-image:
-      radial-gradient(circle at 8% 12%, rgba(220, 38, 38, 0.14), transparent 42%),
-      radial-gradient(circle at 92% 4%, rgba(185, 28, 28, 0.11), transparent 40%),
-      radial-gradient(circle at 78% 88%, rgba(239, 68, 68, 0.09), transparent 42%),
-      linear-gradient(180deg, var(--app-bg-soft) 0%, var(--app-bg-main) 45%, #ffffff 100%);
+      radial-gradient(circle at 6% 0%, rgba(220, 38, 38, 0.12), transparent 34%),
+      radial-gradient(circle at 100% 12%, rgba(185, 28, 28, 0.08), transparent 30%),
+      linear-gradient(180deg, var(--app-bg-soft) 0%, var(--app-bg-main) 52%, #ffffff 100%);
     background-attachment: fixed;
+    overflow-x: hidden;
   }
 
   h1, h2, h3 {
@@ -140,9 +140,8 @@
   .page-header {
     @apply rounded-[28px] p-6 ring-1 ring-slate-200/80;
     background:
-      radial-gradient(circle at top right, rgba(220, 38, 38, 0.14), transparent 42%),
-      radial-gradient(circle at 20% 85%, rgba(239, 68, 68, 0.11), transparent 40%),
-      linear-gradient(160deg, rgba(255, 255, 255, 0.98) 0%, rgba(255, 245, 245, 0.95) 52%, rgba(255, 235, 235, 0.9) 100%);
+      linear-gradient(110deg, rgba(220, 38, 38, 0.12) 0%, rgba(220, 38, 38, 0.03) 26%, rgba(255, 255, 255, 0.96) 55%),
+      linear-gradient(160deg, rgba(255, 255, 255, 0.98) 0%, rgba(255, 248, 248, 0.94) 52%, rgba(255, 240, 240, 0.9) 100%);
     box-shadow: var(--app-shadow);
   }
 
@@ -156,6 +155,11 @@
     @apply min-w-full text-left text-sm;
     border-collapse: separate;
     border-spacing: 0;
+  }
+
+  .overflow-x-auto {
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-x: contain;
   }
 
   .table-head {
@@ -244,7 +248,7 @@
       @apply px-3 pt-4;
     }
     .table-base {
-      min-width: 700px;
+      min-width: 640px;
     }
     .btn, .btn-primary, .btn-outline, .btn-danger {
       @apply px-3 text-xs;
@@ -275,7 +279,7 @@
       @apply rounded-xl p-3;
     }
     .table-base {
-      min-width: 620px;
+      min-width: 520px;
     }
   }
 }

@@ -116,6 +116,8 @@
               <% const netBottles = Math.max(0, (record.bottle_case_count || 0) - (record.return_bottle_case_count || 0)); %>
               <% const collectionAmount = Number(record.collection_amount || 0); %>
               <% const expenseAmount = Number(record.expense_amount || 0); %>
+              <% const paidAmount = Number(record.paid_amount || 0); %>
+              <% const creditAmount = Number(record.credit_amount || 0); %>
               <% const netCollectionAmount = Math.max(0, collectionAmount - expenseAmount); %>
               <tr class="table-row">
                 <td class="px-4 py-3"><%= record.export_date %></td>
@@ -138,8 +140,8 @@
                 <td class="px-4 py-3"><%= collectionAmount %></td>
                 <td class="px-4 py-3"><%= expenseAmount %></td>
                 <td class="px-4 py-3"><%= netCollectionAmount %></td>
-                <td class="px-4 py-3"><%= record.paid_amount %></td>
-                <td class="px-4 py-3"><%= record.credit_amount %></td>
+                <td class="px-4 py-3"><%= paidAmount %></td>
+                <td class="px-4 py-3"><%= creditAmount %></td>
                 <td class="px-4 py-3"><%= record.route || '-' %></td>
                 <td class="px-4 py-3"><%= record.recorded_by || '-' %></td>
               </tr>

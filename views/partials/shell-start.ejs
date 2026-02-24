@@ -18,12 +18,20 @@
       right: 0;
       top: calc(100% + 6px);
       min-width: 180px;
+      max-width: min(220px, calc(100vw - 1.5rem));
+      max-height: min(320px, calc(100vh - 1rem));
       border: 1px solid rgba(226, 232, 240, 0.9);
       background: #fff;
       border-radius: 0.75rem;
       box-shadow: 0 12px 24px rgba(15, 23, 42, 0.14);
       padding: 6px;
+      overflow-y: auto;
+      overscroll-behavior: contain;
       z-index: 40;
+    }
+    .action-menu.action-menu-up .action-menu-panel {
+      top: auto;
+      bottom: calc(100% + 6px);
     }
     .action-menu-item {
       display: block;
@@ -43,6 +51,17 @@
     .action-menu-danger:hover {
       background: #fee2e2;
     }
+    .table-action-sticky {
+      position: sticky;
+      right: 0;
+      z-index: 2;
+      background: rgba(255, 255, 255, 0.96);
+      box-shadow: -6px 0 8px -8px rgba(15, 23, 42, 0.25);
+    }
+    .table-head .table-action-sticky {
+      background: rgba(241, 245, 249, 0.98);
+      z-index: 3;
+    }
     @media print {
       .print-only { display: block !important; }
       .print-hidden { display: none !important; }
@@ -55,9 +74,82 @@
         document.documentElement.dataset.fontSize = size;
       } catch (e) {}
     })();
+    (function () {
+      var selector = "details.action-menu";
+      function isForcedUp(menu) {
+        return menu && menu.dataset && menu.dataset.forceUp === "1";
+      }
+
+      function closeAll(except) {
+        var menus = document.querySelectorAll(selector + "[open]");
+        for (var i = 0; i < menus.length; i += 1) {
+          if (!except || menus[i] !== except) {
+            if (!isForcedUp(menus[i])) {
+              menus[i].classList.remove("action-menu-up");
+            }
+            menus[i].open = false;
+          }
+        }
+      }
+
+      function placeMenu(menu) {
+        if (!(menu instanceof HTMLElement)) return;
+        if (isForcedUp(menu)) {
+          menu.classList.add("action-menu-up");
+          return;
+        }
+        menu.classList.remove("action-menu-up");
+        var panel = menu.querySelector(".action-menu-panel");
+        if (!(panel instanceof HTMLElement)) return;
+        var viewportMargin = 10;
+        panel.style.maxHeight = "";
+        panel.style.overflowY = "auto";
+        var rect = panel.getBoundingClientRect();
+        var panelHeight = rect.height;
+        var spaceBelow = Math.max(0, window.innerHeight - rect.top - viewportMargin);
+        var spaceAbove = Math.max(0, rect.top - viewportMargin);
+        var openUp = panelHeight > spaceBelow && spaceAbove > spaceBelow;
+        if (openUp) {
+          menu.classList.add("action-menu-up");
+        }
+        var availableSpace = openUp ? spaceAbove : spaceBelow;
+        panel.style.maxHeight = Math.max(140, Math.floor(availableSpace)) + "px";
+      }
+
+      document.addEventListener("toggle", function (event) {
+        var target = event && event.target;
+        if (!(target instanceof HTMLElement)) return;
+        if (!target.matches(selector)) return;
+        if (target.open) {
+          closeAll(target);
+          placeMenu(target);
+        } else {
+          if (!isForcedUp(target)) {
+            target.classList.remove("action-menu-up");
+          }
+        }
+      }, true);
+
+      document.addEventListener("click", function (event) {
+        var target = event && event.target;
+        if (!(target instanceof Element)) return;
+        if (!target.closest(selector)) closeAll();
+      });
+
+      document.addEventListener("keydown", function (event) {
+        if (event.key === "Escape") closeAll();
+      });
+
+      window.addEventListener("resize", function () {
+        var openMenus = document.querySelectorAll(selector + "[open]");
+        for (var i = 0; i < openMenus.length; i += 1) {
+          placeMenu(openMenus[i]);
+        }
+      });
+    })();
   </script>
 </head>
-<body class="bg-gradient-to-br from-red-50 via-white to-aqua-100 text-slate-900">
+<body class="text-slate-900">
   <div class="min-h-screen">
     <%- include('nav') %>
     <main class="mx-auto w-full max-w-6xl px-4 pb-16 pt-6">

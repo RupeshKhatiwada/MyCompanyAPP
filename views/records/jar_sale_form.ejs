@@ -18,9 +18,8 @@
         <select class="input" name="jar_type_id" data-type required>
           <option value=""><%= t('selectJarType') %></option>
           <% jarTypes.forEach((type) => { %>
-            <% const optionPrice = record && record.jar_type_id === type.id ? record.unit_price : type.price; %>
-            <option value="<%= type.id %>" data-price="<%= optionPrice %>" <%= record && record.jar_type_id === type.id ? 'selected' : '' %>>
-              <%= type.name %> - <%= type.price %>
+            <option value="<%= type.id %>" <%= record && record.jar_type_id === type.id ? 'selected' : '' %>>
+              <%= type.name %>
             </option>
           <% }) %>
         </select>
@@ -54,10 +53,14 @@
         <label class="label"><%= t('vehicleNumber') %> (<%= t('optional') %>)</label>
         <input class="input" type="text" name="vehicle_number" value="<%= record ? record.vehicle_number || '' : '' %>" data-vehicle-number />
       </div>
-      <div class="grid gap-3 sm:grid-cols-2">
+      <div class="grid gap-3 sm:grid-cols-3">
         <div>
           <label class="label"><%= t('quantity') %></label>
           <input class="input" type="number" min="0" name="quantity" value="<%= record ? record.quantity : 0 %>" data-qty />
+        </div>
+        <div>
+          <label class="label"><%= t('price') %></label>
+          <input class="input" type="number" min="0" step="0.01" name="unit_price" value="<%= record ? record.unit_price : 0 %>" data-unit-price />
         </div>
         <div>
           <label class="label"><%= t('paidAmount') %></label>
@@ -91,6 +94,7 @@
   (() => {
     const typeSelect = document.querySelector('[data-type]');
     const qtyInput = document.querySelector('[data-qty]');
+    const unitPriceInput = document.querySelector('[data-unit-price]');
     const paidInput = document.querySelector('[data-paid]');
     const unitEl = document.getElementById('unitPrice');
     const totalEl = document.getElementById('totalAmount');
@@ -118,7 +122,13 @@
 
     const recalc = () => {
       const isCompany = vehicleSelect?.selectedOptions[0]?.dataset?.company === "1";
-      const price = isCompany ? 0 : Number(typeSelect?.selectedOptions[0]?.dataset?.price || 0);
+      let price = Number(unitPriceInput?.value || 0);
+      if (Number.isNaN(price) || price < 0) price = 0;
+      if (isCompany) price = 0;
+      if (unitPriceInput) {
+        unitPriceInput.readOnly = isCompany;
+        unitPriceInput.value = price;
+      }
       const qty = Number(qtyInput?.value || 0);
       const total = price * qty;
       let paid = Number(paidInput?.value || 0);
@@ -145,7 +155,7 @@
       });
     }
 
-    [typeSelect, qtyInput, paidInput, vehicleSelect].forEach((el) => el && el.addEventListener('input', recalc));
+    [typeSelect, qtyInput, unitPriceInput, paidInput, vehicleSelect].forEach((el) => el && el.addEventListener('input', recalc));
     if (vehicleSelect) vehicleSelect.addEventListener('change', recalc);
     if (typeSelect) typeSelect.addEventListener('change', updateBalance);
     updateBalance();

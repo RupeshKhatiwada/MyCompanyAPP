@@ -88,75 +88,93 @@
         <% if (isAdmin) { %>
           <div>
             <p class="pill"><%= t('menuOperations') %></p>
-            <div class="mt-2 grid gap-2">
+            <div class="mt-2 grid gap-2 sm:grid-cols-2">
               <a class="btn-outline" href="/admin"><%= t('dashboard') %></a>
-              <a class="btn-outline" href="/search"><%= t('search') %></a>
               <a class="btn-outline" href="/records/exports"><%= t('exports') %></a>
               <a class="btn-outline" href="/records/credits"><%= t('credits') %></a>
-              <a class="btn-outline" href="/records/water-tests"><%= t('waterTestsTitle') %></a>
               <a class="btn-outline" href="/records/imports"><%= t('importsTitle') %></a>
-              <a class="btn-outline" href="/admin/import-item-types"><%= t('importItemTypesTitle') %></a>
-              <a class="btn-outline" href="/admin/jar-types"><%= t('jarTypesTitle') %></a>
-              <a class="btn-outline" href="/admin/jar-cap-types"><%= t('jarCapTypesTitle') %></a>
+              <a class="btn-outline" href="/records/water-tests"><%= t('waterTestsTitle') %></a>
+              <a class="btn-outline" href="/admin/alerts"><%= t('alertCenterTitle') %></a>
+            </div>
+          </div>
+          <div>
+            <p class="pill"><%= t('menuFinance') %></p>
+            <div class="mt-2 grid gap-2 sm:grid-cols-2">
               <a class="btn-outline" href="/records/jar-sales"><%= t('jarSalesTitle') %></a>
-              <a class="btn-outline" href="/records/company-purchases"><%= t('companyPurchasesTitle') %></a>
               <a class="btn-outline" href="/records/vehicle-expenses"><%= t('vehicleExpensesTitle') %></a>
+              <a class="btn-outline" href="/records/company-purchases"><%= t('companyPurchasesTitle') %></a>
               <a class="btn-outline" href="/admin/savings"><%= t('savingsTitle') %></a>
-              <a class="btn-outline" href="/admin/sales"><%= t('dailySales') %></a>
-              <a class="btn-outline" href="/admin/settings"><%= t('settingsTitle') %></a>
+              <a class="btn-outline" href="/admin/reports/all"><%= t('allReportsTitle') %></a>
+              <a class="btn-outline" href="/admin/backup"><%= t('backup') %></a>
             </div>
           </div>
           <div>
             <p class="pill"><%= t('menuPeopleAccess') %></p>
-            <div class="mt-2 grid gap-2">
+            <div class="mt-2 grid gap-2 sm:grid-cols-2">
               <a class="btn-outline" href="/admin/vehicles"><%= t('vehicles') %></a>
               <a class="btn-outline" href="/admin/workers"><%= t('workers') %></a>
               <a class="btn-outline" href="/admin/staffs"><%= t('staffsTitle') %></a>
               <a class="btn-outline" href="/admin/staff-roles"><%= t('manageStaffRoles') %></a>
               <a class="btn-outline" href="/admin/worker-attendance"><%= t('workerAttendanceTitle') %></a>
-              <% if (isSuper) { %>
-                <a class="btn-outline" href="/admin/admins"><%= t('admins') %></a>
-              <% } %>
-              <a class="btn-outline" href="/worker"><%= t('workerView') %></a>
               <a class="btn-outline" href="/admin/profile"><%= t('profileTitle') %></a>
               <% if (isSuper) { %>
+                <a class="btn-outline" href="/admin/admins"><%= t('admins') %></a>
                 <a class="btn-outline" href="/admin/recovery"><%= t('recoveryTitle') %></a>
               <% } %>
             </div>
           </div>
           <div>
             <p class="pill"><%= t('menuInsights') %></p>
-            <div class="mt-2 grid gap-2">
-              <a class="btn-outline" href="/admin/alerts"><%= t('alertCenterTitle') %></a>
-              <a class="btn-outline" href="/admin/recycle-bin"><%= t('recycleBinTitle') %></a>
-              <a class="btn-outline" href="/admin/reports/all"><%= t('allReportsTitle') %></a>
-              <a class="btn-outline" href="/admin/activity"><%= t('activityLogTitle') %></a>
-              <a class="btn-outline" href="/admin/backup"><%= t('backup') %></a>
+            <div class="mt-2 grid gap-2 sm:grid-cols-2">
+              <a class="btn-outline" href="/records/history"><%= t('activityLogTitle') %></a>
+              <a class="btn-outline" href="/search"><%= t('search') %></a>
+              <a class="btn-outline" href="/admin/import-item-types"><%= t('importItemTypesTitle') %></a>
+              <a class="btn-outline" href="/admin/jar-types"><%= t('jarTypesTitle') %></a>
+              <a class="btn-outline" href="/worker"><%= t('workerView') %></a>
+              <a class="btn-outline" href="/admin/settings"><%= t('settingsTitle') %></a>
               <a class="btn-outline" href="/admin/windows-kit"><%= t('windowsKitTitle') %></a>
+              <a class="btn-outline" href="/admin/recycle-bin"><%= t('recycleBinTitle') %></a>
             </div>
           </div>
         <% } %>
-          <% if (!isAdmin) { %>
+        <% if (!isAdmin) { %>
           <div>
-            <p class="pill"><%= t('menuRecords') %></p>
-            <div class="mt-2 grid gap-2">
+            <p class="pill"><%= t('menuOperations') %></p>
+            <div class="mt-2 grid gap-2 sm:grid-cols-2">
               <a class="btn-outline" href="/worker"><%= t('home') %></a>
               <a class="btn-outline" href="/records/exports"><%= t('exports') %></a>
-              <a class="btn-outline" href="/records/imports"><%= t('importsTitle') %></a>
               <a class="btn-outline" href="/records/credits"><%= t('credits') %></a>
+              <a class="btn-outline" href="/records/imports"><%= t('importsTitle') %></a>
               <a class="btn-outline" href="/records/water-tests"><%= t('waterTestsTitle') %></a>
-              <a class="btn-outline" href="/records/vehicles"><%= t('vehicles') %></a>
+              <a class="btn-outline" href="/records/alerts"><%= t('alertCenterTitle') %></a>
+            </div>
+          </div>
+          <div>
+            <p class="pill"><%= t('menuFinance') %></p>
+            <div class="mt-2 grid gap-2 sm:grid-cols-2">
               <a class="btn-outline" href="/records/jar-sales"><%= t('jarSalesTitle') %></a>
-              <a class="btn-outline" href="/records/company-purchases"><%= t('companyPurchasesTitle') %></a>
               <a class="btn-outline" href="/records/vehicle-expenses"><%= t('vehicleExpensesTitle') %></a>
+              <a class="btn-outline" href="/records/company-purchases"><%= t('companyPurchasesTitle') %></a>
+              <a class="btn-outline" href="/records/savings"><%= t('savingsTitle') %></a>
+            </div>
+          </div>
+          <div>
+            <p class="pill"><%= t('menuPeopleAccess') %></p>
+            <div class="mt-2 grid gap-2 sm:grid-cols-2">
+              <a class="btn-outline" href="/records/vehicles"><%= t('vehicles') %></a>
               <a class="btn-outline" href="/records/staffs"><%= t('staffsTitle') %></a>
               <a class="btn-outline" href="/records/staff-attendance"><%= t('staffAttendanceTitle') %></a>
-              <a class="btn-outline" href="/records/savings"><%= t('savingsTitle') %></a>
-              <a class="btn-outline" href="/search"><%= t('search') %></a>
               <a class="btn-outline" href="/records/profile"><%= t('profileTitle') %></a>
             </div>
           </div>
-          <% } %>
+          <div>
+            <p class="pill"><%= t('menuInsights') %></p>
+            <div class="mt-2 grid gap-2 sm:grid-cols-2">
+              <a class="btn-outline" href="/records/history"><%= t('activityLogTitle') %></a>
+              <a class="btn-outline" href="/search"><%= t('search') %></a>
+            </div>
+          </div>
+        <% } %>
           <div>
             <p class="pill"><%= t('preferencesTitle') %></p>
             <div class="mt-2 flex flex-wrap gap-2">

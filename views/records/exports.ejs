@@ -2,16 +2,19 @@
 <section class="py-8">
   <% const safeTripVehicles = typeof tripVehicles !== 'undefined' ? tripVehicles : []; %>
   <% const selectedTripVehicleId = typeof tripVehicleId !== 'undefined' && tripVehicleId ? String(tripVehicleId) : 'all'; %>
-  <% const safeTripSummaryRows = typeof tripSummaryRows !== 'undefined' ? tripSummaryRows : []; %>
   <% const safeVehicleCumulativeCredits = typeof vehicleCumulativeCredits !== 'undefined' ? vehicleCumulativeCredits : []; %>
+  <% const vehicleCreditFromValue = typeof vehicleCreditFrom !== 'undefined' ? vehicleCreditFrom : from; %>
+  <% const vehicleCreditToValue = typeof vehicleCreditTo !== 'undefined' ? vehicleCreditTo : to; %>
+  <% const safeVehicleCumulativeTotals = typeof vehicleCumulativeTotals !== 'undefined' ? vehicleCumulativeTotals : { vehicle_count: 0, total_amount: 0, total_paid: 0, total_remaining: 0 }; %>
+  <% const safeVehicleCumulativeAllTime = typeof vehicleCumulativeAllTime !== 'undefined' ? Number(vehicleCumulativeAllTime || 0) : 0; %>
   <div class="flex flex-wrap items-center justify-between gap-3">
     <div>
       <h1 class="text-3xl font-semibold"><%= t('exportsTitle') %></h1>
       <p class="text-slate-600"><%= t('exportsSubtitle') %></p>
     </div>
   <div class="flex flex-wrap gap-2">
-    <a class="btn-outline" href="/records/exports/export?from=<%= from %>&to=<%= to %>&q=<%= encodeURIComponent(q || '') %>&sort=<%= sort %>"><%= t('exportCsv') %></a>
-    <a class="btn-outline" href="/records/exports/print?from=<%= from %>&to=<%= to %>&q=<%= encodeURIComponent(q || '') %>&sort=<%= sort %>" target="_blank"><%= t('printList') %></a>
+    <a class="btn-outline" href="/records/exports/export?from=<%= from %>&to=<%= to %>&q=<%= encodeURIComponent(q || '') %>&sort=<%= sort %>&vehicle_credit_from=<%= vehicleCreditFromValue %>&vehicle_credit_to=<%= vehicleCreditToValue %>"><%= t('exportCsv') %></a>
+    <a class="btn-outline" href="/records/exports/print?from=<%= from %>&to=<%= to %>&q=<%= encodeURIComponent(q || '') %>&sort=<%= sort %>&vehicle_credit_from=<%= vehicleCreditFromValue %>&vehicle_credit_to=<%= vehicleCreditToValue %>" target="_blank"><%= t('printList') %></a>
     <a class="btn-primary" href="/records/exports/new"><%= t('addExportTitle') %></a>
   </div>
 
@@ -45,13 +48,15 @@
   </div>
 
   <div class="mt-4 flex flex-wrap gap-2 text-sm">
-    <a class="btn-outline" href="/records/exports?from=<%= today %>&to=<%= today %>&q=<%= encodeURIComponent(q || '') %>&sort=<%= sort %>&trip_vehicle_id=<%= selectedTripVehicleId %>"><%= t('presetToday') %></a>
-    <a class="btn-outline" href="/records/exports?from=<%= weekStart %>&to=<%= today %>&q=<%= encodeURIComponent(q || '') %>&sort=<%= sort %>&trip_vehicle_id=<%= selectedTripVehicleId %>"><%= t('presetThisWeek') %></a>
-    <a class="btn-outline" href="/records/exports?from=<%= monthStart %>&to=<%= today %>&q=<%= encodeURIComponent(q || '') %>&sort=<%= sort %>&trip_vehicle_id=<%= selectedTripVehicleId %>"><%= t('presetThisMonth') %></a>
-    <a class="btn-outline" href="/records/exports?from=<%= yearStart %>&to=<%= today %>&q=<%= encodeURIComponent(q || '') %>&sort=<%= sort %>&trip_vehicle_id=<%= selectedTripVehicleId %>"><%= t('presetThisYear') %></a>
+    <a class="btn-outline" href="/records/exports?from=<%= today %>&to=<%= today %>&q=<%= encodeURIComponent(q || '') %>&sort=<%= sort %>&trip_vehicle_id=<%= selectedTripVehicleId %>&vehicle_credit_from=<%= vehicleCreditFromValue %>&vehicle_credit_to=<%= vehicleCreditToValue %>"><%= t('presetToday') %></a>
+    <a class="btn-outline" href="/records/exports?from=<%= weekStart %>&to=<%= today %>&q=<%= encodeURIComponent(q || '') %>&sort=<%= sort %>&trip_vehicle_id=<%= selectedTripVehicleId %>&vehicle_credit_from=<%= vehicleCreditFromValue %>&vehicle_credit_to=<%= vehicleCreditToValue %>"><%= t('presetThisWeek') %></a>
+    <a class="btn-outline" href="/records/exports?from=<%= monthStart %>&to=<%= today %>&q=<%= encodeURIComponent(q || '') %>&sort=<%= sort %>&trip_vehicle_id=<%= selectedTripVehicleId %>&vehicle_credit_from=<%= vehicleCreditFromValue %>&vehicle_credit_to=<%= vehicleCreditToValue %>"><%= t('presetThisMonth') %></a>
+    <a class="btn-outline" href="/records/exports?from=<%= yearStart %>&to=<%= today %>&q=<%= encodeURIComponent(q || '') %>&sort=<%= sort %>&trip_vehicle_id=<%= selectedTripVehicleId %>&vehicle_credit_from=<%= vehicleCreditFromValue %>&vehicle_credit_to=<%= vehicleCreditToValue %>"><%= t('presetThisYear') %></a>
   </div>
 
   <form class="mt-4 flex flex-wrap items-end gap-3" method="get" action="/records/exports">
+    <input type="hidden" name="vehicle_credit_from" value="<%= vehicleCreditFromValue %>" />
+    <input type="hidden" name="vehicle_credit_to" value="<%= vehicleCreditToValue %>" />
     <div>
       <label class="label"><%= t('from') %></label>
       <input class="input" type="date" name="from" value="<%= from %>" />
@@ -102,7 +107,7 @@
             <th class="px-4 py-3"><%= t('netJars') %></th>
             <th class="px-4 py-3"><%= t('paidOrCollection') %></th>
             <th class="px-4 py-3"><%= t('creditAmount') %></th>
-            <th class="px-4 py-3 text-right"><%= t('actions') %></th>
+            <th class="table-action-sticky px-4 py-3 text-right"><%= t('actions') %></th>
           </tr>
         </thead>
         <tbody>
@@ -114,6 +119,7 @@
           <% exportsRows.forEach((record) => { %>
             <% const netJars = Math.max(0, (record.jar_count || 0) - (record.return_jar_count || 0) - (record.leakage_jar_count || 0)); %>
             <% const collectionAmount = Number(record.collection_amount || 0); %>
+            <% const remainingCredit = Math.max(0, Number(record.total_amount || 0) - Number(record.paid_amount || 0)); %>
             <tr class="table-row">
               <td class="px-4 py-3"><%= record.export_date %></td>
               <td class="px-4 py-3"><%= record.vehicle_number %></td>
@@ -127,12 +133,23 @@
                   <div><%= t('paidAmount') %>: <%= record.paid_amount %></div>
                 <% } %>
               </td>
-              <td class="px-4 py-3"><%= Number(record.is_company) === 1 ? '-' : record.credit_amount %></td>
-              <td class="px-4 py-3 text-right">
+              <td class="px-4 py-3">
+                <% if (Number(record.is_company) === 1) { %>
+                  -
+                <% } else { %>
+                  <div class="flex flex-wrap items-center gap-2">
+                    <span><%= remainingCredit %></span>
+                    <span class="badge <%= remainingCredit > 0 ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-700' %>">
+                      <%= remainingCredit > 0 ? t('statusCredit') : t('paid') %>
+                    </span>
+                  </div>
+                <% } %>
+              </td>
+              <td class="table-action-sticky px-4 py-3 text-right">
                 <details class="action-menu">
                   <summary class="btn-outline h-9 w-9 flex items-center justify-center">⋯</summary>
                   <div class="action-menu-panel">
-                    <% if (Number(record.is_company) !== 1 && Number(record.credit_amount || 0) > 0) { %>
+                    <% if (Number(record.is_company) !== 1 && remainingCredit > 0) { %>
                       <a class="action-menu-item" href="/records/exports/<%= record.id %>/pay-credit"><%= t('payCredit') %></a>
                     <% } %>
                     <a class="action-menu-item" href="/records/exports/<%= record.id %>"><%= t('details') %></a>
@@ -164,48 +181,36 @@
       <% } else { %>
         <div class="mt-4 grid gap-3">
           <% dailyCreditGroups.forEach((group) => { %>
-            <details class="card p-4">
-              <summary class="flex cursor-pointer items-center justify-between text-sm font-semibold">
-                <span><%= `${group.vehicle_number} • ${group.owner_name}` %></span>
-                <span class="text-xs text-slate-500"><%= t('totalRemaining') %>: <%= group.total_remaining %></span>
-              </summary>
-              <div class="mt-4">
-                <div class="flex flex-wrap items-center justify-between gap-2">
-                  <p class="text-xs text-slate-500"><%= t('tripCount') %>: <%= group.trips.length %></p>
-                  <div class="flex flex-wrap items-center gap-2">
-                    <form method="post" action="/records/exports/daily-credit" class="flex flex-wrap items-center gap-2">
-                      <input type="hidden" name="date" value="<%= from %>" />
-                      <input type="hidden" name="vehicle_id" value="<%= group.vehicle_id %>" />
-                      <input class="input h-9 w-28" type="number" step="0.01" min="0" name="payment_amount" placeholder="<%= t('paymentAmount') %>" />
-                      <button class="btn-outline" type="submit"><%= t('addPayment') %></button>
-                    </form>
-                    <a class="btn-outline" href="/records/exports/daily-credit?date=<%= from %>&vehicle_id=<%= group.vehicle_id %>"><%= t('payDayCredit') %></a>
-                  </div>
-                </div>
-                <div class="mt-3 overflow-x-auto">
-                  <table class="table-base">
-                    <thead class="table-head">
-                      <tr>
-                        <th class="px-4 py-2"><%= t('receiptNo') %></th>
-                        <th class="px-4 py-2"><%= t('totalAmount') %></th>
-                        <th class="px-4 py-2"><%= t('paidAmount') %></th>
-                        <th class="px-4 py-2"><%= t('remainingAmount') %></th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <% group.trips.forEach((trip) => { %>
-                        <tr class="table-row">
-                          <td class="px-4 py-2"><%= trip.receipt_no %></td>
-                          <td class="px-4 py-2"><%= trip.total_amount %></td>
-                          <td class="px-4 py-2"><%= trip.paid_amount %></td>
-                          <td class="px-4 py-2"><%= trip.remaining %></td>
-                        </tr>
-                      <% }) %>
-                    </tbody>
-                  </table>
-                </div>
+            <div class="card p-4">
+              <div class="flex flex-wrap items-center justify-between gap-2">
+                <p class="font-semibold"><%= `${group.vehicle_number} • ${group.owner_name}` %></p>
+                <span class="badge bg-red-100 text-red-700"><%= t('totalRemaining') %>: <%= group.total_remaining %></span>
               </div>
-            </details>
+              <div class="mt-3 flex flex-wrap gap-3 text-xs text-slate-600">
+                <span><%= t('tripCount') %>: <%= group.trips.length %></span>
+                <% if (group.trips && group.trips.length) { %>
+                  <span><%= t('receiptNo') %>: <%= group.trips.map((trip) => trip.receipt_no).join(', ') %></span>
+                <% } %>
+              </div>
+              <div class="mt-4 flex flex-wrap items-center gap-2">
+                <form method="post" action="/records/exports/daily-credit" class="flex flex-wrap items-center gap-2">
+                  <input type="hidden" name="date" value="<%= from %>" />
+                  <input type="hidden" name="vehicle_id" value="<%= group.vehicle_id %>" />
+                  <input
+                    class="input h-9 w-32"
+                    type="number"
+                    step="0.01"
+                    min="0.01"
+                    max="<%= group.total_remaining %>"
+                    name="payment_amount"
+                    placeholder="<%= t('paymentAmount') %>"
+                    required
+                  />
+                  <button class="btn-outline" type="submit"><%= t('addPayment') %></button>
+                </form>
+                <a class="btn-outline" href="/records/exports/payment-history?from=<%= from %>&to=<%= to %>&vehicle_id=<%= group.vehicle_id %>"><%= t('paymentHistory') %></a>
+              </div>
+            </div>
           <% }) %>
         </div>
       <% } %>
@@ -215,140 +220,105 @@
   <div class="mt-6 card p-6">
     <div class="flex flex-wrap items-center justify-between gap-3">
       <div>
-        <h2 class="text-lg font-semibold"><%= t('tripSummaryTitle') %></h2>
-        <p class="text-sm text-slate-600"><%= t('tripSummarySubtitle') %></p>
+        <h2 class="text-lg font-semibold"><%= t('vehicleCumulativeCreditsTitle') %></h2>
+        <p class="text-sm text-slate-600"><%= t('vehicleCumulativeCreditsSubtitle') %></p>
       </div>
       <form class="flex flex-wrap items-end gap-2" method="get" action="/records/exports">
         <input type="hidden" name="from" value="<%= from %>" />
         <input type="hidden" name="to" value="<%= to %>" />
         <input type="hidden" name="q" value="<%= q || '' %>" />
         <input type="hidden" name="sort" value="<%= sort %>" />
+        <input type="hidden" name="trip_vehicle_id" value="<%= selectedTripVehicleId %>" />
         <div>
-          <label class="label"><%= t('vehicle') %></label>
-          <select class="input" name="trip_vehicle_id">
-            <option value="all" <%= selectedTripVehicleId === 'all' ? 'selected' : '' %>><%= t('allVehicles') %></option>
-            <% safeTripVehicles.forEach((vehicle) => { %>
-              <option value="<%= vehicle.id %>" <%= selectedTripVehicleId === String(vehicle.id) ? 'selected' : '' %>>
-                <%= `${vehicle.vehicle_number} • ${vehicle.owner_name}` %>
-              </option>
-            <% }) %>
-          </select>
+          <label class="label"><%= t('from') %></label>
+          <input class="input" type="date" name="vehicle_credit_from" value="<%= vehicleCreditFromValue %>" />
         </div>
-        <button class="btn-outline" type="submit"><%= t('run') %></button>
+        <div>
+          <label class="label"><%= t('to') %></label>
+          <input class="input" type="date" name="vehicle_credit_to" value="<%= vehicleCreditToValue %>" />
+        </div>
+        <button class="btn-outline" type="submit"><%= t('filter') %></button>
       </form>
     </div>
 
-    <div class="mt-4 overflow-x-auto">
-      <table class="table-base">
-        <thead class="table-head">
-          <tr>
-            <th class="px-4 py-3"><%= t('vehicleNumber') %></th>
-            <th class="px-4 py-3"><%= t('ownerName') %></th>
-            <th class="px-4 py-3"><%= t('tripCount') %></th>
-            <th class="px-4 py-3"><%= t('netJars') %></th>
-            <th class="px-4 py-3"><%= t('paidOrCollection') %></th>
-            <th class="px-4 py-3"><%= t('creditAmount') %></th>
-            <th class="px-4 py-3 text-right"><%= t('actions') %></th>
-          </tr>
-        </thead>
-        <tbody>
-          <% if (!safeTripSummaryRows.length) { %>
-            <tr>
-              <td class="px-4 py-4 text-slate-500" colspan="6"><%= t('noData') %></td>
-            </tr>
-          <% } %>
-          <% safeTripSummaryRows.forEach((row) => { %>
-            <% const totalCollection = Number(row.total_collection || 0); %>
-            <tr class="table-row">
-              <td class="px-4 py-3"><%= row.vehicle_number %></td>
-              <td class="px-4 py-3"><%= row.owner_name %></td>
-              <td class="px-4 py-3"><%= row.trip_count %></td>
-              <td class="px-4 py-3"><%= row.net_jars %></td>
-              <td class="px-4 py-3"><%= Number(row.is_company) === 1 ? totalCollection : row.total_paid %></td>
-              <td class="px-4 py-3"><%= Number(row.is_company) === 1 ? '-' : row.total_credit %></td>
-              <td class="px-4 py-3 text-right">
-                <% if (from === to && Number(row.is_company) !== 1) { %>
-                  <details class="action-menu">
-                    <summary class="btn-outline h-9 w-9 flex items-center justify-center">⋯</summary>
-                    <div class="action-menu-panel">
-                      <a class="action-menu-item" href="/records/exports/daily-credit?date=<%= from %>&vehicle_id=<%= row.vehicle_id %>"><%= t('payDayCredit') %></a>
-                      <a class="action-menu-item" href="/records/exports/payment-history?from=<%= from %>&to=<%= to %>&vehicle_id=<%= row.vehicle_id %>"><%= t('paymentHistory') %></a>
-                    </div>
-                  </details>
-                <% } else { %>
-                  -
-                <% } %>
-              </td>
-            </tr>
-          <% }) %>
-        </tbody>
-      </table>
-    </div>
-  </div>
-
-  <div class="mt-6 card p-6">
-    <div class="flex flex-wrap items-center justify-between gap-3">
-      <div>
-        <h2 class="text-lg font-semibold"><%= t('vehicleCumulativeCreditsTitle') %></h2>
-        <p class="text-sm text-slate-600"><%= t('vehicleCumulativeCreditsSubtitle') %></p>
+    <div class="mt-4 grid gap-3 sm:grid-cols-3">
+      <div class="card p-4">
+        <p class="text-slate-500"><%= t('totalRemaining') %> (<%= t('selectedRange') %>)</p>
+        <p class="text-lg font-semibold"><%= safeVehicleCumulativeTotals.total_remaining %></p>
+      </div>
+      <div class="card p-4">
+        <p class="text-slate-500"><%= t('allTimeTotalCredits') %></p>
+        <p class="text-lg font-semibold"><%= safeVehicleCumulativeAllTime %></p>
+      </div>
+      <div class="card p-4">
+        <p class="text-slate-500"><%= t('vehicleCount') %></p>
+        <p class="text-lg font-semibold"><%= safeVehicleCumulativeTotals.vehicle_count %></p>
       </div>
     </div>
 
-    <div class="mt-4 overflow-x-auto">
-      <table class="table-base">
-        <thead class="table-head">
-          <tr>
-            <th class="px-4 py-3"><%= t('vehicle') %></th>
-            <th class="px-4 py-3"><%= t('tripCount') %></th>
-            <th class="px-4 py-3"><%= t('lastDate') %></th>
-            <th class="px-4 py-3"><%= t('totalAmount') %></th>
-            <th class="px-4 py-3"><%= t('totalPaidAmount') %></th>
-            <th class="px-4 py-3"><%= t('totalRemaining') %></th>
-            <th class="px-4 py-3"><%= t('paymentAmount') %></th>
-            <th class="px-4 py-3 text-right"><%= t('actions') %></th>
-          </tr>
-        </thead>
-        <tbody>
-          <% if (!safeVehicleCumulativeCredits.length) { %>
-            <tr>
-              <td class="px-4 py-4 text-slate-500" colspan="8"><%= t('vehicleCumulativeNoCredits') %></td>
-            </tr>
-          <% } %>
-          <% safeVehicleCumulativeCredits.forEach((row) => { %>
-            <tr class="table-row">
-              <td class="px-4 py-3"><%= `${row.owner_name} • ${row.vehicle_number}` %></td>
-              <td class="px-4 py-3"><%= row.trip_count %></td>
-              <td class="px-4 py-3"><%= row.last_export_date || '-' %></td>
-              <td class="px-4 py-3"><%= row.total_amount %></td>
-              <td class="px-4 py-3"><%= row.total_paid %></td>
-              <td class="px-4 py-3"><%= row.total_remaining %></td>
-              <td class="px-4 py-3">
-                <% if (Number(row.total_remaining || 0) > 0) { %>
-                  <input form="export-vehicle-credit-pay-<%= row.vehicle_id %>" class="input h-9 w-28" type="number" step="0.01" min="0.01" max="<%= row.total_remaining %>" name="payment_amount" value="<%= row.total_remaining %>" />
-                <% } else { %>
-                  -
-                <% } %>
-              </td>
-              <td class="px-4 py-3 text-right">
-                <% if (Number(row.total_remaining || 0) > 0) { %>
-                  <form id="export-vehicle-credit-pay-<%= row.vehicle_id %>" method="post" action="/records/exports/vehicle-credits/pay" class="inline">
-                    <input type="hidden" name="vehicle_id" value="<%= row.vehicle_id %>" />
-                    <input type="hidden" name="from" value="<%= from %>" />
-                    <input type="hidden" name="to" value="<%= to %>" />
-                    <input type="hidden" name="q" value="<%= q || '' %>" />
-                    <input type="hidden" name="sort" value="<%= sort %>" />
-                    <input type="hidden" name="trip_vehicle_id" value="<%= selectedTripVehicleId %>" />
-                    <button class="btn-outline" type="submit"><%= t('addPayment') %></button>
-                  </form>
-                <% } else { %>
-                  -
-                <% } %>
-              </td>
-            </tr>
-          <% }) %>
-        </tbody>
-      </table>
-    </div>
+    <% if (!safeVehicleCumulativeCredits.length) { %>
+      <p class="mt-4 text-sm text-slate-500"><%= t('vehicleCumulativeNoCredits') %></p>
+    <% } else { %>
+      <div class="mt-4 grid gap-3">
+        <% safeVehicleCumulativeCredits.forEach((row) => { %>
+          <div class="card p-4">
+            <div class="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <p class="font-semibold"><%= `${row.owner_name} • ${row.vehicle_number}` %></p>
+                <p class="text-xs text-slate-500"><%= t('lastDate') %>: <%= row.last_export_date || '-' %></p>
+              </div>
+              <span class="badge bg-red-100 text-red-700"><%= t('totalRemaining') %>: <%= row.total_remaining %></span>
+            </div>
+
+            <div class="mt-3 grid gap-2 text-sm sm:grid-cols-4">
+              <div>
+                <p class="text-slate-500"><%= t('tripCount') %></p>
+                <p class="font-semibold"><%= row.trip_count %></p>
+              </div>
+              <div>
+                <p class="text-slate-500"><%= t('totalAmount') %></p>
+                <p class="font-semibold"><%= row.total_amount %></p>
+              </div>
+              <div>
+                <p class="text-slate-500"><%= t('totalPaidAmount') %></p>
+                <p class="font-semibold"><%= row.total_paid %></p>
+              </div>
+              <div>
+                <p class="text-slate-500"><%= t('totalRemaining') %></p>
+                <p class="font-semibold"><%= row.total_remaining %></p>
+              </div>
+            </div>
+
+            <div class="mt-4 flex flex-wrap items-center gap-2">
+              <% if (Number(row.total_remaining || 0) > 0) { %>
+                <form id="export-vehicle-credit-pay-<%= row.vehicle_id %>" method="post" action="/records/exports/vehicle-credits/pay" class="flex flex-wrap items-center gap-2">
+                  <input type="hidden" name="vehicle_id" value="<%= row.vehicle_id %>" />
+                  <input type="hidden" name="from" value="<%= from %>" />
+                  <input type="hidden" name="to" value="<%= to %>" />
+                  <input type="hidden" name="q" value="<%= q || '' %>" />
+                  <input type="hidden" name="sort" value="<%= sort %>" />
+                  <input type="hidden" name="trip_vehicle_id" value="<%= selectedTripVehicleId %>" />
+                  <input type="hidden" name="vehicle_credit_from" value="<%= vehicleCreditFromValue %>" />
+                  <input type="hidden" name="vehicle_credit_to" value="<%= vehicleCreditToValue %>" />
+                  <input
+                    class="input h-9 w-32"
+                    type="number"
+                    step="0.01"
+                    min="0.01"
+                    max="<%= row.total_remaining %>"
+                    name="payment_amount"
+                    placeholder="<%= t('paymentAmount') %>"
+                    required
+                  />
+                  <button class="btn-outline" type="submit"><%= t('addPayment') %></button>
+                </form>
+              <% } %>
+              <a class="btn-outline" href="/records/exports/payment-history?from=<%= vehicleCreditFromValue %>&to=<%= vehicleCreditToValue %>&vehicle_id=<%= row.vehicle_id %>"><%= t('paymentHistory') %></a>
+            </div>
+          </div>
+        <% }) %>
+      </div>
+    <% } %>
   </div>
 
   <div class="mt-4 grid gap-3">

@@ -5,10 +5,29 @@
       <h1 class="text-3xl font-semibold"><%= t('workerDashboardTitle') %></h1>
       <p class="mt-2 text-slate-600"><%= t('workerWelcome') %></p>
     </div>
-    <div class="flex items-center gap-4">
-      <img src="/images/jar.svg" alt="jar" class="h-20 w-20" />
-      <img src="/images/bottle.svg" alt="bottle" class="h-20 w-20" />
+    <% const alertSummary = (typeof workerAlerts !== 'undefined' && workerAlerts) ? workerAlerts : { totalAlerts: 0, lowStockCount: 0, pendingCustomerCount: 0, pendingCustomerAmount: 0, pendingVehicleCount: 0, pendingVehicleAmount: 0 } %>
+    <div class="flex items-center gap-3">
+      <a class="btn-outline relative" href="/records/alerts">
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M15 17h5l-1.4-1.4A2 2 0 0 1 18 14.2V11a6 6 0 1 0-12 0v3.2a2 2 0 0 1-.6 1.4L4 17h5m6 0a3 3 0 1 1-6 0m6 0H9"/>
+        </svg>
+        <span class="ml-2"><%= t('alertCenterTitle') %></span>
+        <% if (alertSummary.totalAlerts > 0) { %>
+          <span class="ml-2 badge bg-red-100 text-red-700"><%= alertSummary.totalAlerts %></span>
+        <% } %>
+      </a>
+      <a class="btn-outline" href="/records/history"><%= t('activityLogTitle') %></a>
     </div>
+  </div>
+
+  <div class="mt-4 card p-4">
+    <form class="flex flex-wrap items-end gap-3" method="get" action="/search">
+      <div class="min-w-[220px] flex-1">
+        <label class="label"><%= t('search') %></label>
+        <input class="input" type="text" name="q" placeholder="<%= t('searchGlobal') %>" />
+      </div>
+      <button class="btn-primary" type="submit"><%= t('search') %></button>
+    </form>
   </div>
 
   <div class="mt-6 grid gap-4 md:grid-cols-2">
@@ -63,37 +82,27 @@
       </div>
     </div>
     <div class="card p-6">
-      <div class="flex items-center justify-between">
-        <h2 class="text-lg font-semibold"><%= t('recentActivityTitle') %></h2>
-      </div>
-      <div class="mt-4 overflow-hidden rounded-2xl border border-slate-200">
-        <div class="overflow-x-auto">
-          <table class="table-base text-sm">
-            <thead class="table-head">
-              <tr>
-                <th class="px-4 py-3"><%= t('date') %></th>
-                <th class="px-4 py-3"><%= t('action') %></th>
-                <th class="px-4 py-3"><%= t('entity') %></th>
-                <th class="px-4 py-3"><%= t('details') %></th>
-              </tr>
-            </thead>
-            <tbody>
-              <% if (!recentActivity || recentActivity.length === 0) { %>
-                <tr>
-                  <td class="px-4 py-4 text-slate-500" colspan="4"><%= t('noActivity') %></td>
-                </tr>
-              <% } %>
-              <% recentActivity.forEach((row) => { %>
-                <tr class="table-row">
-                  <td class="px-4 py-3"><%= row.created_at %></td>
-                  <td class="px-4 py-3"><%= row.actionLabel || row.action %></td>
-                  <td class="px-4 py-3"><%= row.entityLabel || row.entity_type %></td>
-                  <td class="px-4 py-3"><%= row.detailLabel || row.details || '-' %></td>
-                </tr>
-              <% }) %>
-            </tbody>
-          </table>
+      <h2 class="text-lg font-semibold"><%= t('workerOpsBoardTitle') %></h2>
+      <p class="mt-1 text-sm text-slate-600"><%= t('workerOpsBoardSubtitle') %></p>
+      <div class="mt-4 space-y-3 text-sm">
+        <div class="card p-4">
+          <p class="text-slate-500"><%= t('workerPendingCustomerCredits') %></p>
+          <p class="text-lg font-semibold"><%= alertSummary.pendingCustomerCount %></p>
+          <p class="text-xs text-slate-500"><%= t('remainingAmount') %>: <%= alertSummary.pendingCustomerAmount %></p>
         </div>
+        <div class="card p-4">
+          <p class="text-slate-500"><%= t('workerPendingVehicleCredits') %></p>
+          <p class="text-lg font-semibold"><%= alertSummary.pendingVehicleCount %></p>
+          <p class="text-xs text-slate-500"><%= t('remainingAmount') %>: <%= alertSummary.pendingVehicleAmount %></p>
+        </div>
+        <div class="card p-4">
+          <p class="text-slate-500"><%= t('lowStockAlerts') %></p>
+          <p class="text-lg font-semibold"><%= alertSummary.lowStockCount %></p>
+        </div>
+      </div>
+      <div class="mt-4 flex flex-wrap gap-2">
+        <a class="btn-outline" href="/records/alerts"><%= t('openAlertCenter') %></a>
+        <a class="btn-outline" href="/records/history"><%= t('openHistory') %></a>
       </div>
     </div>
   </div>
@@ -108,7 +117,7 @@
       <% jarTypes.forEach((type) => { %>
         <div class="card p-4">
           <p class="text-slate-500"><%= type.name %></p>
-          <p class="text-lg font-semibold"><%= type.price %></p>
+          <p class="text-lg font-semibold"><%= t('defaultQuantity') %>: <%= type.default_qty || 0 %></p>
         </div>
       <% }) %>
     </div>

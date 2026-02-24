@@ -6,7 +6,7 @@
   <title><%= title %> | AQUA MSK</title>
   <link rel="stylesheet" href="/css/styles.css?v=<%= assetVersion %>" />
 </head>
-<body class="bg-gradient-to-br from-red-50 via-white to-aqua-100 text-slate-900">
+<body class="text-slate-900">
   <div class="min-h-screen flex items-center justify-center px-4">
     <div class="grid w-full max-w-5xl gap-6 lg:grid-cols-2">
       <div class="card p-8">
@@ -25,15 +25,9 @@
         </div>
         <h1 class="mt-6 text-3xl font-semibold"><%= t('recoveryTitle') %></h1>
         <p class="mt-2 text-sm text-slate-600"><%= t('recoveryLoginSubtitle') %></p>
-        <div class="mt-6 flex items-center gap-4">
-          <picture>
-            <source srcset="/images/jar.webp" type="image/webp" />
-            <img src="/images/jar.svg" alt="jar" class="h-20 w-20 object-contain" />
-          </picture>
-          <picture>
-            <source srcset="/images/bottle.webp" type="image/webp" />
-            <img src="/images/bottle.svg" alt="bottle" class="h-20 w-20 object-contain" />
-          </picture>
+        <div class="mt-6 rounded-2xl border border-slate-200 bg-white/70 p-4 text-sm text-slate-600">
+          <p><%= t('recoveryIntroLine1') %></p>
+          <p class="mt-1"><%= t('recoveryIntroLine2') %></p>
         </div>
         <p class="mt-6 text-xs text-slate-500"><%= t('recoveryOnlySuper') %></p>
       </div>

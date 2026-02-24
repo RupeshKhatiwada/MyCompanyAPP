@@ -8,8 +8,8 @@ const FileStore = require("session-file-store")(session);
 const { db } = require("./db");
 const { attachUser, requireAuth } = require("./middleware/auth");
 const { t } = require("./i18n");
-const { formatActivityRows } = require("./utils/activity");
 const { createBackupFile, pruneOldBackups } = require("./utils/backup");
+const { syncLocalToPostgres, shouldAutoSync } = require("./utils/hybridSync");
 const authRoutes = require("./routes/auth");
 const adminRoutes = require("./routes/admin");
 const recordsRoutes = require("./routes/records");
@@ -48,6 +48,49 @@ const setSetting = (key, value) => {
   } else {
     db.prepare("INSERT INTO settings (key, value) VALUES (?, ?)").run(key, String(value));
   }
+};
+
+const getWorkerAlertSummary = () => {
+  const itemLowThresholdRaw = Number(getSetting("alert_low_stock_items", 10));
+  const itemLowThreshold = Number.isNaN(itemLowThresholdRaw) ? 10 : Math.max(0, Math.floor(itemLowThresholdRaw));
+
+  const pendingCustomerCredits = db.prepare(
+    `SELECT COUNT(*) as count,
+            COALESCE(SUM(CASE WHEN amount - paid_amount < 0 THEN 0 ELSE amount - paid_amount END), 0) as remaining
+     FROM credits
+     WHERE amount - paid_amount > 0`
+  ).get();
+
+  const pendingVehicleCredits = db.prepare(
+    `SELECT COUNT(*) as count,
+            COALESCE(SUM(CASE WHEN exports.credit_amount - exports.paid_amount < 0 THEN 0 ELSE exports.credit_amount - exports.paid_amount END), 0) as remaining
+     FROM exports
+     JOIN vehicles ON vehicles.id = exports.vehicle_id
+     WHERE vehicles.is_company = 0
+       AND exports.credit_amount - exports.paid_amount > 0`
+  ).get();
+
+  const lowStock = db.prepare(
+    `SELECT COUNT(*) as count
+     FROM (
+       SELECT import_entries.item_type
+       FROM import_entries
+       GROUP BY import_entries.item_type
+       HAVING COALESCE(SUM(CASE WHEN import_entries.direction = 'OUT' THEN -import_entries.quantity ELSE import_entries.quantity END), 0) <= ?
+     ) low_stock_rows`
+  ).get(itemLowThreshold);
+
+  return {
+    lowStockCount: Number(lowStock.count || 0),
+    pendingCustomerCount: Number(pendingCustomerCredits.count || 0),
+    pendingCustomerAmount: Number(pendingCustomerCredits.remaining || 0),
+    pendingVehicleCount: Number(pendingVehicleCredits.count || 0),
+    pendingVehicleAmount: Number(pendingVehicleCredits.remaining || 0),
+    totalAlerts:
+      Number(lowStock.count || 0) +
+      Number(pendingCustomerCredits.count || 0) +
+      Number(pendingVehicleCredits.count || 0)
+  };
 };
 
 app.use(express.json({ limit: "1mb" }));
@@ -292,15 +335,8 @@ app.get("/worker", requireAuth, (req, res) => {
   const myVehicleExpenses = db.prepare(
     "SELECT COUNT(*) as count, COALESCE(SUM(amount), 0) as total FROM vehicle_expenses WHERE expense_date = ? AND created_by = ?"
   ).get(today, user.id);
-  const recentActivity = db.prepare(
-    `SELECT action, entity_type, details, created_at
-     FROM activity_logs
-     WHERE user_id = ?
-     ORDER BY created_at DESC
-     LIMIT 5`
-  ).all(user.id);
-  const recentActivityRows = formatActivityRows(recentActivity, req.t);
-  const jarTypes = db.prepare("SELECT name, price FROM jar_types WHERE active = 1 ORDER BY name").all();
+  const workerAlerts = getWorkerAlertSummary();
+  const jarTypes = db.prepare("SELECT name, default_qty FROM jar_types WHERE active = 1 ORDER BY name").all();
   res.render("worker/dashboard", {
     title: req.t("workerDashboardTitle"),
     jarTypes,
@@ -309,30 +345,209 @@ app.get("/worker", requireAuth, (req, res) => {
     myCredits,
     myJarSales,
     myVehicleExpenses,
-    recentActivity: recentActivityRows
+    workerAlerts
   });
 });
 
 app.get("/search", requireAuth, (req, res) => {
-  const q = (req.query.q || "").trim();
+  const q = String(req.query.q || "").trim().slice(0, 120);
   const today = dayjs().format("YYYY-MM-DD");
-  if (!q) {
-    return res.render("search", { title: req.t("searchTitle"), q, vehicles: [], customers: [], today });
-  }
-  const like = `%${q}%`;
-  const vehicles = db.prepare(
-    "SELECT id, vehicle_number, owner_name, phone FROM vehicles WHERE vehicle_number LIKE ? OR owner_name LIKE ? OR phone LIKE ? ORDER BY vehicle_number"
-  ).all(like, like, like);
-  const customers = db.prepare(
-    "SELECT DISTINCT customer_name FROM credits WHERE customer_name LIKE ? ORDER BY customer_name"
-  ).all(like).map((row) => row.customer_name);
-
-  res.render("search", {
+  const basePayload = {
     title: req.t("searchTitle"),
     q,
+    today,
+    vehicles: [],
+    customers: [],
+    people: [],
+    technicians: [],
+    sellers: [],
+    exportRows: [],
+    creditRows: [],
+    jarSaleRows: [],
+    importRows: [],
+    purchaseRows: [],
+    expenseRows: [],
+    totalMatches: 0
+  };
+
+  if (!q) {
+    return res.render("search", basePayload);
+  }
+  const like = `%${q.replace(/\s+/g, "%")}%`;
+
+  const vehicles = db.prepare(
+    `SELECT id, vehicle_number, owner_name, phone, is_company
+     FROM vehicles
+     WHERE vehicle_number LIKE ? OR owner_name LIKE ? OR COALESCE(phone, '') LIKE ?
+     ORDER BY vehicle_number
+     LIMIT 20`
+  ).all(like, like, like);
+
+  const customers = db.prepare(
+    `SELECT customer_name,
+            COUNT(*) as credit_rows,
+            COALESCE(SUM(CASE WHEN amount - paid_amount < 0 THEN 0 ELSE amount - paid_amount END), 0) as remaining
+     FROM credits
+     WHERE customer_name LIKE ?
+     GROUP BY customer_name
+     ORDER BY remaining DESC, customer_name ASC
+     LIMIT 20`
+  ).all(like);
+
+  const staffRows = db.prepare(
+    `SELECT id, full_name, phone, 'STAFF' as role
+     FROM staff
+     WHERE full_name LIKE ? OR COALESCE(phone, '') LIKE ?
+     ORDER BY full_name
+     LIMIT 15`
+  ).all(like, like);
+  const userRows = db.prepare(
+    `SELECT id, full_name, phone, role
+     FROM users
+     WHERE full_name LIKE ? OR username LIKE ? OR COALESCE(phone, '') LIKE ?
+     ORDER BY full_name
+     LIMIT 15`
+  ).all(like, like, like);
+  const people = [...staffRows, ...userRows].slice(0, 25);
+
+  const technicians = db.prepare(
+    `SELECT DISTINCT technician_name, technician_phone, machinery_name
+     FROM company_purchases
+     WHERE COALESCE(technician_name, '') LIKE ?
+        OR COALESCE(technician_phone, '') LIKE ?
+        OR COALESCE(machinery_name, '') LIKE ?
+        OR COALESCE(work_details, '') LIKE ?
+     ORDER BY technician_name ASC
+     LIMIT 20`
+  ).all(like, like, like, like);
+
+  const sellers = db.prepare(
+    `SELECT source, seller_name
+     FROM (
+       SELECT 'imports' as source, seller_name
+       FROM import_entries
+       WHERE COALESCE(seller_name, '') LIKE ?
+       UNION ALL
+       SELECT 'purchases' as source, seller_name
+       FROM company_purchases
+       WHERE COALESCE(seller_name, '') LIKE ?
+     )
+     WHERE TRIM(COALESCE(seller_name, '')) <> ''
+     LIMIT 25`
+  ).all(like, like);
+
+  const exportRows = db.prepare(
+    `SELECT exports.id, exports.export_date, exports.total_amount, exports.credit_amount, exports.paid_amount,
+            vehicles.vehicle_number, vehicles.owner_name
+     FROM exports
+     JOIN vehicles ON vehicles.id = exports.vehicle_id
+     WHERE vehicles.vehicle_number LIKE ?
+        OR vehicles.owner_name LIKE ?
+        OR COALESCE(exports.note, '') LIKE ?
+        OR COALESCE(exports.route, '') LIKE ?
+        OR COALESCE(exports.checked_by_staff_name, '') LIKE ?
+        OR COALESCE(exports.force_wash_staff_name, '') LIKE ?
+     ORDER BY exports.export_date DESC, exports.id DESC
+     LIMIT 15`
+  ).all(like, like, like, like, like, like);
+
+  const creditRows = db.prepare(
+    `SELECT credits.id, credits.credit_date, credits.customer_name, credits.amount, credits.paid_amount,
+            vehicles.vehicle_number, vehicles.owner_name
+     FROM credits
+     JOIN vehicles ON vehicles.id = credits.vehicle_id
+     WHERE credits.customer_name LIKE ?
+        OR vehicles.vehicle_number LIKE ?
+        OR vehicles.owner_name LIKE ?
+     ORDER BY credits.credit_date DESC, credits.id DESC
+     LIMIT 15`
+  ).all(like, like, like);
+
+  const jarSaleRows = db.prepare(
+    `SELECT jar_sales.id, jar_sales.sale_date, jar_sales.customer_name, jar_sales.quantity, jar_sales.total_amount,
+            jar_types.name as jar_name,
+            COALESCE(vehicles.vehicle_number, jar_sales.vehicle_number) as vehicle_number,
+            vehicles.owner_name
+     FROM jar_sales
+     JOIN jar_types ON jar_types.id = jar_sales.jar_type_id
+     LEFT JOIN vehicles ON vehicles.id = jar_sales.vehicle_id
+     WHERE jar_types.name LIKE ?
+        OR COALESCE(jar_sales.customer_name, '') LIKE ?
+        OR COALESCE(jar_sales.vehicle_number, '') LIKE ?
+        OR COALESCE(vehicles.vehicle_number, '') LIKE ?
+        OR COALESCE(vehicles.owner_name, '') LIKE ?
+     ORDER BY jar_sales.sale_date DESC, jar_sales.id DESC
+     LIMIT 15`
+  ).all(like, like, like, like, like);
+
+  const importRows = db.prepare(
+    `SELECT import_entries.id, import_entries.entry_date, import_entries.item_type, import_entries.quantity,
+            import_entries.seller_name, import_entries.total_amount, import_entries.paid_amount,
+            import_item_types.name as item_name
+     FROM import_entries
+     LEFT JOIN import_item_types ON import_item_types.code = import_entries.item_type
+     WHERE import_entries.item_type LIKE ?
+        OR COALESCE(import_item_types.name, '') LIKE ?
+        OR COALESCE(import_entries.seller_name, '') LIKE ?
+        OR COALESCE(import_entries.note, '') LIKE ?
+     ORDER BY import_entries.entry_date DESC, import_entries.id DESC
+     LIMIT 15`
+  ).all(like, like, like, like);
+
+  const purchaseRows = db.prepare(
+    `SELECT id, purchase_date, item_name, seller_name, amount, paid_amount,
+            machinery_name, technician_name, technician_phone
+     FROM company_purchases
+     WHERE item_name LIKE ?
+        OR COALESCE(seller_name, '') LIKE ?
+        OR COALESCE(machinery_name, '') LIKE ?
+        OR COALESCE(technician_name, '') LIKE ?
+        OR COALESCE(technician_phone, '') LIKE ?
+        OR COALESCE(work_details, '') LIKE ?
+     ORDER BY purchase_date DESC, id DESC
+     LIMIT 15`
+  ).all(like, like, like, like, like, like);
+
+  const expenseRows = db.prepare(
+    `SELECT vehicle_expenses.id, vehicle_expenses.expense_date, vehicle_expenses.expense_type, vehicle_expenses.amount,
+            vehicles.vehicle_number, vehicles.owner_name
+     FROM vehicle_expenses
+     JOIN vehicles ON vehicles.id = vehicle_expenses.vehicle_id
+     WHERE vehicles.vehicle_number LIKE ?
+        OR vehicles.owner_name LIKE ?
+        OR vehicle_expenses.expense_type LIKE ?
+        OR COALESCE(vehicle_expenses.note, '') LIKE ?
+     ORDER BY vehicle_expenses.expense_date DESC, vehicle_expenses.id DESC
+     LIMIT 15`
+  ).all(like, like, like, like);
+
+  const totalMatches =
+    vehicles.length +
+    customers.length +
+    people.length +
+    technicians.length +
+    sellers.length +
+    exportRows.length +
+    creditRows.length +
+    jarSaleRows.length +
+    importRows.length +
+    purchaseRows.length +
+    expenseRows.length;
+
+  res.render("search", {
+    ...basePayload,
     vehicles,
     customers,
-    today
+    people,
+    technicians,
+    sellers,
+    exportRows,
+    creditRows,
+    jarSaleRows,
+    importRows,
+    purchaseRows,
+    expenseRows,
+    totalMatches
   });
 });
 
@@ -375,8 +590,33 @@ const runAutoBackupIfDue = () => {
   }
 };
 
+let hybridSyncBusy = false;
+const runAutoHybridSyncIfDue = async () => {
+  if (hybridSyncBusy) return;
+  if (!shouldAutoSync(db)) return;
+  hybridSyncBusy = true;
+  try {
+    const result = await syncLocalToPostgres({ db, reason: "auto" });
+    db.prepare(
+      "INSERT INTO activity_logs (user_id, action, entity_type, entity_id, details) VALUES (?, ?, ?, ?, ?)"
+    ).run(null, "sync", "hybrid", result.siteId, `rows=${result.syncedRows}, duration_ms=${result.durationMs}`);
+  } catch (err) {
+    db.prepare(
+      "INSERT INTO activity_logs (user_id, action, entity_type, entity_id, details) VALUES (?, ?, ?, ?, ?)"
+    ).run(null, "sync_failed", "hybrid", "auto", (err && err.message) ? err.message : "auto_sync_failed");
+  } finally {
+    hybridSyncBusy = false;
+  }
+};
+
 setTimeout(runAutoBackupIfDue, 2500);
 setInterval(runAutoBackupIfDue, 5 * 60 * 1000);
+setTimeout(() => {
+  runAutoHybridSyncIfDue();
+}, 6000);
+setInterval(() => {
+  runAutoHybridSyncIfDue();
+}, 60 * 1000);
 
 app.listen(PORT, () => {
   console.log(`AQUA MSK app running on http://localhost:${PORT}`);

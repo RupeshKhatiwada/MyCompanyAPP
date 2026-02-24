@@ -243,6 +243,21 @@ CREATE TABLE IF NOT EXISTS jar_sales (
 CREATE INDEX IF NOT EXISTS idx_jar_sales_date ON jar_sales(sale_date);
 CREATE INDEX IF NOT EXISTS idx_jar_sales_type ON jar_sales(jar_type_id);
 
+CREATE TABLE IF NOT EXISTS jar_sale_payments (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  jar_sale_id INTEGER NOT NULL,
+  payment_date TEXT NOT NULL,
+  amount REAL NOT NULL DEFAULT 0,
+  note TEXT,
+  created_by INTEGER,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  FOREIGN KEY (jar_sale_id) REFERENCES jar_sales(id) ON DELETE CASCADE,
+  FOREIGN KEY (created_by) REFERENCES users(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_jar_sale_payments_sale ON jar_sale_payments(jar_sale_id);
+CREATE INDEX IF NOT EXISTS idx_jar_sale_payments_date ON jar_sale_payments(payment_date);
+
 CREATE TABLE IF NOT EXISTS import_item_types (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   code TEXT UNIQUE NOT NULL,
@@ -336,6 +351,8 @@ CREATE TABLE IF NOT EXISTS vehicle_expenses (
   expense_date TEXT NOT NULL,
   expense_type TEXT NOT NULL CHECK (expense_type IN ('FUEL','REPAIR','SERVICE','OTHER')),
   amount REAL NOT NULL DEFAULT 0,
+  paid_amount REAL NOT NULL DEFAULT 0,
+  is_credit INTEGER NOT NULL DEFAULT 0,
   note TEXT,
   created_by INTEGER,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
@@ -347,6 +364,21 @@ CREATE TABLE IF NOT EXISTS vehicle_expenses (
 CREATE INDEX IF NOT EXISTS idx_vehicle_expenses_date ON vehicle_expenses(expense_date);
 CREATE INDEX IF NOT EXISTS idx_vehicle_expenses_vehicle ON vehicle_expenses(vehicle_id);
 CREATE INDEX IF NOT EXISTS idx_vehicle_expenses_type ON vehicle_expenses(expense_type);
+
+CREATE TABLE IF NOT EXISTS vehicle_expense_payments (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  vehicle_expense_id INTEGER NOT NULL,
+  payment_date TEXT NOT NULL,
+  amount REAL NOT NULL DEFAULT 0,
+  note TEXT,
+  created_by INTEGER,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  FOREIGN KEY (vehicle_expense_id) REFERENCES vehicle_expenses(id) ON DELETE CASCADE,
+  FOREIGN KEY (created_by) REFERENCES users(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_vehicle_expense_payments_entry ON vehicle_expense_payments(vehicle_expense_id);
+CREATE INDEX IF NOT EXISTS idx_vehicle_expense_payments_date ON vehicle_expense_payments(payment_date);
 
 CREATE TABLE IF NOT EXISTS water_test_reports (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -686,6 +718,8 @@ if (vehicleExpenseTable && vehicleExpenseTable.sql && !vehicleExpenseTable.sql.i
       expense_date TEXT NOT NULL,
       expense_type TEXT NOT NULL CHECK (expense_type IN ('FUEL','REPAIR','SERVICE','OTHER')),
       amount REAL NOT NULL DEFAULT 0,
+      paid_amount REAL NOT NULL DEFAULT 0,
+      is_credit INTEGER NOT NULL DEFAULT 0,
       note TEXT,
       created_by INTEGER,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
@@ -693,8 +727,8 @@ if (vehicleExpenseTable && vehicleExpenseTable.sql && !vehicleExpenseTable.sql.i
       FOREIGN KEY (vehicle_id) REFERENCES vehicles(id) ON DELETE CASCADE,
       FOREIGN KEY (created_by) REFERENCES users(id)
     );
-    INSERT INTO vehicle_expenses (id, vehicle_id, expense_date, expense_type, amount, note, created_by, created_at, updated_at)
-    SELECT id, vehicle_id, expense_date, expense_type, amount, note, created_by, created_at, updated_at
+    INSERT INTO vehicle_expenses (id, vehicle_id, expense_date, expense_type, amount, paid_amount, is_credit, note, created_by, created_at, updated_at)
+    SELECT id, vehicle_id, expense_date, expense_type, amount, amount, 0, note, created_by, created_at, updated_at
     FROM vehicle_expenses_old;
     DROP TABLE vehicle_expenses_old;
     COMMIT;
@@ -704,6 +738,33 @@ if (vehicleExpenseTable && vehicleExpenseTable.sql && !vehicleExpenseTable.sql.i
   db.exec("CREATE INDEX IF NOT EXISTS idx_vehicle_expenses_vehicle ON vehicle_expenses(vehicle_id);");
   db.exec("CREATE INDEX IF NOT EXISTS idx_vehicle_expenses_type ON vehicle_expenses(expense_type);");
 }
+
+const vehicleExpenseColumns = new Set(
+  db.prepare("PRAGMA table_info(vehicle_expenses)").all().map((col) => col.name)
+);
+if (!vehicleExpenseColumns.has("paid_amount")) {
+  db.exec("ALTER TABLE vehicle_expenses ADD COLUMN paid_amount REAL NOT NULL DEFAULT 0;");
+  db.exec("UPDATE vehicle_expenses SET paid_amount = amount WHERE paid_amount IS NULL OR paid_amount = 0;");
+}
+if (!vehicleExpenseColumns.has("is_credit")) {
+  db.exec("ALTER TABLE vehicle_expenses ADD COLUMN is_credit INTEGER NOT NULL DEFAULT 0;");
+}
+
+db.exec(
+  `CREATE TABLE IF NOT EXISTS vehicle_expense_payments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    vehicle_expense_id INTEGER NOT NULL,
+    payment_date TEXT NOT NULL,
+    amount REAL NOT NULL DEFAULT 0,
+    note TEXT,
+    created_by INTEGER,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (vehicle_expense_id) REFERENCES vehicle_expenses(id) ON DELETE CASCADE,
+    FOREIGN KEY (created_by) REFERENCES users(id)
+  )`
+);
+db.exec("CREATE INDEX IF NOT EXISTS idx_vehicle_expense_payments_entry ON vehicle_expense_payments(vehicle_expense_id);");
+db.exec("CREATE INDEX IF NOT EXISTS idx_vehicle_expense_payments_date ON vehicle_expense_payments(payment_date);");
 
 const jarTypeColumns = new Set(
   db.prepare("PRAGMA table_info(jar_types)").all().map((col) => col.name)
@@ -1121,6 +1182,142 @@ db.exec(
   `UPDATE company_purchases
    SET is_credit = CASE
      WHEN amount - paid_amount > 0 THEN 1
+     ELSE 0
+   END`
+);
+
+db.exec(
+  `UPDATE vehicle_expenses
+   SET paid_amount = CASE
+     WHEN paid_amount < 0 THEN 0
+     WHEN paid_amount > amount THEN amount
+     ELSE paid_amount
+   END`
+);
+db.exec(
+  `UPDATE vehicle_expenses
+   SET is_credit = CASE
+     WHEN amount - paid_amount > 0 THEN 1
+     ELSE 0
+   END`
+);
+
+const vehicleExpensePaymentCount = db.prepare("SELECT COUNT(*) as count FROM vehicle_expense_payments").get().count;
+if (vehicleExpensePaymentCount === 0) {
+  const existingVehicleExpensePayments = db.prepare(
+    `SELECT id, paid_amount, expense_date, created_by
+     FROM vehicle_expenses
+     WHERE paid_amount > 0`
+  ).all();
+  const insertVehicleExpensePayment = db.prepare(
+    `INSERT INTO vehicle_expense_payments (vehicle_expense_id, payment_date, amount, note, created_by)
+     VALUES (?, ?, ?, ?, ?)`
+  );
+  existingVehicleExpensePayments.forEach((row) => {
+    insertVehicleExpensePayment.run(
+      row.id,
+      row.expense_date || new Date().toISOString().slice(0, 10),
+      Number(row.paid_amount || 0),
+      "Opening payment",
+      row.created_by || null
+    );
+  });
+}
+db.exec(
+  `INSERT INTO vehicle_expense_payments (vehicle_expense_id, payment_date, amount, note, created_by)
+   SELECT vehicle_expenses.id,
+          COALESCE(NULLIF(vehicle_expenses.expense_date, ''), date('now')),
+          vehicle_expenses.paid_amount,
+          'Opening payment',
+          vehicle_expenses.created_by
+   FROM vehicle_expenses
+   WHERE vehicle_expenses.paid_amount > 0
+     AND NOT EXISTS (
+       SELECT 1
+       FROM vehicle_expense_payments
+       WHERE vehicle_expense_payments.vehicle_expense_id = vehicle_expenses.id
+     )`
+);
+db.exec(
+  `UPDATE vehicle_expenses
+   SET paid_amount = COALESCE((
+     SELECT SUM(vehicle_expense_payments.amount)
+     FROM vehicle_expense_payments
+     WHERE vehicle_expense_payments.vehicle_expense_id = vehicle_expenses.id
+   ), 0)`
+);
+db.exec(
+  `UPDATE vehicle_expenses
+   SET is_credit = CASE
+     WHEN amount - paid_amount > 0 THEN 1
+     ELSE 0
+   END`
+);
+
+db.exec(
+  `UPDATE jar_sales
+   SET paid_amount = CASE
+     WHEN paid_amount < 0 THEN 0
+     WHEN paid_amount > total_amount THEN total_amount
+     ELSE paid_amount
+   END`
+);
+db.exec(
+  `UPDATE jar_sales
+   SET credit_amount = CASE
+     WHEN total_amount - paid_amount > 0 THEN total_amount - paid_amount
+     ELSE 0
+   END`
+);
+
+const jarSalePaymentCount = db.prepare("SELECT COUNT(*) as count FROM jar_sale_payments").get().count;
+if (jarSalePaymentCount === 0) {
+  const existingJarSalePayments = db.prepare(
+    `SELECT id, paid_amount, sale_date, created_by
+     FROM jar_sales
+     WHERE paid_amount > 0`
+  ).all();
+  const insertJarSalePayment = db.prepare(
+    `INSERT INTO jar_sale_payments (jar_sale_id, payment_date, amount, note, created_by)
+     VALUES (?, ?, ?, ?, ?)`
+  );
+  existingJarSalePayments.forEach((row) => {
+    insertJarSalePayment.run(
+      row.id,
+      row.sale_date || new Date().toISOString().slice(0, 10),
+      Number(row.paid_amount || 0),
+      "Opening payment",
+      row.created_by || null
+    );
+  });
+}
+db.exec(
+  `INSERT INTO jar_sale_payments (jar_sale_id, payment_date, amount, note, created_by)
+   SELECT jar_sales.id,
+          COALESCE(NULLIF(jar_sales.sale_date, ''), date('now')),
+          jar_sales.paid_amount,
+          'Opening payment',
+          jar_sales.created_by
+   FROM jar_sales
+   WHERE jar_sales.paid_amount > 0
+     AND NOT EXISTS (
+       SELECT 1
+       FROM jar_sale_payments
+       WHERE jar_sale_payments.jar_sale_id = jar_sales.id
+     )`
+);
+db.exec(
+  `UPDATE jar_sales
+   SET paid_amount = COALESCE((
+     SELECT SUM(jar_sale_payments.amount)
+     FROM jar_sale_payments
+     WHERE jar_sale_payments.jar_sale_id = jar_sales.id
+   ), 0)`
+);
+db.exec(
+  `UPDATE jar_sales
+   SET credit_amount = CASE
+     WHEN total_amount - paid_amount > 0 THEN total_amount - paid_amount
      ELSE 0
    END`
 );

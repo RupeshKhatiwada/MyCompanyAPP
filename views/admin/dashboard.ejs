@@ -5,16 +5,20 @@
       <h1 class="text-3xl font-semibold"><%= t('adminDashboard') %></h1>
       <p class="mt-2 text-slate-600"><%= t('welcomeLine') %></p>
     </div>
-    <div class="flex items-center gap-4">
-      <picture>
-        <source srcset="/images/jar.webp" type="image/webp" />
-        <img src="/images/jar.svg" alt="jar" class="h-20 w-20 object-contain drop-shadow" />
-      </picture>
-      <picture>
-        <source srcset="/images/bottle.webp" type="image/webp" />
-        <img src="/images/bottle.svg" alt="bottle" class="h-20 w-20 object-contain drop-shadow" />
-      </picture>
+    <div class="flex items-center gap-2">
+      <a class="btn-outline" href="/admin/alerts"><%= t('alertCenterTitle') %></a>
+      <a class="btn-outline" href="/records/history"><%= t('activityLogTitle') %></a>
     </div>
+  </div>
+
+  <div class="mt-4 card p-4">
+    <form class="flex flex-wrap items-end gap-3" method="get" action="/search">
+      <div class="min-w-[220px] flex-1">
+        <label class="label"><%= t('search') %></label>
+        <input class="input" type="text" name="q" placeholder="<%= t('searchGlobal') %>" />
+      </div>
+      <button class="btn-primary" type="submit"><%= t('search') %></button>
+    </form>
   </div>
 
   <% if (stats.backupOverdue) { %>
@@ -32,54 +36,45 @@
     </div>
   <% } %>
 
-  <% const alertSummary = typeof alerts !== 'undefined' ? alerts : { backupWarnings: 0, lowStockItems: 0, overdueCredits: 0, unpaidSalaryPeople: 0 }; %>
-  <div class="mt-6 card p-5">
-    <div class="flex flex-wrap items-center justify-between gap-3">
-      <div>
-        <p class="text-sm font-semibold"><%= t('alertCenterTitle') %></p>
-        <p class="text-sm text-slate-600"><%= t('alertCenterSubtitle') %></p>
-      </div>
-      <a class="btn-outline" href="/admin/alerts"><%= t('openAlertCenter') %></a>
+  <div class="mt-6 grid gap-4 md:grid-cols-2 lg:grid-cols-5">
+    <div class="card border border-red-200/70 bg-gradient-to-br from-white via-red-50 to-white p-5">
+      <p class="text-xs font-semibold uppercase tracking-wide text-red-700"><%= t('totalVehicles') %></p>
+      <p class="mt-2 text-3xl font-semibold text-slate-900"><%= stats.vehicleCount %></p>
     </div>
-    <div class="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4 text-sm">
-      <div class="card p-3">
-        <p class="text-slate-500"><%= t('backupWarnings') %></p>
-        <p class="text-lg font-semibold"><%= alertSummary.backupWarnings %></p>
-      </div>
-      <div class="card p-3">
-        <p class="text-slate-500"><%= t('lowStockAlerts') %></p>
-        <p class="text-lg font-semibold"><%= alertSummary.lowStockItems %></p>
-      </div>
-      <div class="card p-3">
-        <p class="text-slate-500"><%= t('overdueCreditAlerts') %></p>
-        <p class="text-lg font-semibold"><%= alertSummary.overdueCredits %></p>
-      </div>
-      <div class="card p-3">
-        <p class="text-slate-500"><%= t('unpaidSalaryAlerts') %></p>
-        <p class="text-lg font-semibold"><%= alertSummary.unpaidSalaryPeople %></p>
-      </div>
+    <div class="card border border-red-200/70 bg-gradient-to-br from-white via-red-50 to-white p-5">
+      <p class="text-xs font-semibold uppercase tracking-wide text-red-700"><%= t('totalWorkers') %></p>
+      <p class="mt-2 text-3xl font-semibold text-slate-900"><%= stats.workerCount %></p>
     </div>
-  </div>
-
-  <div class="mt-6 grid gap-4 md:grid-cols-2">
-    <div class="stat-card">
-      <p class="text-sm text-slate-500"><%= t('totalVehicles') %></p>
-      <p class="text-2xl font-semibold"><%= stats.vehicleCount %></p>
+    <div class="card border border-red-200/70 bg-gradient-to-br from-white via-red-50 to-white p-5">
+      <p class="text-xs font-semibold uppercase tracking-wide text-red-700"><%= t('totalStaffs') %></p>
+      <p class="mt-2 text-3xl font-semibold text-slate-900"><%= stats.staffCount %></p>
     </div>
-    <div class="stat-card">
-      <p class="text-sm text-slate-500"><%= t('totalWorkers') %></p>
-      <p class="text-2xl font-semibold"><%= stats.workerCount %></p>
+    <div class="card border border-emerald-200/80 bg-gradient-to-br from-white via-emerald-50 to-white p-5">
+      <p class="text-xs font-semibold uppercase tracking-wide text-emerald-700"><%= t('monthPaid') %></p>
+      <p class="mt-2 text-3xl font-semibold text-slate-900"><%= stats.monthCombined.paid %></p>
+      <p class="mt-2 text-xs text-slate-600">
+        <%= t('exportsTitle') %>: <span class="font-semibold"><%= stats.monthExport.paid %></span> •
+        <%= t('customerPayments') %>: <span class="font-semibold"><%= stats.monthCustomer.paid %></span>
+      </p>
+    </div>
+    <div class="card border border-amber-200/80 bg-gradient-to-br from-white via-amber-50 to-white p-5">
+      <p class="text-xs font-semibold uppercase tracking-wide text-amber-700"><%= t('monthCredit') %></p>
+      <p class="mt-2 text-3xl font-semibold text-slate-900"><%= stats.monthCombined.credit %></p>
+      <p class="mt-2 text-xs text-slate-600">
+        <%= t('exportsOutstanding') %>: <span class="font-semibold"><%= stats.monthExport.credit %></span> •
+        <%= t('customerOutstanding') %>: <span class="font-semibold"><%= stats.monthCustomer.credit %></span>
+      </p>
     </div>
   </div>
 
   <div class="mt-4 grid gap-4 md:grid-cols-2">
-    <div class="stat-card">
-      <p class="text-sm text-slate-500"><%= t('monthPaid') %></p>
-      <p class="text-2xl font-semibold"><%= stats.monthExport.paid %></p>
+    <div class="card p-5">
+      <p class="text-sm text-slate-500"><%= t('customerCumulativeCreditsTitle') %></p>
+      <p class="mt-2 text-2xl font-semibold text-amber-700"><%= stats.outstandingCustomerCredit %></p>
     </div>
-    <div class="stat-card">
-      <p class="text-sm text-slate-500"><%= t('monthCredit') %></p>
-      <p class="text-2xl font-semibold"><%= stats.monthExport.credit %></p>
+    <div class="card p-5">
+      <p class="text-sm text-slate-500"><%= t('vehicleCumulativeCreditsTitle') %></p>
+      <p class="mt-2 text-2xl font-semibold text-amber-700"><%= stats.outstandingVehicleCredit %></p>
     </div>
   </div>
 

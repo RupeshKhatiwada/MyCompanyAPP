@@ -1,23 +1,29 @@
 <%- include('../partials/shell-start', { title }) %>
 <section class="py-8">
+  <% const customerCreditFromValue = typeof customerCreditFrom !== 'undefined' ? customerCreditFrom : from; %>
+  <% const customerCreditToValue = typeof customerCreditTo !== 'undefined' ? customerCreditTo : to; %>
+  <% const safeCustomerCumulativeSummary = typeof customerCumulativeSummary !== 'undefined' ? customerCumulativeSummary : { customer_count: 0, total_amount: 0, total_paid: 0, total_remaining: 0 }; %>
+  <% const safeCustomerCumulativeAllTime = typeof customerCumulativeAllTime !== 'undefined' ? Number(customerCumulativeAllTime || 0) : 0; %>
   <div class="flex flex-wrap items-center justify-between gap-3">
     <div>
       <h1 class="text-3xl font-semibold"><%= t('creditsTitle') %></h1>
       <p class="text-slate-600"><%= t('creditsSubtitle') %></p>
     </div>
     <div class="flex flex-wrap gap-2">
-      <a class="btn-outline" href="/records/credits/export?from=<%= from %>&to=<%= to %>&status=<%= status %>&q=<%= encodeURIComponent(q || '') %>&sort=<%= sort %>"><%= t('exportCsv') %></a>
+      <a class="btn-outline" href="/records/credits/export?from=<%= from %>&to=<%= to %>&status=<%= status %>&q=<%= encodeURIComponent(q || '') %>&sort=<%= sort %>&customer_credit_from=<%= customerCreditFromValue %>&customer_credit_to=<%= customerCreditToValue %>"><%= t('exportCsv') %></a>
       <a class="btn-primary" href="/records/credits/new"><%= t('addCreditTitle') %></a>
     </div>
   </div>
 
   <div class="mt-4 flex flex-wrap gap-2 text-sm">
-    <a class="btn-outline" href="/records/credits?from=<%= today %>&to=<%= today %>&status=<%= status %>"><%= t('presetToday') %></a>
-    <a class="btn-outline" href="/records/credits?from=<%= monthStart %>&to=<%= today %>&status=<%= status %>"><%= t('presetThisMonth') %></a>
-    <a class="btn-outline" href="/records/credits?from=<%= yearStart %>&to=<%= today %>&status=<%= status %>"><%= t('presetThisYear') %></a>
+    <a class="btn-outline" href="/records/credits?from=<%= today %>&to=<%= today %>&status=<%= status %>&customer_credit_from=<%= customerCreditFromValue %>&customer_credit_to=<%= customerCreditToValue %>"><%= t('presetToday') %></a>
+    <a class="btn-outline" href="/records/credits?from=<%= monthStart %>&to=<%= today %>&status=<%= status %>&customer_credit_from=<%= customerCreditFromValue %>&customer_credit_to=<%= customerCreditToValue %>"><%= t('presetThisMonth') %></a>
+    <a class="btn-outline" href="/records/credits?from=<%= yearStart %>&to=<%= today %>&status=<%= status %>&customer_credit_from=<%= customerCreditFromValue %>&customer_credit_to=<%= customerCreditToValue %>"><%= t('presetThisYear') %></a>
   </div>
 
   <form class="mt-4 flex flex-wrap items-end gap-3" method="get" action="/records/credits">
+    <input type="hidden" name="customer_credit_from" value="<%= customerCreditFromValue %>" />
+    <input type="hidden" name="customer_credit_to" value="<%= customerCreditToValue %>" />
     <div>
       <label class="label"><%= t('from') %></label>
       <input class="input" type="date" name="from" value="<%= from %>" />
@@ -79,7 +85,7 @@
             <th class="px-4 py-3"><%= t('credits') %></th>
             <th class="px-4 py-3"><%= t('status') %></th>
             <th class="px-4 py-3"><%= t('recordedBy') %></th>
-            <th class="px-4 py-3 text-right"><%= t('actions') %></th>
+            <th class="table-action-sticky px-4 py-3 text-right"><%= t('actions') %></th>
           </tr>
         </thead>
         <tbody>
@@ -110,7 +116,7 @@
                 <span class="badge <%= statusClass %>"><%= statusLabel %></span>
               </td>
               <td class="px-4 py-3"><%= record.recorded_by || '-' %></td>
-              <td class="px-4 py-3 text-right">
+              <td class="table-action-sticky px-4 py-3 text-right">
                 <details class="action-menu">
                   <summary class="btn-outline h-9 w-9 flex items-center justify-center">⋯</summary>
                   <div class="action-menu-panel">
@@ -141,6 +147,36 @@
         <h2 class="text-lg font-semibold"><%= t('customerCumulativeCreditsTitle') %></h2>
         <p class="text-sm text-slate-600"><%= t('customerCumulativeCreditsSubtitle') %></p>
       </div>
+      <form class="flex flex-wrap items-end gap-2" method="get" action="/records/credits">
+        <input type="hidden" name="from" value="<%= from %>" />
+        <input type="hidden" name="to" value="<%= to %>" />
+        <input type="hidden" name="status" value="<%= status %>" />
+        <input type="hidden" name="q" value="<%= q || '' %>" />
+        <input type="hidden" name="sort" value="<%= sort %>" />
+        <div>
+          <label class="label"><%= t('from') %></label>
+          <input class="input" type="date" name="customer_credit_from" value="<%= customerCreditFromValue %>" />
+        </div>
+        <div>
+          <label class="label"><%= t('to') %></label>
+          <input class="input" type="date" name="customer_credit_to" value="<%= customerCreditToValue %>" />
+        </div>
+        <button class="btn-outline" type="submit"><%= t('filter') %></button>
+      </form>
+    </div>
+    <div class="mt-4 grid gap-3 sm:grid-cols-3">
+      <div class="card p-4">
+        <p class="text-slate-500"><%= t('totalRemaining') %> (<%= t('selectedRange') %>)</p>
+        <p class="text-lg font-semibold"><%= safeCustomerCumulativeSummary.total_remaining %></p>
+      </div>
+      <div class="card p-4">
+        <p class="text-slate-500"><%= t('allTimeTotalCredits') %></p>
+        <p class="text-lg font-semibold"><%= safeCustomerCumulativeAllTime %></p>
+      </div>
+      <div class="card p-4">
+        <p class="text-slate-500"><%= t('customerCount') %></p>
+        <p class="text-lg font-semibold"><%= safeCustomerCumulativeSummary.customer_count %></p>
+      </div>
     </div>
     <div class="mt-4 overflow-x-auto">
       <table class="table-base">
@@ -153,7 +189,7 @@
             <th class="px-4 py-3"><%= t('totalRemaining') %></th>
             <th class="px-4 py-3"><%= t('lastCreditDate') %></th>
             <th class="px-4 py-3"><%= t('paymentAmount') %></th>
-            <th class="px-4 py-3 text-right"><%= t('actions') %></th>
+            <th class="table-action-sticky px-4 py-3 text-right"><%= t('actions') %></th>
           </tr>
         </thead>
         <tbody>
@@ -172,12 +208,12 @@
               <td class="px-4 py-3"><%= row.last_credit_date || '-' %></td>
               <td class="px-4 py-3">
                 <% if ((row.customer_name || '').trim() && Number(row.total_remaining || 0) > 0) { %>
-                  <input form="customer-pay-<%= idx %>" class="input h-9 w-28" type="number" step="0.01" min="0.01" max="<%= row.total_remaining %>" name="payment_amount" value="<%= row.total_remaining %>" />
+                  <input form="customer-pay-<%= idx %>" class="input h-9 w-28" type="number" step="0.01" min="0.01" max="<%= row.total_remaining %>" name="payment_amount" placeholder="<%= t('paymentAmount') %>" required />
                 <% } else { %>
                   -
                 <% } %>
               </td>
-              <td class="px-4 py-3 text-right">
+              <td class="table-action-sticky px-4 py-3 text-right">
                 <% if ((row.customer_name || '').trim() && Number(row.total_remaining || 0) > 0) { %>
                   <form id="customer-pay-<%= idx %>" method="post" action="/records/credits/pay/customer-total" class="inline">
                     <input type="hidden" name="customer_name" value="<%= row.customer_name %>" />
@@ -186,6 +222,8 @@
                     <input type="hidden" name="status" value="<%= status %>" />
                     <input type="hidden" name="q" value="<%= q || '' %>" />
                     <input type="hidden" name="sort" value="<%= sort %>" />
+                    <input type="hidden" name="customer_credit_from" value="<%= customerCreditFromValue %>" />
+                    <input type="hidden" name="customer_credit_to" value="<%= customerCreditToValue %>" />
                     <button class="btn-outline" type="submit"><%= t('addPayment') %></button>
                   </form>
                 <% } else { %>

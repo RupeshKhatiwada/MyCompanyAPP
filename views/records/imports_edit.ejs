@@ -8,12 +8,16 @@
   <% const safePaymentTotals = typeof paymentTotals !== 'undefined' ? paymentTotals : { paid: 0 }; %>
   <% const safeDueAmount = typeof dueAmount !== 'undefined' ? dueAmount : Math.max(0, Number(safeEntry.total_amount || 0) - Number(safePaymentTotals.paid || 0)); %>
   <% const safeItemMetaByCode = typeof itemMetaByCode !== 'undefined' ? itemMetaByCode : {}; %>
-  <div class="flex flex-wrap items-center justify-between gap-3">
+  <div class="page-header flex flex-wrap items-start justify-between gap-4">
     <div>
       <h1 class="text-3xl font-semibold"><%= t('editImportEntryTitle') %></h1>
       <p class="text-slate-600"><%= t('importsSubtitle') %></p>
     </div>
-    <a class="btn-outline" href="/records/imports"><%= t('back') %></a>
+    <div class="flex flex-wrap gap-2">
+      <a class="btn-outline" href="#payment-form"><%= t('addPayment') %></a>
+      <a class="btn-outline" href="#payment-history"><%= t('paymentHistory') %></a>
+      <a class="btn-outline" href="/records/imports?from=<%= from %>&to=<%= to %>"><%= t('back') %></a>
+    </div>
   </div>
   <% if (error) { %>
     <div class="mt-4 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700"><%= error %></div>
@@ -21,6 +25,24 @@
   <% if (success) { %>
     <div class="mt-4 rounded-lg bg-emerald-50 px-4 py-3 text-sm text-emerald-700"><%= success %></div>
   <% } %>
+
+  <div class="mt-6 grid gap-3 sm:grid-cols-3">
+    <div class="card p-4">
+      <p class="text-slate-500"><%= t('totalAmount') %></p>
+      <p class="text-lg font-semibold"><%= Number(safeEntry.total_amount || 0) %></p>
+    </div>
+    <div class="card p-4">
+      <p class="text-slate-500"><%= t('paidAmount') %></p>
+      <p class="text-lg font-semibold"><%= safePaymentTotals.paid %></p>
+    </div>
+    <div class="card p-4">
+      <p class="text-slate-500"><%= t('remaining') %></p>
+      <div class="flex items-center gap-2">
+        <p class="text-lg font-semibold"><%= safeDueAmount %></p>
+        <span class="badge <%= safeDueAmount <= 0 ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-800' %>"><%= safeDueAmount <= 0 ? t('paid') : t('unpaid') %></span>
+      </div>
+    </div>
+  </div>
 
   <div class="mt-6 card p-6">
     <form class="mt-4 grid gap-3 sm:grid-cols-6" method="post" action="/records/imports/<%= safeEntry.id %>">
@@ -97,7 +119,7 @@
     </form>
   </div>
 
-  <div class="mt-6 card p-6">
+  <div id="payment-form" class="mt-6 card p-6">
     <h2 class="text-lg font-semibold"><%= t('addPayment') %></h2>
     <form class="mt-4 grid gap-3 sm:grid-cols-4" method="post" action="/records/imports/<%= safeEntry.id %>/payments">
       <div>
@@ -118,7 +140,7 @@
     </form>
   </div>
 
-  <div class="mt-6 card p-6">
+  <div id="payment-history" class="mt-6 card p-6">
     <h2 class="text-lg font-semibold"><%= t('paymentHistory') %></h2>
     <div class="mt-4 overflow-x-auto">
       <table class="table-base text-sm">

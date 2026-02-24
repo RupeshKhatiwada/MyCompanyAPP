@@ -1,0 +1,94 @@
+<%- include('../partials/shell-start', { title }) %>
+<section class="py-8">
+  <div class="flex flex-wrap items-center justify-between gap-3">
+    <div>
+      <h1 class="text-3xl font-semibold"><%= t('vehicleExpensePaymentsTitle') %></h1>
+      <p class="text-slate-600"><%= t('vehicleExpensePaymentsSubtitle') %></p>
+    </div>
+    <a class="btn-outline" href="/records/vehicle-expenses?from=<%= record.expense_date %>&to=<%= record.expense_date %>&vehicle_id=<%= record.vehicle_id %>"><%= t('back') %></a>
+  </div>
+
+  <% if (error) { %>
+    <div class="mt-4 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700"><%= error %></div>
+  <% } %>
+  <% if (success) { %>
+    <div class="mt-4 rounded-lg bg-emerald-50 px-4 py-3 text-sm text-emerald-700"><%= success %></div>
+  <% } %>
+
+  <div class="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+    <div class="card p-4">
+      <p class="text-slate-500"><%= t('vehicle') %></p>
+      <p class="text-lg font-semibold"><%= `${record.vehicle_number} • ${record.owner_name}` %></p>
+    </div>
+    <div class="card p-4">
+      <p class="text-slate-500"><%= t('totalAmount') %></p>
+      <p class="text-lg font-semibold"><%= record.amount %></p>
+    </div>
+    <div class="card p-4">
+      <p class="text-slate-500"><%= t('paidAmount') %></p>
+      <p class="text-lg font-semibold"><%= record.paid_amount %></p>
+    </div>
+    <div class="card p-4">
+      <p class="text-slate-500"><%= t('remainingAmount') %></p>
+      <p class="text-lg font-semibold"><%= dueAmount %></p>
+    </div>
+  </div>
+
+  <div class="mt-6 card p-6">
+    <h2 class="text-lg font-semibold"><%= t('addPayment') %></h2>
+    <form class="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4" method="post" action="/records/vehicle-expenses/<%= record.id %>/payments">
+      <div>
+        <label class="label"><%= t('date') %></label>
+        <input class="input" type="date" name="payment_date" value="<%= record.expense_date %>" required />
+      </div>
+      <div>
+        <label class="label"><%= t('amount') %></label>
+        <input class="input" type="number" name="amount" min="0.01" max="<%= dueAmount %>" step="0.01" value="<%= dueAmount %>" required />
+      </div>
+      <div class="lg:col-span-2">
+        <label class="label"><%= t('note') %></label>
+        <input class="input" type="text" name="note" />
+      </div>
+      <div class="sm:col-span-2 lg:col-span-4">
+        <button class="btn-primary" type="submit"><%= t('savePayment') %></button>
+      </div>
+    </form>
+  </div>
+
+  <div class="mt-6 card overflow-hidden">
+    <div class="overflow-x-auto">
+      <table class="table-base">
+        <thead class="table-head">
+          <tr>
+            <th class="px-4 py-3"><%= t('date') %></th>
+            <th class="px-4 py-3"><%= t('amount') %></th>
+            <th class="px-4 py-3"><%= t('note') %></th>
+            <th class="px-4 py-3"><%= t('recordedBy') %></th>
+            <th class="px-4 py-3 text-right"><%= t('actions') %></th>
+          </tr>
+        </thead>
+        <tbody>
+          <% if (!payments || payments.length === 0) { %>
+            <tr>
+              <td class="px-4 py-4 text-slate-500" colspan="5"><%= t('noPayments') %></td>
+            </tr>
+          <% } %>
+          <% payments.forEach((payment) => { %>
+            <tr class="table-row">
+              <td class="px-4 py-3"><%= payment.payment_date %></td>
+              <td class="px-4 py-3"><%= payment.amount %></td>
+              <td class="px-4 py-3"><%= payment.note || '-' %></td>
+              <td class="px-4 py-3"><%= payment.recorded_by || '-' %></td>
+              <td class="px-4 py-3 text-right">
+                <form method="post" action="/records/vehicle-expenses/payments/<%= payment.id %>/delete" onsubmit="return confirm('<%= t('deletePaymentConfirm') %>');">
+                  <button class="btn-outline" type="submit"><%= t('delete') %></button>
+                </form>
+              </td>
+            </tr>
+          <% }) %>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+<%- include('../partials/shell-end') %>

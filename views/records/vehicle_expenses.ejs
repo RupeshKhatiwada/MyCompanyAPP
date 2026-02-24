@@ -51,7 +51,7 @@
 
   <div class="mt-6 card p-6">
     <h2 class="text-lg font-semibold"><%= t('addVehicleExpenseTitle') %></h2>
-    <form class="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-5" method="post" action="/records/vehicle-expenses">
+    <form class="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-6" method="post" action="/records/vehicle-expenses">
       <div>
         <label class="label"><%= t('date') %></label>
         <input class="input" type="date" name="expense_date" value="<%= to %>" required />
@@ -75,14 +75,18 @@
       </select>
     </div>
       <div>
-        <label class="label"><%= t('amount') %></label>
+        <label class="label"><%= t('totalAmount') %></label>
         <input class="input" type="number" min="0" step="0.01" name="amount" required />
       </div>
-      <div class="sm:col-span-2 lg:col-span-5">
+      <div>
+        <label class="label"><%= t('paidAmount') %></label>
+        <input class="input" type="number" min="0" step="0.01" name="paid_amount" value="0" />
+      </div>
+      <div class="sm:col-span-2 lg:col-span-6">
         <label class="label"><%= t('note') %></label>
         <input class="input" type="text" name="note" />
       </div>
-      <div class="sm:col-span-2 lg:col-span-5">
+      <div class="sm:col-span-2 lg:col-span-6">
         <button class="btn-primary" type="submit"><%= t('save') %></button>
       </div>
     </form>
@@ -92,6 +96,14 @@
     <div class="card p-4">
       <p class="text-slate-500"><%= t('total') %></p>
       <p class="text-lg font-semibold"><%= totals.total %></p>
+    </div>
+    <div class="card p-4">
+      <p class="text-slate-500"><%= t('paidAmount') %></p>
+      <p class="text-lg font-semibold"><%= totals.paid %></p>
+    </div>
+    <div class="card p-4">
+      <p class="text-slate-500"><%= t('remainingAmount') %></p>
+      <p class="text-lg font-semibold"><%= totals.due %></p>
     </div>
     <div class="card p-4">
       <p class="text-slate-500"><%= t('vehicleExpenseTypeFuel') %></p>
@@ -119,7 +131,9 @@
             <th class="px-4 py-3"><%= t('date') %></th>
             <th class="px-4 py-3"><%= t('vehicle') %></th>
             <th class="px-4 py-3"><%= t('expenseType') %></th>
-            <th class="px-4 py-3"><%= t('amount') %></th>
+            <th class="px-4 py-3"><%= t('totalAmount') %></th>
+            <th class="px-4 py-3"><%= t('paidAmount') %></th>
+            <th class="px-4 py-3"><%= t('remainingAmount') %></th>
             <th class="px-4 py-3"><%= t('note') %></th>
             <th class="px-4 py-3"><%= t('recordedBy') %></th>
             <th class="px-4 py-3 text-right"><%= t('actions') %></th>
@@ -128,7 +142,7 @@
         <tbody>
           <% if (!rows || rows.length === 0) { %>
             <tr>
-              <td class="px-4 py-4 text-slate-500" colspan="7"><%= t('noVehicleExpenses') %></td>
+              <td class="px-4 py-4 text-slate-500" colspan="9"><%= t('noVehicleExpenses') %></td>
             </tr>
           <% } %>
           <% rows.forEach((row) => { %>
@@ -137,12 +151,15 @@
               <td class="px-4 py-3"><%= `${row.vehicle_number} • ${row.owner_name}` %></td>
               <td class="px-4 py-3"><%= resolveExpenseTypeLabel(row.expense_type) %></td>
               <td class="px-4 py-3"><%= row.amount %></td>
+              <td class="px-4 py-3"><%= row.paid_amount %></td>
+              <td class="px-4 py-3"><%= row.due_amount %></td>
               <td class="px-4 py-3"><%= row.note || '-' %></td>
               <td class="px-4 py-3"><%= row.recorded_by || '-' %></td>
               <td class="px-4 py-3 text-right">
                 <details class="action-menu">
                   <summary class="btn-outline h-9 w-9 flex items-center justify-center">⋯</summary>
                   <div class="action-menu-panel">
+                    <a class="action-menu-item" href="/records/vehicle-expenses/<%= row.id %>/payments"><%= t('paymentHistory') %></a>
                     <form method="post" action="/records/vehicle-expenses/<%= row.id %>/delete" onsubmit="return confirm('<%= t('deleteVehicleExpenseConfirm') %>');">
                       <button class="action-menu-item action-menu-danger" type="submit"><%= t('delete') %></button>
                     </form>

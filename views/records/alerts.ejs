@@ -1,0 +1,130 @@
+<%- include('../partials/shell-start', { title }) %>
+<section class="py-8">
+  <div class="page-header flex flex-wrap items-center justify-between gap-4">
+    <div>
+      <h1 class="text-3xl font-semibold"><%= t('alertCenterTitle') %></h1>
+      <p class="mt-2 text-slate-600"><%= t('workerAlertSubtitle') %></p>
+    </div>
+    <div class="badge bg-red-100 text-red-700"><%= t('total') %>: <%= summary.totalAlerts %></div>
+  </div>
+
+  <div class="mt-6 grid gap-4 md:grid-cols-3">
+    <div class="stat-card">
+      <p class="text-sm text-slate-500"><%= t('workerPendingCustomerCredits') %></p>
+      <p class="mt-2 text-2xl font-semibold"><%= summary.pendingCustomerCount %></p>
+      <p class="mt-1 text-xs text-slate-500"><%= t('remainingAmount') %>: <%= summary.pendingCustomerAmount %></p>
+    </div>
+    <div class="stat-card">
+      <p class="text-sm text-slate-500"><%= t('workerPendingVehicleCredits') %></p>
+      <p class="mt-2 text-2xl font-semibold"><%= summary.pendingVehicleCount %></p>
+      <p class="mt-1 text-xs text-slate-500"><%= t('remainingAmount') %>: <%= summary.pendingVehicleAmount %></p>
+    </div>
+    <div class="stat-card">
+      <p class="text-sm text-slate-500"><%= t('lowStockAlerts') %></p>
+      <p class="mt-2 text-2xl font-semibold"><%= summary.lowStockCount %></p>
+      <p class="mt-1 text-xs text-slate-500"><%= t('alertThreshold') %>: <%= thresholds.itemLowThreshold %></p>
+    </div>
+  </div>
+
+  <div class="mt-6 grid gap-4 lg:grid-cols-2">
+    <div class="card p-6">
+      <div class="flex items-center justify-between">
+        <h2 class="text-lg font-semibold"><%= t('overdueCreditsTitle') %> (<%= t('credits') %>)</h2>
+        <span class="pill"><%= t('overdueDays') %>: <%= thresholds.overdueDays %>+</span>
+      </div>
+      <div class="mt-4 overflow-x-auto">
+        <table class="table-base text-sm">
+          <thead class="table-head">
+            <tr>
+              <th class="px-4 py-3"><%= t('date') %></th>
+              <th class="px-4 py-3"><%= t('vehicleNumber') %></th>
+              <th class="px-4 py-3"><%= t('customerName') %></th>
+              <th class="px-4 py-3"><%= t('remainingAmount') %></th>
+            </tr>
+          </thead>
+          <tbody>
+            <% if (!overdueCustomerCredits || overdueCustomerCredits.length === 0) { %>
+              <tr>
+                <td class="px-4 py-4 text-slate-500" colspan="4"><%= t('noOverdueCredits') %></td>
+              </tr>
+            <% } %>
+            <% overdueCustomerCredits.forEach((row) => { %>
+              <tr class="table-row">
+                <td class="px-4 py-3"><%= row.credit_date %></td>
+                <td class="px-4 py-3"><%= row.vehicle_number %></td>
+                <td class="px-4 py-3"><%= row.customer_name %></td>
+                <td class="px-4 py-3"><%= row.remaining_amount %></td>
+              </tr>
+            <% }) %>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <div class="card p-6">
+      <div class="flex items-center justify-between">
+        <h2 class="text-lg font-semibold"><%= t('overdueCreditsTitle') %> (<%= t('exports') %>)</h2>
+        <a class="btn-outline" href="/records/exports"><%= t('viewExports') %></a>
+      </div>
+      <div class="mt-4 overflow-x-auto">
+        <table class="table-base text-sm">
+          <thead class="table-head">
+            <tr>
+              <th class="px-4 py-3"><%= t('date') %></th>
+              <th class="px-4 py-3"><%= t('vehicleNumber') %></th>
+              <th class="px-4 py-3"><%= t('ownerName') %></th>
+              <th class="px-4 py-3"><%= t('remainingAmount') %></th>
+            </tr>
+          </thead>
+          <tbody>
+            <% if (!overdueVehicleCredits || overdueVehicleCredits.length === 0) { %>
+              <tr>
+                <td class="px-4 py-4 text-slate-500" colspan="4"><%= t('noOverdueCredits') %></td>
+              </tr>
+            <% } %>
+            <% overdueVehicleCredits.forEach((row) => { %>
+              <tr class="table-row">
+                <td class="px-4 py-3"><%= row.export_date %></td>
+                <td class="px-4 py-3"><%= row.vehicle_number %></td>
+                <td class="px-4 py-3"><%= row.owner_name %></td>
+                <td class="px-4 py-3"><%= row.remaining_amount %></td>
+              </tr>
+            <% }) %>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div class="mt-6 card p-6">
+    <div class="flex items-center justify-between">
+      <h2 class="text-lg font-semibold"><%= t('lowItemStockTitle') %></h2>
+      <a class="btn-outline" href="/records/imports"><%= t('importsTitle') %></a>
+    </div>
+    <div class="mt-4 overflow-x-auto">
+      <table class="table-base text-sm">
+        <thead class="table-head">
+          <tr>
+            <th class="px-4 py-3"><%= t('itemType') %></th>
+            <th class="px-4 py-3"><%= t('balance') %></th>
+            <th class="px-4 py-3"><%= t('unit') %></th>
+          </tr>
+        </thead>
+        <tbody>
+          <% if (!lowStockItems || lowStockItems.length === 0) { %>
+            <tr>
+              <td class="px-4 py-4 text-slate-500" colspan="3"><%= t('noLowStock') %></td>
+            </tr>
+          <% } %>
+          <% lowStockItems.forEach((row) => { %>
+            <tr class="table-row">
+              <td class="px-4 py-3"><%= row.item_name %></td>
+              <td class="px-4 py-3"><%= row.balance %></td>
+              <td class="px-4 py-3"><%= row.unit_label || '-' %></td>
+            </tr>
+          <% }) %>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+<%- include('../partials/shell-end') %>

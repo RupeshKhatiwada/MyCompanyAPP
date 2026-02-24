@@ -16,7 +16,6 @@
         <thead class="table-head">
           <tr>
             <th class="px-4 py-3"><%= t('name') %></th>
-            <th class="px-4 py-3"><%= t('price') %></th>
             <th class="px-4 py-3"><%= t('defaultQuantity') %></th>
             <th class="px-4 py-3"><%= t('status') %></th>
             <th class="px-4 py-3 text-right"><%= t('actions') %></th>
@@ -31,7 +30,6 @@
           <% types.forEach((row) => { %>
             <tr class="table-row">
               <td class="px-4 py-3 font-medium"><%= row.name %></td>
-              <td class="px-4 py-3"><%= row.price %></td>
               <td class="px-4 py-3"><%= row.default_qty || 0 %></td>
               <td class="px-4 py-3"><%= row.active ? t('active') : t('inactive') %></td>
               <td class="px-4 py-3 text-right">

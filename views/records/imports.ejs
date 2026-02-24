@@ -1,9 +1,13 @@
 <%- include('../partials/shell-start', { title }) %>
 <section class="py-8">
-  <div class="flex flex-wrap items-center justify-between gap-3">
+  <div class="page-header flex flex-wrap items-start justify-between gap-4">
     <div>
       <h1 class="text-3xl font-semibold"><%= t('importsTitle') %></h1>
       <p class="text-slate-600"><%= t('importsSubtitle') %></p>
+    </div>
+    <div class="flex flex-wrap gap-2">
+      <a class="btn-outline" href="#quick-import-entry"><%= t('addImportEntry') %></a>
+      <a class="btn-outline" href="#imports-payment-history"><%= t('paymentHistory') %></a>
     </div>
   </div>
   <% if (error) { %>
@@ -31,30 +35,34 @@
   <% const itemUnitMap = {}; %>
   <% safeItemTypes.forEach((entry) => { itemLabelMap[entry.code] = entry.label; itemUnitMap[entry.code] = entry.unit || ''; }); %>
 
-  <form class="mt-4 flex flex-wrap items-end gap-3" method="get" action="/records/imports">
-    <div>
-      <label class="label"><%= t('from') %></label>
-      <input class="input" type="date" name="from" value="<%= from %>" />
-    </div>
-    <div>
-      <label class="label"><%= t('to') %></label>
-      <input class="input" type="date" name="to" value="<%= to %>" />
-    </div>
-    <div>
-      <label class="label"><%= t('itemType') %></label>
-      <select class="input" name="item">
-        <option value="all" <%= item === 'all' ? 'selected' : '' %>><%= t('allItems') %></option>
-        <% safeItemTypes.forEach((entry) => { %>
-          <option value="<%= entry.code %>" <%= item === entry.code ? 'selected' : '' %>><%= entry.label %></option>
-        <% }) %>
-      </select>
-    </div>
-    <div class="min-w-56 flex-1">
-      <label class="label"><%= t('search') %></label>
-      <input class="input" type="text" name="q" value="<%= safeQ %>" placeholder="<%= t('sellerName') %> / <%= t('note') %>" />
-    </div>
-    <button class="btn-outline" type="submit"><%= t('filter') %></button>
-  </form>
+  <div class="mt-4 card p-5">
+    <form class="grid gap-3 sm:grid-cols-5" method="get" action="/records/imports">
+      <div>
+        <label class="label"><%= t('from') %></label>
+        <input class="input" type="date" name="from" value="<%= from %>" />
+      </div>
+      <div>
+        <label class="label"><%= t('to') %></label>
+        <input class="input" type="date" name="to" value="<%= to %>" />
+      </div>
+      <div>
+        <label class="label"><%= t('itemType') %></label>
+        <select class="input" name="item">
+          <option value="all" <%= item === 'all' ? 'selected' : '' %>><%= t('allItems') %></option>
+          <% safeItemTypes.forEach((entry) => { %>
+            <option value="<%= entry.code %>" <%= item === entry.code ? 'selected' : '' %>><%= entry.label %></option>
+          <% }) %>
+        </select>
+      </div>
+      <div class="sm:col-span-2">
+        <label class="label"><%= t('search') %></label>
+        <input class="input" type="text" name="q" value="<%= safeQ %>" placeholder="<%= t('sellerName') %> / <%= t('note') %>" />
+      </div>
+      <div class="sm:col-span-5 flex justify-end">
+        <button class="btn-outline" type="submit"><%= t('filter') %></button>
+      </div>
+    </form>
+  </div>
 
   <div id="quick-import-entry" class="mt-6 card p-6">
     <h2 class="text-lg font-semibold"><%= t('addImportEntry') %></h2>
@@ -128,74 +136,98 @@
     </form>
   </div>
 
-  <div class="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-    <div class="card p-4">
-      <p class="text-slate-500"><%= t('unused') %></p>
-      <p class="text-lg font-semibold"><%= safeTotals.incoming %></p>
-    </div>
-    <div class="card p-4">
-      <p class="text-slate-500"><%= t('used') %></p>
-      <p class="text-lg font-semibold"><%= safeTotals.outgoing %></p>
-    </div>
-    <div class="card p-4">
-      <p class="text-slate-500"><%= t('netBalance') %></p>
-      <p class="text-lg font-semibold"><%= safeTotals.total %></p>
-    </div>
-    <div class="card p-4">
-      <p class="text-slate-500"><%= t('jarContainerBalance') %></p>
-      <p class="text-lg font-semibold"><%= safeJarContainerBalance %></p>
-    </div>
-  </div>
-
-  <div class="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-    <div class="card p-4">
-      <p class="text-slate-500"><%= t('totalAmount') %></p>
-      <p class="text-lg font-semibold"><%= safePayableTotals.total %></p>
-    </div>
-    <div class="card p-4">
-      <p class="text-slate-500"><%= t('totalPaid') %></p>
-      <p class="text-lg font-semibold"><%= safePayableTotals.paid %></p>
-    </div>
-    <div class="card p-4">
-      <p class="text-slate-500"><%= t('totalDue') %></p>
-      <p class="text-lg font-semibold"><%= safePayableTotals.due %></p>
-    </div>
-    <div class="card p-4">
-      <p class="text-slate-500"><%= t('openCredits') %></p>
-      <p class="text-lg font-semibold"><%= safePayableTotals.open_count %></p>
-    </div>
-  </div>
-
-  <div class="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-    <div class="card p-4">
-      <p class="text-slate-500"><%= t('bottleCaseBalance') %></p>
-      <p class="text-lg font-semibold"><%= safeBottleCaseBalance %></p>
-      <% if (safeBottleCaseBalance <= 0) { %>
-        <p class="mt-1 text-xs text-red-600"><%= t('bottleCaseOutOfStock') %></p>
-      <% } %>
-    </div>
-  </div>
-
-  <div class="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-    <% safeItemTypes.forEach((entry) => { %>
-      <% const unit = entry.unit || ''; %>
-      <div class="card p-4">
-        <p class="text-slate-500"><%= entry.label %></p>
-        <p class="text-lg font-semibold"><%= safeTotals.byItem[entry.code] || 0 %><%= unit ? ` ${unit}` : '' %></p>
+  <div class="mt-6 grid gap-4 lg:grid-cols-3">
+    <div class="card p-6 lg:col-span-2">
+      <div class="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <p class="text-sm text-slate-500"><%= t('netBalance') %></p>
+          <p class="text-3xl font-semibold"><%= safeTotals.total %></p>
+        </div>
+        <div class="grid gap-2 text-right">
+          <span class="badge <%= safeBottleCaseBalance <= 0 ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-700' %>">
+            <%= t('bottleCaseBalance') %>: <%= safeBottleCaseBalance %>
+          </span>
+          <span class="badge <%= safeJarContainerBalance <= 0 ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-700' %>">
+            <%= t('jarContainerBalance') %>: <%= safeJarContainerBalance %>
+          </span>
+        </div>
       </div>
-    <% }) %>
+      <div class="mt-5 grid gap-3 sm:grid-cols-3">
+        <div class="rounded-xl border border-slate-200/80 bg-slate-50 px-4 py-3">
+          <p class="text-xs text-slate-500"><%= t('unused') %></p>
+          <p class="mt-1 text-xl font-semibold"><%= safeTotals.incoming %></p>
+        </div>
+        <div class="rounded-xl border border-slate-200/80 bg-slate-50 px-4 py-3">
+          <p class="text-xs text-slate-500"><%= t('used') %></p>
+          <p class="mt-1 text-xl font-semibold"><%= safeTotals.outgoing %></p>
+        </div>
+        <div class="rounded-xl border border-slate-200/80 bg-slate-50 px-4 py-3">
+          <p class="text-xs text-slate-500"><%= t('openCredits') %></p>
+          <p class="mt-1 text-xl font-semibold"><%= safePayableTotals.open_count %></p>
+        </div>
+      </div>
+    </div>
+
+    <div class="card p-6">
+      <h2 class="text-lg font-semibold"><%= t('openCredits') %></h2>
+      <div class="mt-4 space-y-3 text-sm">
+        <div class="flex items-center justify-between rounded-xl bg-slate-50 px-3 py-2">
+          <span class="text-slate-600"><%= t('totalAmount') %></span>
+          <span class="font-semibold"><%= safePayableTotals.total %></span>
+        </div>
+        <div class="flex items-center justify-between rounded-xl bg-slate-50 px-3 py-2">
+          <span class="text-slate-600"><%= t('totalPaid') %></span>
+          <span class="font-semibold"><%= safePayableTotals.paid %></span>
+        </div>
+        <div class="flex items-center justify-between rounded-xl bg-slate-50 px-3 py-2">
+          <span class="text-slate-600"><%= t('totalDue') %></span>
+          <span class="font-semibold <%= safePayableTotals.due > 0 ? 'text-amber-700' : 'text-emerald-700' %>"><%= safePayableTotals.due %></span>
+        </div>
+      </div>
+    </div>
   </div>
 
-  <div class="mt-6 card p-6">
-    <h2 class="text-lg font-semibold"><%= t('jarContainerBalancesTitle') %></h2>
-    <p class="text-sm text-slate-600"><%= t('jarContainerBalancesSubtitle') %></p>
+  <div class="mt-4 card p-6">
+    <h2 class="text-lg font-semibold"><%= t('itemType') %></h2>
+    <div class="mt-4 overflow-x-auto">
+      <table class="table-base">
+        <thead class="table-head">
+          <tr>
+            <th class="px-4 py-3"><%= t('itemType') %></th>
+            <th class="px-4 py-3 text-right"><%= t('netBalance') %></th>
+          </tr>
+        </thead>
+        <tbody>
+          <% safeItemTypes.forEach((entry) => { %>
+            <% const unit = entry.unit || ''; %>
+            <% const balance = safeTotals.byItem[entry.code] || 0; %>
+            <tr class="table-row">
+              <td class="px-4 py-3"><%= entry.label %></td>
+              <td class="px-4 py-3 text-right">
+                <span class="badge <%= balance <= 0 ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-700' %>">
+                  <%= balance %><%= unit ? ` ${unit}` : '' %>
+                </span>
+              </td>
+            </tr>
+          <% }) %>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <details class="mt-4 card p-6">
+    <summary class="flex cursor-pointer items-center justify-between text-sm font-semibold">
+      <span><%= t('jarContainerBalancesTitle') %></span>
+      <span class="text-xs text-slate-500"><%= t('tapToExpand') %></span>
+    </summary>
+    <p class="mt-2 text-sm text-slate-600"><%= t('jarContainerBalancesSubtitle') %></p>
     <div class="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
       <% if (!safeJarTypes || safeJarTypes.length === 0) { %>
         <div class="text-sm text-slate-500"><%= t('noJarTypes') %></div>
       <% } else { %>
         <% safeJarTypes.forEach((type) => { %>
           <% const balance = safeJarTypeBalances ? (safeJarTypeBalances[type.id] || 0) : 0; %>
-          <div class="card p-4">
+          <div class="rounded-xl border border-slate-200/80 bg-white px-4 py-3">
             <p class="text-slate-500"><%= type.name %></p>
             <p class="text-lg font-semibold"><%= balance %></p>
             <% if (balance <= 0) { %>
@@ -205,7 +237,7 @@
         <% }) %>
       <% } %>
     </div>
-  </div>
+  </details>
 
   <details class="mt-6 card p-6" open>
     <summary class="flex cursor-pointer items-center justify-between text-sm font-semibold">
@@ -219,8 +251,7 @@
             <th class="px-4 py-3"><%= t('date') %></th>
             <th class="px-4 py-3"><%= t('itemType') %></th>
             <th class="px-4 py-3"><%= t('sellerName') %></th>
-            <th class="px-4 py-3"><%= t('jarContainerType') %></th>
-            <th class="px-4 py-3"><%= t('jarCapType') %></th>
+            <th class="px-4 py-3"><%= t('details') %></th>
             <th class="px-4 py-3"><%= t('usageStatus') %></th>
             <th class="px-4 py-3"><%= t('quantity') %></th>
             <th class="px-4 py-3"><%= t('totalAmount') %></th>
@@ -228,39 +259,48 @@
             <th class="px-4 py-3"><%= t('remaining') %></th>
             <th class="px-4 py-3"><%= t('note') %></th>
             <th class="px-4 py-3"><%= t('recordedBy') %></th>
-            <th class="px-4 py-3 text-right"><%= t('actions') %></th>
+            <th class="table-action-sticky px-4 py-3 text-right"><%= t('actions') %></th>
           </tr>
         </thead>
         <tbody>
           <% if (!safeEntries || safeEntries.length === 0) { %>
             <tr>
-              <td class="px-4 py-4 text-slate-500" colspan="13"><%= t('noImports') %></td>
+              <td class="px-4 py-4 text-slate-500" colspan="12"><%= t('noImports') %></td>
             </tr>
           <% } %>
           <% safeEntries.forEach((row) => { %>
             <% const rowTotal = Number(row.total_amount || 0); %>
             <% const rowPaid = Number(row.paid_amount || 0); %>
             <% const rowDue = Math.max(0, rowTotal - rowPaid); %>
+            <% const rowDetails = row.item_type === 'JAR_CONTAINER' ? (row.jar_type_name || '-') : row.item_type === 'JAR_CAP' ? (row.jar_cap_type_name || '-') : '-'; %>
+            <% const rowSettled = rowDue <= 0; %>
             <tr class="table-row">
               <td class="px-4 py-3"><%= row.entry_date %></td>
               <td class="px-4 py-3"><%= itemLabelMap[row.item_type] || safeResolveImportItemLabel(row.item_type, row.item_type_name, t) %></td>
               <td class="px-4 py-3"><%= row.seller_name || '-' %></td>
-              <td class="px-4 py-3"><%= row.item_type === 'JAR_CONTAINER' ? (row.jar_type_name || '-') : '-' %></td>
-              <td class="px-4 py-3"><%= row.item_type === 'JAR_CAP' ? (row.jar_cap_type_name || '-') : '-' %></td>
+              <td class="px-4 py-3"><%= rowDetails %></td>
               <% const unit = itemUnitMap[row.item_type] || safeResolveImportItemUnit(row.item_type, row.item_unit_label, t); %>
               <td class="px-4 py-3"><%= row.direction === 'OUT' ? t('used') : t('unused') %></td>
               <td class="px-4 py-3"><%= row.quantity %><%= unit ? ` ${unit}` : '' %></td>
               <td class="px-4 py-3"><%= rowTotal %></td>
               <td class="px-4 py-3"><%= rowPaid %></td>
-              <td class="px-4 py-3"><%= rowDue %></td>
+              <td class="px-4 py-3">
+                <div class="flex items-center gap-2">
+                  <span><%= rowDue %></span>
+                  <span class="badge <%= rowSettled ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-800' %>"><%= rowSettled ? t('paid') : t('unpaid') %></span>
+                </div>
+              </td>
               <td class="px-4 py-3"><%= row.note || '-' %></td>
               <td class="px-4 py-3"><%= row.recorded_by || '-' %></td>
-              <td class="px-4 py-3 text-right">
+              <td class="table-action-sticky px-4 py-3 text-right">
                 <details class="action-menu">
                   <summary class="btn-outline h-9 w-9 flex items-center justify-center">⋯</summary>
                   <div class="action-menu-panel">
-                    <a class="action-menu-item" href="/records/imports/<%= row.id %>/edit"><%= t('edit') %></a>
-                    <a class="action-menu-item" href="/records/imports/<%= row.id %>/edit"><%= t('paymentHistory') %></a>
+                    <a class="action-menu-item" href="/records/imports/<%= row.id %>/edit"><%= t('manage') %></a>
+                    <% if (!rowSettled) { %>
+                      <a class="action-menu-item" href="/records/imports/<%= row.id %>/edit#payment-form"><%= t('addPayment') %></a>
+                    <% } %>
+                    <a class="action-menu-item" href="/records/imports/<%= row.id %>/edit#payment-history"><%= t('paymentHistory') %></a>
                     <form method="post" action="/records/imports/<%= row.id %>/delete" onsubmit="return confirm('<%= t('deleteImportConfirm') %>');">
                       <button class="action-menu-item action-menu-danger" type="submit"><%= t('delete') %></button>
                     </form>
@@ -274,7 +314,7 @@
     </div>
   </details>
 
-  <details class="mt-6 card p-6">
+  <details id="imports-payment-history" class="mt-6 card p-6">
     <summary class="flex cursor-pointer items-center justify-between text-sm font-semibold">
       <span><%= t('paymentHistory') %></span>
       <span class="text-xs text-slate-500"><%= t('tapToExpand') %></span>

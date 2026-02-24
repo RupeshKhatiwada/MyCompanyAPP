@@ -38,6 +38,18 @@ Generate helper scripts:
 - Backup files: `data/backups`
 - Upload files (photos/docs): `public/uploads`
 
+## Hybrid Mode (Offline + PostgreSQL Online Sync)
+- Keep using local SQLite for daily offline work.
+- Open `Admin -> Settings` and enable **Hybrid Sync**.
+- Configure:
+  - `PostgreSQL URL` (Railway connection string)
+  - `Site ID` (unique for each branch/machine)
+  - `Auto sync interval`
+- Use **Run Hybrid Sync Now** for immediate push.
+- Synced data is mirrored to PostgreSQL tables:
+  - `hybrid_records`
+  - `hybrid_sync_runs`
+
 ## Security
 - Set `SESSION_SECRET` in the environment for production.
 - App is designed for local/offline LAN usage; do not expose directly to public internet without reverse proxy + TLS + auth hardening.

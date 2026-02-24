@@ -24,10 +24,16 @@ const {
   testBackupFile,
   pruneOldBackups
 } = require("../utils/backup");
+const {
+  getHybridSyncStatus,
+  normalizeSiteId,
+  syncLocalToPostgres
+} = require("../utils/hybridSync");
 
 const router = express.Router();
 const defaultStaffRoleCodes = ["CLEANER", "MACHINE_MANAGER", "VEHICLE_CONDUCTOR", "KITCHEN_COOK"];
 const documentTypeOptions = ["CITIZENSHIP", "LICENSE", "PASSPORT"];
+const alertItemThresholdPrefix = "alert_item_threshold_";
 const importLabelKeyByCode = {
   JAR_CONTAINER: "importItemJarContainer",
   JAR_CAP: "importItemJarCap",
@@ -93,6 +99,19 @@ const getBackupConfig = () => {
   };
 };
 
+const getImportItemAlertThresholdMap = () => {
+  const rows = db.prepare("SELECT key, value FROM settings WHERE key LIKE ?").all(`${alertItemThresholdPrefix}%`);
+  return rows.reduce((acc, row) => {
+    const key = String(row.key || "");
+    if (!key.startsWith(alertItemThresholdPrefix)) return acc;
+    const code = key.slice(alertItemThresholdPrefix.length);
+    const value = Number(row.value);
+    if (!code || Number.isNaN(value) || value < 0) return acc;
+    acc[code] = Math.floor(value);
+    return acc;
+  }, {});
+};
+
 const getAlertSnapshot = () => {
   const today = dayjs().format("YYYY-MM-DD");
   const { lastBackupAt, backupDays, backupOverdue } = getBackupStatus();
@@ -103,6 +122,7 @@ const getAlertSnapshot = () => {
   const itemLowThreshold = Number.isNaN(itemLowThresholdRaw) ? 10 : Math.max(0, Math.floor(itemLowThresholdRaw));
   const overdueDays = Number.isNaN(overdueDaysRaw) ? 7 : Math.max(1, Math.floor(overdueDaysRaw));
   const overdueBefore = dayjs().subtract(overdueDays, "day").format("YYYY-MM-DD");
+  const itemThresholdMap = getImportItemAlertThresholdMap();
 
   const jarTypes = db.prepare("SELECT id, name FROM jar_types WHERE active = 1 ORDER BY name").all();
   const jarImportTotals = db.prepare(
@@ -132,19 +152,26 @@ const getAlertSnapshot = () => {
     .filter((row) => row.balance <= jarLowThreshold)
     .sort((a, b) => a.balance - b.balance);
 
-  const lowItemStocks = db.prepare(
+  const itemBalances = db.prepare(
     `SELECT import_entries.item_type, import_item_types.name as item_name, import_item_types.unit_label as unit,
             COALESCE(SUM(CASE WHEN import_entries.direction = 'OUT' THEN -import_entries.quantity ELSE import_entries.quantity END), 0) as balance
      FROM import_entries
      LEFT JOIN import_item_types ON import_entries.item_type = import_item_types.code
      WHERE import_entries.item_type <> 'JAR_CONTAINER'
      GROUP BY import_entries.item_type, import_item_types.name, import_item_types.unit_label
-     HAVING COALESCE(SUM(CASE WHEN import_entries.direction = 'OUT' THEN -import_entries.quantity ELSE import_entries.quantity END), 0) <= ?
      ORDER BY balance ASC`
-  ).all(itemLowThreshold).map((row) => ({
-    ...row,
-    item_name: row.item_name || row.item_type
-  }));
+  ).all();
+  const lowItemStocks = itemBalances
+    .map((row) => {
+      const threshold = Number.isFinite(itemThresholdMap[row.item_type]) ? itemThresholdMap[row.item_type] : itemLowThreshold;
+      return {
+        ...row,
+        threshold,
+        item_name: row.item_name || row.item_type
+      };
+    })
+    .filter((row) => Number(row.balance || 0) <= Number(row.threshold || 0))
+    .sort((a, b) => Number(a.balance || 0) - Number(b.balance || 0));
 
   const overdueCredits = db.prepare(
     `SELECT credits.id, credits.credit_date, credits.customer_name, credits.amount, credits.paid_amount,
@@ -196,7 +223,8 @@ const getAlertSnapshot = () => {
     thresholds: {
       jarLowThreshold,
       itemLowThreshold,
-      overdueDays
+      overdueDays,
+      itemThresholdMap
     },
     lowJarStocks,
     lowItemStocks,
@@ -232,10 +260,21 @@ const renderSettingsPage = (req, res, overrides = {}) => {
   const backupReminderText = !lastBackupAt || backupDays === null ? req.t("backupNever") : `${backupDays} ${req.t("daysAgo")}`;
   const logoPath = getSetting("logo_path", "");
   const backupConfig = getBackupConfig();
+  const hybridSync = getHybridSyncStatus(db);
   const iotAttendanceEnabled = String(getSetting("iot_attendance_enabled", "0")) === "1";
   const iotAttendanceTokenRow = db.prepare("SELECT value FROM settings WHERE key = ?").get("iot_attendance_token");
   const iotAttendanceToken = iotAttendanceTokenRow ? String(iotAttendanceTokenRow.value || "") : "";
   const backupFiles = listBackupFiles().slice(0, 10);
+  const jarLowThresholdRaw = Number(getSetting("alert_low_stock_jars", 20));
+  const itemLowThresholdRaw = Number(getSetting("alert_low_stock_items", 10));
+  const overdueDaysRaw = Number(getSetting("alert_overdue_credit_days", 7));
+  const jarLowThreshold = Number.isNaN(jarLowThresholdRaw) ? 20 : Math.max(0, Math.floor(jarLowThresholdRaw));
+  const itemLowThreshold = Number.isNaN(itemLowThresholdRaw) ? 10 : Math.max(0, Math.floor(itemLowThresholdRaw));
+  const overdueDays = Number.isNaN(overdueDaysRaw) ? 7 : Math.max(1, Math.floor(overdueDaysRaw));
+  const importItemTypes = db.prepare(
+    "SELECT code, name, unit_label FROM import_item_types WHERE is_active = 1 ORDER BY name"
+  ).all();
+  const itemThresholdMap = getImportItemAlertThresholdMap();
   const selectedClosureDate = overrides.selectedClosureDate || req.query.closure_date || dayjs().format("YYYY-MM-DD");
   const selectedClosure = getDayClosure(selectedClosureDate);
 
@@ -249,10 +288,16 @@ const renderSettingsPage = (req, res, overrides = {}) => {
     autoBackupEnabled: backupConfig.enabled,
     autoBackupHour: backupConfig.hour,
     autoBackupKeep: backupConfig.keepCount,
+    hybridSync,
     iotAttendanceEnabled,
     iotAttendanceToken,
     backupFiles,
     latestBackup: backupFiles[0] || null,
+    jarLowThreshold,
+    itemLowThreshold,
+    overdueDays,
+    importItemTypes,
+    itemThresholdMap,
     selectedClosureDate,
     selectedClosure,
     recentClosures: getRecentDayClosures(),
@@ -394,6 +439,7 @@ router.get("/", (req, res) => {
   const monthStart = dayjs().startOf("month").format("YYYY-MM-DD");
   const vehicleCount = db.prepare("SELECT COUNT(*) as count FROM vehicles").get().count;
   const workerCount = db.prepare("SELECT COUNT(*) as count FROM users WHERE role = 'WORKER' AND is_active = 1").get().count;
+  const staffCount = db.prepare("SELECT COUNT(*) as count FROM staff").get().count;
   const todaySales = db.prepare("SELECT COALESCE(SUM(total_amount), 0) as total FROM exports WHERE export_date = ?")
     .get(today).total || 0;
   const monthSales = db.prepare("SELECT COALESCE(SUM(total_amount), 0) as total FROM exports WHERE export_date BETWEEN ? AND ?")
@@ -402,7 +448,7 @@ router.get("/", (req, res) => {
     `SELECT
         COALESCE(SUM(total_amount), 0) as total,
         COALESCE(SUM(paid_amount), 0) as paid,
-        COALESCE(SUM(CASE WHEN credit_amount - paid_amount < 0 THEN 0 ELSE credit_amount - paid_amount END), 0) as credit
+        COALESCE(SUM(credit_amount), 0) as credit
      FROM exports
      WHERE export_date = ?`
   ).get(today);
@@ -410,10 +456,42 @@ router.get("/", (req, res) => {
     `SELECT
         COALESCE(SUM(total_amount), 0) as total,
         COALESCE(SUM(paid_amount), 0) as paid,
-        COALESCE(SUM(CASE WHEN credit_amount - paid_amount < 0 THEN 0 ELSE credit_amount - paid_amount END), 0) as credit
+        COALESCE(SUM(credit_amount), 0) as credit
      FROM exports
      WHERE export_date BETWEEN ? AND ?`
   ).get(monthStart, today);
+  const monthCustomerCredit = db.prepare(
+    `SELECT
+        COALESCE(SUM(amount), 0) as total,
+        COALESCE(SUM(CASE WHEN amount - paid_amount < 0 THEN 0 ELSE amount - paid_amount END), 0) as credit
+     FROM credits
+     WHERE credit_date BETWEEN ? AND ?`
+  ).get(monthStart, today);
+  const monthCustomerPaid = db.prepare(
+    `SELECT COALESCE(SUM(amount), 0) as paid
+     FROM credit_payments
+     WHERE date(paid_at) BETWEEN ? AND ?`
+  ).get(monthStart, today);
+  const monthCustomer = {
+    total: Number(monthCustomerCredit.total || 0),
+    paid: Number(monthCustomerPaid.paid || 0),
+    credit: Number(monthCustomerCredit.credit || 0)
+  };
+  const monthCombined = {
+    paid: Number(monthExport.paid || 0) + monthCustomer.paid,
+    credit: Number(monthExport.credit || 0) + Number(monthCustomer.credit || 0)
+  };
+  const outstandingTotals = db.prepare(
+    `SELECT
+        COALESCE(SUM(CASE WHEN amount - paid_amount < 0 THEN 0 ELSE amount - paid_amount END), 0) as customer_credit
+     FROM credits`
+  ).get();
+  const vehicleOutstanding = db.prepare(
+    `SELECT COALESCE(SUM(exports.credit_amount), 0) as vehicle_credit
+     FROM exports
+     JOIN vehicles ON vehicles.id = exports.vehicle_id
+     WHERE vehicles.is_company = 0`
+  ).get();
   const { lastBackupAt, backupDays, backupOverdue } = getBackupStatus();
   const backupReminderText =
     !lastBackupAt || backupDays === null ? req.t("backupNever") : `${backupDays} ${req.t("daysAgo")}`;
@@ -436,19 +514,22 @@ router.get("/", (req, res) => {
      LIMIT 8`
   ).all();
   const recentActivityRows = formatActivityRows(recentActivity, req.t);
-  const alerts = getAlertSnapshot();
   res.render("admin/dashboard", {
     title: req.t("adminDashboard"),
     topCredits,
     recentActivity: recentActivityRows,
-    alerts: alerts.summary,
     stats: {
       vehicleCount,
       workerCount,
+      staffCount,
       todaySales,
       monthSales,
       todayExport,
       monthExport,
+      monthCustomer,
+      monthCombined,
+      outstandingCustomerCredit: Number(outstandingTotals.customer_credit || 0),
+      outstandingVehicleCredit: Number(vehicleOutstanding.vehicle_credit || 0),
       lastBackupAt,
       backupDays,
       backupOverdue,
@@ -1355,20 +1436,19 @@ router.get("/jar-cap-types/new", (req, res) => {
 });
 
 router.post("/jar-types", (req, res) => {
-  const { name, price, default_qty } = req.body;
-  const priceNum = Number(price || 0);
+  const { name, default_qty } = req.body;
   const defaultQtyNum = Number(default_qty || 0);
-  if (!name || Number.isNaN(priceNum) || priceNum < 0 || Number.isNaN(defaultQtyNum) || defaultQtyNum < 0) {
+  if (!name || Number.isNaN(defaultQtyNum) || defaultQtyNum < 0) {
     return res.render("admin/jar_type_form", { title: req.t("addJarTypeTitle"), type: null, error: req.t("jarTypeRequired") });
   }
-  db.prepare("INSERT INTO jar_types (name, price, default_qty, active) VALUES (?, ?, ?, 1)")
-    .run(name.trim(), priceNum, defaultQtyNum);
+  db.prepare("INSERT INTO jar_types (name, price, default_qty, active) VALUES (?, 0, ?, 1)")
+    .run(name.trim(), defaultQtyNum);
   logActivity({
     userId: req.session.userId,
     action: "create",
     entityType: "jar_type",
     entityId: name.trim(),
-    details: `price=${priceNum}, default_qty=${defaultQtyNum}`
+    details: `default_qty=${defaultQtyNum}`
   });
   res.redirect("/admin/jar-types");
 });
@@ -1406,21 +1486,20 @@ router.get("/jar-cap-types/:id/edit", (req, res) => {
 router.post("/jar-types/:id", (req, res) => {
   const type = db.prepare("SELECT * FROM jar_types WHERE id = ?").get(req.params.id);
   if (!type) return res.redirect("/admin/jar-types");
-  const { name, price, active, default_qty } = req.body;
-  const priceNum = Number(price || 0);
+  const { name, active, default_qty } = req.body;
   const defaultQtyNum = Number(default_qty || 0);
-  if (!name || Number.isNaN(priceNum) || priceNum < 0 || Number.isNaN(defaultQtyNum) || defaultQtyNum < 0) {
+  if (!name || Number.isNaN(defaultQtyNum) || defaultQtyNum < 0) {
     return res.render("admin/jar_type_form", { title: req.t("editJarTypeTitle"), type, error: req.t("jarTypeRequired") });
   }
   const activeFlag = active === "on" ? 1 : 0;
-  db.prepare("UPDATE jar_types SET name = ?, price = ?, default_qty = ?, active = ?, updated_at = datetime('now') WHERE id = ?")
-    .run(name.trim(), priceNum, defaultQtyNum, activeFlag, req.params.id);
+  db.prepare("UPDATE jar_types SET name = ?, price = 0, default_qty = ?, active = ?, updated_at = datetime('now') WHERE id = ?")
+    .run(name.trim(), defaultQtyNum, activeFlag, req.params.id);
   logActivity({
     userId: req.session.userId,
     action: "update",
     entityType: "jar_type",
     entityId: req.params.id,
-    details: `name=${name.trim()}, price=${priceNum}, default_qty=${defaultQtyNum}, active=${activeFlag}`
+    details: `name=${name.trim()}, default_qty=${defaultQtyNum}, active=${activeFlag}`
   });
   res.redirect("/admin/jar-types");
 });
@@ -1475,7 +1554,7 @@ router.get("/import-item-types", (req, res) => {
     ...row,
     label: resolveImportItemLabel(row.code, row.name, req.t)
   }));
-  const jarTypes = db.prepare("SELECT id, name, price, active FROM jar_types ORDER BY name ASC").all();
+  const jarTypes = db.prepare("SELECT id, name, default_qty, active FROM jar_types ORDER BY name ASC").all();
   const jarCapTypes = db.prepare("SELECT id, name, default_qty, active FROM jar_cap_types ORDER BY name ASC").all();
   const success = req.query.saved ? req.t("itemTypeSaved") : req.query.deleted ? req.t("itemTypeDeleted") : null;
   const error = req.query.error ? req.t(req.query.error) : null;
@@ -4169,6 +4248,14 @@ router.post("/settings", (req, res) => {
   const autoBackupEnabled = req.body.auto_backup_enabled === "on";
   const autoBackupHour = Number(req.body.auto_backup_hour || 18);
   const autoBackupKeep = Number(req.body.auto_backup_keep || 30);
+  const jarLowThreshold = Number(req.body.alert_low_stock_jars || 20);
+  const itemLowThreshold = Number(req.body.alert_low_stock_items || 10);
+  const overdueCreditDays = Number(req.body.alert_overdue_credit_days || 7);
+  const hybridSyncEnabled = req.body.hybrid_sync_enabled === "on";
+  const hybridSyncPostgresUrl = String(req.body.hybrid_sync_pg_url || "").trim();
+  const hybridSyncSiteId = normalizeSiteId(req.body.hybrid_sync_site_id || "aqua-msk-main");
+  const hybridSyncIntervalMin = Number(req.body.hybrid_sync_interval_min || 15);
+  const hybridSyncSslEnabled = req.body.hybrid_sync_ssl_enabled === "on";
   const iotAttendanceEnabled = req.body.iot_attendance_enabled === "on";
   const iotAttendanceToken = String(req.body.iot_attendance_token || "").trim();
   if (Number.isNaN(autoBackupHour) || autoBackupHour < 0 || autoBackupHour > 23) {
@@ -4181,14 +4268,75 @@ router.post("/settings", (req, res) => {
       error: req.t("backupKeepInvalid")
     });
   }
+  if (Number.isNaN(jarLowThreshold) || jarLowThreshold < 0 || jarLowThreshold > 1000000) {
+    return renderSettingsPage(req, res, {
+      error: req.t("alertThresholdInvalid")
+    });
+  }
+  if (Number.isNaN(itemLowThreshold) || itemLowThreshold < 0 || itemLowThreshold > 1000000) {
+    return renderSettingsPage(req, res, {
+      error: req.t("alertThresholdInvalid")
+    });
+  }
+  if (Number.isNaN(overdueCreditDays) || overdueCreditDays < 1 || overdueCreditDays > 365) {
+    return renderSettingsPage(req, res, {
+      error: req.t("overdueDaysInvalid")
+    });
+  }
+  if (hybridSyncEnabled && !hybridSyncPostgresUrl) {
+    return renderSettingsPage(req, res, {
+      error: req.t("hybridSyncUrlRequired")
+    });
+  }
+  if (hybridSyncEnabled && !hybridSyncSiteId) {
+    return renderSettingsPage(req, res, {
+      error: req.t("hybridSyncSiteIdRequired")
+    });
+  }
+  if (Number.isNaN(hybridSyncIntervalMin) || hybridSyncIntervalMin < 5 || hybridSyncIntervalMin > 720) {
+    return renderSettingsPage(req, res, {
+      error: req.t("hybridSyncIntervalInvalid")
+    });
+  }
   if (iotAttendanceEnabled && iotAttendanceToken.length < 8) {
     return renderSettingsPage(req, res, {
       error: req.t("iotTokenInvalid")
     });
   }
+  const importItemTypes = db.prepare(
+    "SELECT code FROM import_item_types WHERE is_active = 1"
+  ).all();
+  const perItemThresholdValues = [];
+  for (const row of importItemTypes) {
+    const code = String(row.code || "").trim();
+    if (!code) continue;
+    const raw = String(req.body[`${alertItemThresholdPrefix}${code}`] || "").trim();
+    if (!raw) {
+      perItemThresholdValues.push({ code, value: "" });
+      continue;
+    }
+    const num = Number(raw);
+    if (Number.isNaN(num) || num < 0 || num > 1000000) {
+      return renderSettingsPage(req, res, {
+        error: req.t("alertThresholdInvalid")
+      });
+    }
+    perItemThresholdValues.push({ code, value: String(Math.floor(num)) });
+  }
   setSetting("auto_backup_enabled", autoBackupEnabled ? 1 : 0);
   setSetting("auto_backup_hour", Math.floor(autoBackupHour));
   setSetting("auto_backup_keep", Math.floor(autoBackupKeep));
+  setSetting("alert_low_stock_jars", Math.floor(jarLowThreshold));
+  setSetting("alert_low_stock_items", Math.floor(itemLowThreshold));
+  setSetting("alert_overdue_credit_days", Math.floor(overdueCreditDays));
+  perItemThresholdValues.forEach((row) => {
+    setSetting(`${alertItemThresholdPrefix}${row.code}`, row.value);
+  });
+  setSetting("hybrid_sync_enabled", hybridSyncEnabled ? 1 : 0);
+  setSetting("hybrid_sync_pg_url", hybridSyncPostgresUrl);
+  setSetting("hybrid_sync_site_id", hybridSyncSiteId);
+  setSetting("hybrid_sync_interval_min", Math.floor(hybridSyncIntervalMin));
+  setSetting("hybrid_sync_ssl_enabled", hybridSyncSslEnabled ? 1 : 0);
   setSetting("iot_attendance_enabled", iotAttendanceEnabled ? 1 : 0);
   setSetting("iot_attendance_token", iotAttendanceToken);
   pruneOldBackups(Math.floor(autoBackupKeep));
@@ -4197,12 +4345,35 @@ router.post("/settings", (req, res) => {
     action: "update",
     entityType: "settings",
     entityId: "backup",
-    details: `auto_backup=${autoBackupEnabled ? 1 : 0}, backup_hour=${Math.floor(autoBackupHour)}, keep=${Math.floor(autoBackupKeep)}, iot_attendance=${iotAttendanceEnabled ? 1 : 0}`
+    details: `auto_backup=${autoBackupEnabled ? 1 : 0}, backup_hour=${Math.floor(autoBackupHour)}, keep=${Math.floor(autoBackupKeep)}, jar_alert=${Math.floor(jarLowThreshold)}, item_alert=${Math.floor(itemLowThreshold)}, overdue_days=${Math.floor(overdueCreditDays)}, hybrid_sync=${hybridSyncEnabled ? 1 : 0}, hybrid_interval=${Math.floor(hybridSyncIntervalMin)}, iot_attendance=${iotAttendanceEnabled ? 1 : 0}`
   });
 
   return renderSettingsPage(req, res, {
     success: req.t("settingsSaved")
   });
+});
+
+router.post("/hybrid-sync/run", async (req, res) => {
+  try {
+    const result = await syncLocalToPostgres({
+      db,
+      reason: "manual"
+    });
+    logActivity({
+      userId: req.session.userId,
+      action: "sync",
+      entityType: "hybrid",
+      entityId: result.siteId,
+      details: `rows=${result.syncedRows}, duration_ms=${result.durationMs}`
+    });
+    return renderSettingsPage(req, res, {
+      success: req.t("hybridSyncRunSuccess", { rows: result.syncedRows })
+    });
+  } catch (err) {
+    return renderSettingsPage(req, res, {
+      error: req.t("hybridSyncRunFailed", { message: err.message || "sync_failed" })
+    });
+  }
 });
 
 router.post("/logo", logoUpload.single("logo_file"), (req, res) => {

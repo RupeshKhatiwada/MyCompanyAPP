@@ -1,0 +1,115 @@
+<%- include('../partials/shell-start', { title }) %>
+<section class="py-8">
+  <div class="flex flex-wrap items-center justify-between gap-3">
+    <div>
+      <h1 class="text-3xl font-semibold"><%= t('activityLogTitle') %></h1>
+      <p class="text-slate-600"><%= t('workerHistorySubtitle') %></p>
+    </div>
+    <div class="flex flex-wrap gap-2">
+      <button class="btn-outline" type="button" onclick="window.print()"><%= t('print') %></button>
+    </div>
+  </div>
+
+  <form class="mt-4 flex flex-wrap items-end gap-3" method="get" action="/records/history">
+    <div>
+      <label class="label"><%= t('from') %></label>
+      <input class="input" type="date" name="from" value="<%= from %>" />
+    </div>
+    <div>
+      <label class="label"><%= t('to') %></label>
+      <input class="input" type="date" name="to" value="<%= to %>" />
+    </div>
+    <div>
+      <label class="label"><%= t('action') %></label>
+      <select class="input" name="action">
+        <% actionOptions.forEach((value) => { %>
+          <% const labelKey = value === 'all'
+            ? 'all'
+            : value === 'create'
+              ? 'activityCreate'
+              : value === 'update'
+                ? 'activityUpdate'
+                : value === 'delete'
+                  ? 'activityDelete'
+                  : value === 'payment'
+                    ? 'activityPayment'
+                    : value === 'backup'
+                      ? 'activityBackup'
+                      : 'activityRestore'; %>
+          <option value="<%= value %>" <%= action === value ? 'selected' : '' %>><%= t(labelKey) %></option>
+        <% }) %>
+      </select>
+    </div>
+    <div>
+      <label class="label"><%= t('entity') %></label>
+      <select class="input" name="entity">
+        <% entityOptions.forEach((value) => { %>
+          <% const entityKey = value === 'all'
+            ? 'all'
+            : value === 'export'
+              ? 'exports'
+              : value === 'credit'
+                ? 'credits'
+                : value === 'jar_sale'
+                  ? 'jarSalesTitle'
+                  : value === 'vehicle'
+                    ? 'vehicles'
+                    : value === 'worker'
+                      ? 'workers'
+                      : value === 'admin'
+                        ? 'admins'
+                        : value === 'staff'
+                          ? 'staffsTitle'
+                          : value === 'staff_salary'
+                            ? 'salaryHistory'
+                            : value === 'import_entry'
+                              ? 'importsTitle'
+                              : value === 'vehicle_savings'
+                                ? 'savingsTitle'
+                                : value === 'stock_ledger'
+                                  ? 'stockLedgerTitle'
+                                  : 'system'; %>
+          <option value="<%= value %>" <%= entity === value ? 'selected' : '' %>><%= t(entityKey) %></option>
+        <% }) %>
+      </select>
+    </div>
+    <div>
+      <label class="label"><%= t('search') %></label>
+      <input class="input" type="text" name="q" value="<%= q %>" placeholder="<%= t('search') %>" />
+    </div>
+    <button class="btn-primary" type="submit"><%= t('filter') %></button>
+  </form>
+
+  <div class="mt-6 card overflow-hidden">
+    <div class="overflow-x-auto">
+      <table class="table-base text-sm">
+        <thead class="table-head">
+          <tr>
+            <th class="px-4 py-3"><%= t('date') %></th>
+            <th class="px-4 py-3"><%= t('user') %></th>
+            <th class="px-4 py-3"><%= t('action') %></th>
+            <th class="px-4 py-3"><%= t('entity') %></th>
+            <th class="px-4 py-3"><%= t('details') %></th>
+          </tr>
+        </thead>
+        <tbody>
+          <% if (!rows || rows.length === 0) { %>
+            <tr>
+              <td class="px-4 py-4 text-slate-500" colspan="5"><%= t('noActivity') %></td>
+            </tr>
+          <% } %>
+          <% rows.forEach((row) => { %>
+            <tr class="table-row">
+              <td class="px-4 py-3"><%= row.created_at %></td>
+              <td class="px-4 py-3"><%= row.full_name || '-' %></td>
+              <td class="px-4 py-3"><%= row.actionLabel || row.action %></td>
+              <td class="px-4 py-3"><%= row.entityLabel || row.entity_type %></td>
+              <td class="px-4 py-3"><%= row.detailLabel || row.details || '-' %></td>
+            </tr>
+          <% }) %>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+<%- include('../partials/shell-end') %>

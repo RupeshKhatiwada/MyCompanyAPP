@@ -19,6 +19,9 @@
     </div>
 
     <div class="mt-6 card p-6">
+      <% const paidAmount = Number(record.paid_amount || 0); %>
+      <% const creditAmount = Number(record.credit_amount || 0); %>
+      <% const totalExportAmount = Number(record.total_amount || 0); %>
       <div class="grid gap-4 sm:grid-cols-2 text-sm">
         <div>
           <p class="text-slate-500"><%= t('vehicleNumber') %></p>
@@ -82,6 +85,21 @@
         </div>
       </div>
 
+      <div class="mt-4 grid gap-3 sm:grid-cols-3">
+        <div class="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+          <p class="text-xs text-slate-500"><%= t('totalExportAmount') %></p>
+          <p class="text-lg font-semibold"><%= totalExportAmount %></p>
+        </div>
+        <div class="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+          <p class="text-xs text-slate-500"><%= t('paidAmount') %></p>
+          <p class="text-lg font-semibold text-emerald-700"><%= paidAmount %></p>
+        </div>
+        <div class="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+          <p class="text-xs text-slate-500"><%= t('creditAmount') %></p>
+          <p class="text-lg font-semibold <%= creditAmount > 0 ? 'text-amber-700' : 'text-emerald-700' %>"><%= creditAmount %></p>
+        </div>
+      </div>
+
       <div class="mt-6 overflow-hidden rounded-2xl border border-slate-200">
         <table class="table-base">
           <thead class="table-head">
@@ -121,12 +139,12 @@
               <td class="px-4 py-3"><%= record.dispenser_count || 0 %></td>
               <td class="px-4 py-3"><%= record.return_bottle_case_count %></td>
               <td class="px-4 py-3"><%= netBottles %></td>
-              <td class="px-4 py-3"><%= record.total_amount %></td>
+              <td class="px-4 py-3"><%= totalExportAmount %></td>
               <td class="px-4 py-3"><%= collectionAmount %></td>
               <td class="px-4 py-3"><%= expenseAmount %></td>
               <td class="px-4 py-3"><%= netCollectionAmount %></td>
-              <td class="px-4 py-3"><%= record.paid_amount %></td>
-              <td class="px-4 py-3"><%= record.credit_amount %></td>
+              <td class="px-4 py-3"><%= paidAmount %></td>
+              <td class="px-4 py-3"><%= creditAmount %></td>
             </tr>
           </tbody>
         </table>

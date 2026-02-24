@@ -18,10 +18,6 @@
         <input class="input" type="text" name="name" value="<%= type ? type.name : '' %>" required />
       </div>
       <div>
-        <label class="label"><%= t('price') %></label>
-        <input class="input" type="number" name="price" step="0.01" min="0" value="<%= type ? type.price : 0 %>" required />
-      </div>
-      <div>
         <label class="label"><%= t('defaultQuantity') %></label>
         <input class="input" type="number" name="default_qty" min="0" value="<%= type ? (type.default_qty || 0) : 0 %>" required />
         <p class="mt-1 text-xs text-slate-500"><%= t('defaultJarContainerQtyHint') %></p>

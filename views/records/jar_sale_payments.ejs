@@ -1,0 +1,96 @@
+<%- include('../partials/shell-start', { title }) %>
+<section class="py-8">
+  <div class="flex flex-wrap items-center justify-between gap-3">
+    <div>
+      <h1 class="text-3xl font-semibold"><%= t('jarSalePaymentsTitle') %></h1>
+      <p class="text-slate-600"><%= t('jarSalePaymentsSubtitle') %></p>
+    </div>
+    <a class="btn-outline" href="/records/jar-sales?from=<%= record.sale_date %>&to=<%= record.sale_date %>"><%= t('back') %></a>
+  </div>
+
+  <% if (error) { %>
+    <div class="mt-4 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700"><%= error %></div>
+  <% } %>
+  <% if (success) { %>
+    <div class="mt-4 rounded-lg bg-emerald-50 px-4 py-3 text-sm text-emerald-700"><%= success %></div>
+  <% } %>
+
+  <% const vehicleNo = record.vehicle_number_ref || record.vehicle_number || '-'; %>
+  <% const vehicleLabel = record.owner_name ? `${record.owner_name} • ${vehicleNo}` : vehicleNo; %>
+  <div class="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+    <div class="card p-4">
+      <p class="text-slate-500"><%= t('jarType') %></p>
+      <p class="text-lg font-semibold"><%= record.jar_name %></p>
+    </div>
+    <div class="card p-4">
+      <p class="text-slate-500"><%= t('vehicle') %></p>
+      <p class="text-lg font-semibold"><%= vehicleLabel %></p>
+    </div>
+    <div class="card p-4">
+      <p class="text-slate-500"><%= t('totalAmount') %></p>
+      <p class="text-lg font-semibold"><%= record.total_amount %></p>
+    </div>
+    <div class="card p-4">
+      <p class="text-slate-500"><%= t('remainingAmount') %></p>
+      <p class="text-lg font-semibold"><%= remaining %></p>
+    </div>
+  </div>
+
+  <div class="mt-6 card p-6">
+    <h2 class="text-lg font-semibold"><%= t('addPayment') %></h2>
+    <form class="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4" method="post" action="/records/jar-sales/<%= record.id %>/payments">
+      <div>
+        <label class="label"><%= t('date') %></label>
+        <input class="input" type="date" name="payment_date" value="<%= record.sale_date %>" required />
+      </div>
+      <div>
+        <label class="label"><%= t('amount') %></label>
+        <input class="input" type="number" min="0.01" max="<%= remaining %>" step="0.01" name="amount" value="<%= remaining %>" required />
+      </div>
+      <div class="lg:col-span-2">
+        <label class="label"><%= t('note') %></label>
+        <input class="input" type="text" name="note" />
+      </div>
+      <div class="sm:col-span-2 lg:col-span-4">
+        <button class="btn-primary" type="submit"><%= t('savePayment') %></button>
+      </div>
+    </form>
+  </div>
+
+  <div class="mt-6 card overflow-hidden">
+    <div class="overflow-x-auto">
+      <table class="table-base">
+        <thead class="table-head">
+          <tr>
+            <th class="px-4 py-3"><%= t('date') %></th>
+            <th class="px-4 py-3"><%= t('amount') %></th>
+            <th class="px-4 py-3"><%= t('note') %></th>
+            <th class="px-4 py-3"><%= t('recordedBy') %></th>
+            <th class="px-4 py-3 text-right"><%= t('actions') %></th>
+          </tr>
+        </thead>
+        <tbody>
+          <% if (!payments || payments.length === 0) { %>
+            <tr>
+              <td class="px-4 py-4 text-slate-500" colspan="5"><%= t('noPayments') %></td>
+            </tr>
+          <% } %>
+          <% payments.forEach((payment) => { %>
+            <tr class="table-row">
+              <td class="px-4 py-3"><%= payment.payment_date %></td>
+              <td class="px-4 py-3"><%= payment.amount %></td>
+              <td class="px-4 py-3"><%= payment.note || '-' %></td>
+              <td class="px-4 py-3"><%= payment.recorded_by || '-' %></td>
+              <td class="px-4 py-3 text-right">
+                <form method="post" action="/records/jar-sales/payments/<%= payment.id %>/delete" onsubmit="return confirm('<%= t('deletePaymentConfirm') %>');">
+                  <button class="btn-outline" type="submit"><%= t('delete') %></button>
+                </form>
+              </td>
+            </tr>
+          <% }) %>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+<%- include('../partials/shell-end') %>

@@ -1,67 +1,248 @@
 <%- include('partials/shell-start', { title }) %>
 <% const isAdmin = currentUser && (currentUser.role === 'ADMIN' || currentUser.role === 'SUPER_ADMIN'); %>
 <section class="py-8">
-  <div class="flex flex-wrap items-center justify-between gap-3">
+  <div class="page-header flex flex-wrap items-center justify-between gap-4">
     <div>
       <h1 class="text-3xl font-semibold"><%= t('searchTitle') %></h1>
-      <p class="text-slate-600"><%= t('searchGlobalHelp') %></p>
+      <p class="mt-2 text-slate-600"><%= t('searchGlobalHelp') %></p>
     </div>
+    <div class="badge bg-white text-slate-700"><%= t('total') %>: <%= Number(totalMatches || 0) %></div>
   </div>
 
-  <form class="mt-4 flex flex-wrap items-end gap-3" method="get" action="/search">
-    <div class="min-w-[240px]">
-      <label class="label"><%= t('search') %></label>
-      <input class="input" type="text" name="q" value="<%= q || '' %>" placeholder="<%= t('searchGlobal') %>" />
+  <form class="mt-4 card p-4" method="get" action="/search">
+    <div class="flex flex-wrap items-end gap-3">
+      <div class="min-w-[240px] flex-1">
+        <label class="label"><%= t('search') %></label>
+        <input class="input" type="text" name="q" value="<%= q || '' %>" placeholder="<%= t('searchGlobal') %>" />
+      </div>
+      <button class="btn-primary" type="submit"><%= t('search') %></button>
     </div>
-    <button class="btn-outline" type="submit"><%= t('search') %></button>
   </form>
 
-  <div class="mt-6 grid gap-4 lg:grid-cols-2">
-    <div class="card p-6">
-      <h2 class="text-lg font-semibold"><%= t('vehicles') %></h2>
-      <div class="mt-3 space-y-2 text-sm">
-        <% if (!vehicles || vehicles.length === 0) { %>
-          <p class="text-slate-500"><%= t('noVehiclesFound') %></p>
-        <% } %>
-        <% vehicles.forEach((v) => { %>
-          <div class="flex items-center justify-between gap-3 border-b border-slate-100 pb-2">
-            <div>
-              <p class="font-semibold"><%= v.vehicle_number %></p>
-              <p class="text-xs text-slate-500"><%= v.owner_name %> <%= v.phone ? `• ${v.phone}` : '' %></p>
+  <% if (!q) { %>
+    <div class="mt-6 card p-6 text-sm text-slate-600">
+      <p><%= t('searchEverythingHint') %></p>
+    </div>
+  <% } %>
+
+  <% if (q) { %>
+    <div class="mt-6 grid gap-4 lg:grid-cols-2">
+      <div class="card p-6">
+        <div class="flex items-center justify-between gap-3">
+          <h2 class="text-lg font-semibold"><%= t('vehicles') %></h2>
+          <a class="btn-outline" href="/records/vehicles"><%= t('manage') %></a>
+        </div>
+        <div class="mt-3 space-y-2 text-sm">
+          <% if (!vehicles || vehicles.length === 0) { %>
+            <p class="text-slate-500"><%= t('noData') %></p>
+          <% } %>
+          <% vehicles.forEach((v) => { %>
+            <div class="flex items-center justify-between gap-3 border-b border-slate-100 pb-2">
+              <div>
+                <p class="font-semibold"><%= v.owner_name %> • <%= v.vehicle_number %></p>
+                <p class="text-xs text-slate-500"><%= v.phone || '-' %></p>
+              </div>
+              <div class="flex flex-wrap gap-2">
+                <a class="btn-outline" href="/records/exports?q=<%= encodeURIComponent(v.vehicle_number) %>"><%= t('exports') %></a>
+                <a class="btn-outline" href="/records/credits?q=<%= encodeURIComponent(v.vehicle_number) %>"><%= t('credits') %></a>
+              </div>
             </div>
-            <div class="flex flex-wrap gap-2">
-              <a class="btn-outline" href="/records/exports?from=<%= encodeURIComponent(today) %>&to=<%= encodeURIComponent(today) %>&q=<%= encodeURIComponent(v.vehicle_number) %>"><%= t('exports') %></a>
-              <a class="btn-outline" href="/records/credits?from=<%= encodeURIComponent(today) %>&to=<%= encodeURIComponent(today) %>&q=<%= encodeURIComponent(v.vehicle_number) %>"><%= t('credits') %></a>
-              <% if (isAdmin) { %>
-                <a class="btn-outline" href="/admin/vehicles"><%= t('manage') %></a>
-              <% } %>
+          <% }) %>
+        </div>
+      </div>
+
+      <div class="card p-6">
+        <div class="flex items-center justify-between gap-3">
+          <h2 class="text-lg font-semibold"><%= t('customers') %></h2>
+          <a class="btn-outline" href="/records/credits?q=<%= encodeURIComponent(q) %>"><%= t('view') %></a>
+        </div>
+        <div class="mt-3 space-y-2 text-sm">
+          <% if (!customers || customers.length === 0) { %>
+            <p class="text-slate-500"><%= t('noData') %></p>
+          <% } %>
+          <% customers.forEach((row) => { %>
+            <div class="flex items-center justify-between gap-3 border-b border-slate-100 pb-2">
+              <div>
+                <p class="font-semibold"><%= row.customer_name %></p>
+                <p class="text-xs text-slate-500"><%= t('remainingAmount') %>: <%= Number(row.remaining || 0) %></p>
+              </div>
+              <div class="flex flex-wrap gap-2">
+                <a class="btn-outline" href="/records/credits?q=<%= encodeURIComponent(row.customer_name) %>"><%= t('credits') %></a>
+                <% if (isAdmin) { %>
+                  <a class="btn-outline" href="/admin/reports/customer-invoice?customer=<%= encodeURIComponent(row.customer_name) %>"><%= t('customerInvoiceTitle') %></a>
+                <% } %>
+              </div>
             </div>
-          </div>
-        <% }) %>
+          <% }) %>
+        </div>
       </div>
     </div>
 
-    <div class="card p-6">
-      <h2 class="text-lg font-semibold"><%= t('customers') %></h2>
-      <div class="mt-3 space-y-2 text-sm">
-        <% if (!customers || customers.length === 0) { %>
-          <p class="text-slate-500"><%= t('noCustomersFound') %></p>
-        <% } %>
-        <% customers.forEach((name) => { %>
-          <div class="flex items-center justify-between gap-3 border-b border-slate-100 pb-2">
-            <div>
-              <p class="font-semibold"><%= name %></p>
+    <div class="mt-4 grid gap-4 lg:grid-cols-3">
+      <div class="card p-6">
+        <h2 class="text-lg font-semibold"><%= t('staffWorkerTitle') %></h2>
+        <div class="mt-3 space-y-2 text-sm">
+          <% if (!people || people.length === 0) { %>
+            <p class="text-slate-500"><%= t('noData') %></p>
+          <% } %>
+          <% people.forEach((row) => { %>
+            <% const roleLabel = row.role === 'STAFF'
+              ? t('staffsTitle')
+              : row.role === 'WORKER'
+                ? t('workersTitle')
+                : row.role === 'ADMIN'
+                  ? t('roleAdmin')
+                  : row.role === 'SUPER_ADMIN'
+                    ? t('roleSuper')
+                    : row.role; %>
+            <div class="border-b border-slate-100 pb-2">
+              <p class="font-semibold"><%= row.full_name %></p>
+              <p class="text-xs text-slate-500"><%= roleLabel %> <%= row.phone ? `• ${row.phone}` : '' %></p>
             </div>
-            <div class="flex flex-wrap gap-2">
-              <a class="btn-outline" href="/records/credits?from=<%= encodeURIComponent(today) %>&to=<%= encodeURIComponent(today) %>&q=<%= encodeURIComponent(name) %>"><%= t('credits') %></a>
-              <% if (isAdmin) { %>
-                <a class="btn-outline" href="/admin/reports/customer-invoice?customer=<%= encodeURIComponent(name) %>"><%= t('customerInvoiceTitle') %></a>
-              <% } %>
+          <% }) %>
+        </div>
+      </div>
+
+      <div class="card p-6">
+        <h2 class="text-lg font-semibold"><%= t('technicianTitle') %></h2>
+        <div class="mt-3 space-y-2 text-sm">
+          <% if (!technicians || technicians.length === 0) { %>
+            <p class="text-slate-500"><%= t('noData') %></p>
+          <% } %>
+          <% technicians.forEach((row) => { %>
+            <div class="border-b border-slate-100 pb-2">
+              <p class="font-semibold"><%= row.technician_name || '-' %></p>
+              <p class="text-xs text-slate-500"><%= row.technician_phone || '-' %> <%= row.machinery_name ? `• ${row.machinery_name}` : '' %></p>
             </div>
-          </div>
-        <% }) %>
+          <% }) %>
+        </div>
+      </div>
+
+      <div class="card p-6">
+        <h2 class="text-lg font-semibold"><%= t('sellersTitle') %></h2>
+        <div class="mt-3 space-y-2 text-sm">
+          <% if (!sellers || sellers.length === 0) { %>
+            <p class="text-slate-500"><%= t('noData') %></p>
+          <% } %>
+          <% sellers.forEach((row) => { %>
+            <div class="border-b border-slate-100 pb-2">
+              <p class="font-semibold"><%= row.seller_name %></p>
+              <p class="text-xs text-slate-500"><%= row.source === 'imports' ? t('importsTitle') : t('companyPurchasesTitle') %></p>
+            </div>
+          <% }) %>
+        </div>
       </div>
     </div>
-  </div>
+
+    <div class="mt-4 grid gap-4 lg:grid-cols-2">
+      <div class="card p-6">
+        <h2 class="text-lg font-semibold"><%= t('exports') %></h2>
+        <div class="mt-3 space-y-2 text-sm">
+          <% if (!exportRows || exportRows.length === 0) { %>
+            <p class="text-slate-500"><%= t('noData') %></p>
+          <% } %>
+          <% exportRows.forEach((row) => { %>
+            <div class="border-b border-slate-100 pb-2">
+              <p class="font-semibold"><%= row.export_date %> • <%= row.vehicle_number %></p>
+              <p class="text-xs text-slate-500"><%= row.owner_name %> • <%= t('total') %>: <%= row.total_amount %></p>
+            </div>
+          <% }) %>
+          <% if (exportRows && exportRows.length > 0) { %>
+            <a class="btn-outline mt-2" href="/records/exports?q=<%= encodeURIComponent(q) %>"><%= t('view') %></a>
+          <% } %>
+        </div>
+      </div>
+
+      <div class="card p-6">
+        <h2 class="text-lg font-semibold"><%= t('credits') %></h2>
+        <div class="mt-3 space-y-2 text-sm">
+          <% if (!creditRows || creditRows.length === 0) { %>
+            <p class="text-slate-500"><%= t('noData') %></p>
+          <% } %>
+          <% creditRows.forEach((row) => { %>
+            <div class="border-b border-slate-100 pb-2">
+              <p class="font-semibold"><%= row.credit_date %> • <%= row.customer_name %></p>
+              <p class="text-xs text-slate-500"><%= row.vehicle_number %> • <%= t('remainingAmount') %>: <%= Math.max(0, Number(row.amount || 0) - Number(row.paid_amount || 0)) %></p>
+            </div>
+          <% }) %>
+          <% if (creditRows && creditRows.length > 0) { %>
+            <a class="btn-outline mt-2" href="/records/credits?q=<%= encodeURIComponent(q) %>"><%= t('view') %></a>
+          <% } %>
+        </div>
+      </div>
+
+      <div class="card p-6">
+        <h2 class="text-lg font-semibold"><%= t('jarSalesTitle') %></h2>
+        <div class="mt-3 space-y-2 text-sm">
+          <% if (!jarSaleRows || jarSaleRows.length === 0) { %>
+            <p class="text-slate-500"><%= t('noData') %></p>
+          <% } %>
+          <% jarSaleRows.forEach((row) => { %>
+            <div class="border-b border-slate-100 pb-2">
+              <p class="font-semibold"><%= row.sale_date %> • <%= row.jar_name %> • <%= row.quantity %></p>
+              <p class="text-xs text-slate-500"><%= row.customer_name || '-' %> <%= row.vehicle_number ? `• ${row.vehicle_number}` : '' %></p>
+            </div>
+          <% }) %>
+          <% if (jarSaleRows && jarSaleRows.length > 0) { %>
+            <a class="btn-outline mt-2" href="/records/jar-sales?q=<%= encodeURIComponent(q) %>"><%= t('view') %></a>
+          <% } %>
+        </div>
+      </div>
+
+      <div class="card p-6">
+        <h2 class="text-lg font-semibold"><%= t('importsTitle') %></h2>
+        <div class="mt-3 space-y-2 text-sm">
+          <% if (!importRows || importRows.length === 0) { %>
+            <p class="text-slate-500"><%= t('noData') %></p>
+          <% } %>
+          <% importRows.forEach((row) => { %>
+            <div class="border-b border-slate-100 pb-2">
+              <p class="font-semibold"><%= row.entry_date %> • <%= row.item_name || row.item_type %> • <%= row.quantity %></p>
+              <p class="text-xs text-slate-500"><%= row.seller_name || '-' %> • <%= t('total') %>: <%= row.total_amount %></p>
+            </div>
+          <% }) %>
+          <% if (importRows && importRows.length > 0) { %>
+            <a class="btn-outline mt-2" href="/records/imports?q=<%= encodeURIComponent(q) %>"><%= t('view') %></a>
+          <% } %>
+        </div>
+      </div>
+
+      <div class="card p-6">
+        <h2 class="text-lg font-semibold"><%= t('companyPurchasesTitle') %></h2>
+        <div class="mt-3 space-y-2 text-sm">
+          <% if (!purchaseRows || purchaseRows.length === 0) { %>
+            <p class="text-slate-500"><%= t('noData') %></p>
+          <% } %>
+          <% purchaseRows.forEach((row) => { %>
+            <div class="border-b border-slate-100 pb-2">
+              <p class="font-semibold"><%= row.purchase_date %> • <%= row.item_name %></p>
+              <p class="text-xs text-slate-500"><%= row.seller_name || '-' %> <%= row.technician_name ? `• ${row.technician_name}` : '' %></p>
+            </div>
+          <% }) %>
+          <% if (purchaseRows && purchaseRows.length > 0) { %>
+            <a class="btn-outline mt-2" href="/records/company-purchases?q=<%= encodeURIComponent(q) %>"><%= t('view') %></a>
+          <% } %>
+        </div>
+      </div>
+
+      <div class="card p-6">
+        <h2 class="text-lg font-semibold"><%= t('vehicleExpensesTitle') %></h2>
+        <div class="mt-3 space-y-2 text-sm">
+          <% if (!expenseRows || expenseRows.length === 0) { %>
+            <p class="text-slate-500"><%= t('noData') %></p>
+          <% } %>
+          <% expenseRows.forEach((row) => { %>
+            <div class="border-b border-slate-100 pb-2">
+              <p class="font-semibold"><%= row.expense_date %> • <%= row.vehicle_number %> • <%= row.expense_type %></p>
+              <p class="text-xs text-slate-500"><%= row.owner_name || '-' %> • <%= t('amount') %>: <%= row.amount %></p>
+            </div>
+          <% }) %>
+          <% if (expenseRows && expenseRows.length > 0) { %>
+            <a class="btn-outline mt-2" href="/records/vehicle-expenses?q=<%= encodeURIComponent(q) %>"><%= t('view') %></a>
+          <% } %>
+        </div>
+      </div>
+    </div>
+  <% } %>
 </section>
 <%- include('partials/shell-end') %>

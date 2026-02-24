@@ -11,6 +11,13 @@
     </div>
   </div>
 
+  <% if (error) { %>
+    <div class="mt-4 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700"><%= error %></div>
+  <% } %>
+  <% if (success) { %>
+    <div class="mt-4 rounded-lg bg-emerald-50 px-4 py-3 text-sm text-emerald-700"><%= success %></div>
+  <% } %>
+
   <form class="mt-4 flex flex-wrap items-end gap-3" method="get" action="/records/jar-sales">
     <div>
       <label class="label"><%= t('from') %></label>
@@ -71,13 +78,17 @@
               <td class="px-4 py-3"><%= row.unit_price %></td>
               <td class="px-4 py-3"><%= row.total_amount %></td>
               <td class="px-4 py-3"><%= row.paid_amount %></td>
-              <td class="px-4 py-3"><%= row.credit_amount %></td>
+              <td class="px-4 py-3"><%= row.remaining_amount %></td>
               <td class="px-4 py-3"><%= row.note || '-' %></td>
               <td class="px-4 py-3"><%= row.recorded_by || '-' %></td>
               <td class="px-4 py-3 text-right">
                 <details class="action-menu">
                   <summary class="btn-outline h-9 w-9 flex items-center justify-center">⋯</summary>
                   <div class="action-menu-panel">
+                    <% if (Number(row.remaining_amount || 0) > 0) { %>
+                      <a class="action-menu-item" href="/records/jar-sales/<%= row.id %>/payments"><%= t('addPayment') %></a>
+                    <% } %>
+                    <a class="action-menu-item" href="/records/jar-sales/<%= row.id %>/payments"><%= t('paymentHistory') %></a>
                     <a class="action-menu-item" href="/records/jar-sales/<%= row.id %>/print" target="_blank"><%= t('print') %></a>
                     <a class="action-menu-item" href="/records/jar-sales/<%= row.id %>/edit"><%= t('edit') %></a>
                     <form method="post" action="/records/jar-sales/<%= row.id %>/delete" onsubmit="return confirm('<%= t('deleteJarSaleConfirm') %>');">

@@ -75,17 +75,19 @@
           <tr>
             <th class="px-4 py-3"><%= t('itemType') %></th>
             <th class="px-4 py-3"><%= t('unit') %></th>
+            <th class="px-4 py-3"><%= t('alertThreshold') %></th>
             <th class="px-4 py-3"><%= t('balance') %></th>
           </tr>
         </thead>
         <tbody>
           <% if (!lowItemStocks || lowItemStocks.length === 0) { %>
-            <tr><td class="px-4 py-4 text-slate-500" colspan="3"><%= t('noLowStock') %></td></tr>
+            <tr><td class="px-4 py-4 text-slate-500" colspan="4"><%= t('noLowStock') %></td></tr>
           <% } %>
           <% (lowItemStocks || []).forEach((row) => { %>
             <tr class="table-row">
               <td class="px-4 py-3"><%= row.item_name %></td>
               <td class="px-4 py-3"><%= row.unit || '-' %></td>
+              <td class="px-4 py-3"><%= row.threshold %></td>
               <td class="px-4 py-3"><%= row.balance %></td>
             </tr>
           <% }) %>

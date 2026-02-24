@@ -31,6 +31,54 @@
         </div>
       </div>
       <div class="rounded-xl border border-slate-200 bg-slate-50 p-4">
+        <h3 class="text-sm font-semibold"><%= t('alertCenterTitle') %></h3>
+        <p class="mt-1 text-xs text-slate-600"><%= t('alertSettingsSubtitle') %></p>
+        <div class="mt-3 grid gap-3 sm:grid-cols-3">
+          <div>
+            <label class="label"><%= t('lowJarStockTitle') %> (<%= t('alertThreshold') %>)</label>
+            <input class="input" type="number" min="0" max="1000000" name="alert_low_stock_jars" value="<%= jarLowThreshold %>" />
+          </div>
+          <div>
+            <label class="label"><%= t('lowItemStockTitle') %> (<%= t('defaultThreshold') %>)</label>
+            <input class="input" type="number" min="0" max="1000000" name="alert_low_stock_items" value="<%= itemLowThreshold %>" />
+          </div>
+          <div>
+            <label class="label"><%= t('overdueDays') %></label>
+            <input class="input" type="number" min="1" max="365" name="alert_overdue_credit_days" value="<%= overdueDays %>" />
+          </div>
+        </div>
+        <div class="mt-4 overflow-x-auto">
+          <table class="table-base text-sm">
+            <thead class="table-head">
+              <tr>
+                <th class="px-3 py-2"><%= t('itemType') %></th>
+                <th class="px-3 py-2"><%= t('unit') %></th>
+                <th class="px-3 py-2"><%= t('customThreshold') %></th>
+              </tr>
+            </thead>
+            <tbody>
+              <% if (!importItemTypes || importItemTypes.length === 0) { %>
+                <tr>
+                  <td class="px-3 py-3 text-slate-500" colspan="3"><%= t('noItemsConfigured') %></td>
+                </tr>
+              <% } %>
+              <% (importItemTypes || []).forEach((item) => { %>
+                <% const fieldName = `alert_item_threshold_${item.code}`; %>
+                <% const currentThreshold = itemThresholdMap && Object.prototype.hasOwnProperty.call(itemThresholdMap, item.code) ? itemThresholdMap[item.code] : ''; %>
+                <tr class="table-row">
+                  <td class="px-3 py-2"><%= item.name || item.code %></td>
+                  <td class="px-3 py-2"><%= item.unit_label || '-' %></td>
+                  <td class="px-3 py-2">
+                    <input class="input" type="number" min="0" max="1000000" name="<%= fieldName %>" value="<%= currentThreshold %>" placeholder="<%= itemLowThreshold %>" />
+                  </td>
+                </tr>
+              <% }) %>
+            </tbody>
+          </table>
+        </div>
+        <p class="mt-2 text-xs text-slate-500"><%= t('customThresholdHint') %></p>
+      </div>
+      <div class="rounded-xl border border-slate-200 bg-slate-50 p-4">
         <h3 class="text-sm font-semibold"><%= t('iotAttendanceTitle') %></h3>
         <p class="mt-1 text-xs text-slate-600"><%= t('iotAttendanceSubtitle') %></p>
         <div class="mt-3 flex items-center gap-2 text-sm">
@@ -45,7 +93,45 @@
           <%= t('iotEndpoint') %>: <code>/iot/attendance/push</code>
         </div>
       </div>
+      <div class="rounded-xl border border-slate-200 bg-slate-50 p-4">
+        <h3 class="text-sm font-semibold"><%= t('hybridSyncTitle') %></h3>
+        <p class="mt-1 text-xs text-slate-600"><%= t('hybridSyncSubtitle') %></p>
+        <div class="mt-3 flex items-center gap-2 text-sm">
+          <input id="hybrid_sync_enabled" type="checkbox" name="hybrid_sync_enabled" <%= hybridSync && hybridSync.enabled ? 'checked' : '' %> />
+          <label for="hybrid_sync_enabled"><%= t('hybridSyncEnabled') %></label>
+        </div>
+        <div class="mt-3 grid gap-3 sm:grid-cols-2">
+          <div class="sm:col-span-2">
+            <label class="label"><%= t('hybridSyncPostgresUrl') %></label>
+            <input class="input" type="text" name="hybrid_sync_pg_url" value="<%= hybridSync ? (hybridSync.postgresUrl || '') : '' %>" placeholder="postgresql://..." />
+          </div>
+          <div>
+            <label class="label"><%= t('hybridSyncSiteId') %></label>
+            <input class="input" type="text" name="hybrid_sync_site_id" value="<%= hybridSync ? (hybridSync.siteId || '') : '' %>" placeholder="aqua-msk-main" />
+          </div>
+          <div>
+            <label class="label"><%= t('hybridSyncInterval') %></label>
+            <input class="input" type="number" min="5" max="720" name="hybrid_sync_interval_min" value="<%= hybridSync ? hybridSync.intervalMin : 15 %>" />
+          </div>
+        </div>
+        <div class="mt-3 flex items-center gap-2 text-sm">
+          <input id="hybrid_sync_ssl_enabled" type="checkbox" name="hybrid_sync_ssl_enabled" <%= !hybridSync || hybridSync.sslEnabled ? 'checked' : '' %> />
+          <label for="hybrid_sync_ssl_enabled"><%= t('hybridSyncSslEnabled') %></label>
+        </div>
+        <div class="mt-3 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-600">
+          <% const syncStatus = hybridSync && hybridSync.lastStatus ? hybridSync.lastStatus : ''; %>
+          <div><strong><%= t('hybridSyncLastStatus') %>:</strong> <%= syncStatus === 'success' ? t('hybridSyncStatusSuccess') : (syncStatus === 'failed' ? t('hybridSyncStatusFailed') : t('hybridSyncStatusNever')) %></div>
+          <div><strong><%= t('hybridSyncLastRun') %>:</strong> <%= hybridSync && hybridSync.lastRun ? hybridSync.lastRun : '-' %></div>
+          <div><strong><%= t('hybridSyncLastRows') %>:</strong> <%= hybridSync && typeof hybridSync.lastRows !== 'undefined' ? hybridSync.lastRows : 0 %></div>
+          <% if (hybridSync && hybridSync.lastError) { %>
+            <div class="text-red-700"><strong><%= t('error') %>:</strong> <%= hybridSync.lastError %></div>
+          <% } %>
+        </div>
+      </div>
       <button class="btn-primary" type="submit"><%= t('saveSettings') %></button>
+    </form>
+    <form method="post" action="/admin/hybrid-sync/run" class="mt-3">
+      <button class="btn-outline" type="submit"><%= t('hybridSyncRunNow') %></button>
     </form>
   </div>
 
