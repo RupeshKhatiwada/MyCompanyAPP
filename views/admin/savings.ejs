@@ -31,7 +31,7 @@
 
   <div class="mt-6 card p-6">
     <h2 class="text-lg font-semibold"><%= t('addSavingsEntry') %></h2>
-    <form class="mt-4 grid gap-3 sm:grid-cols-5" method="post" action="/admin/savings">
+    <form class="mt-4 grid gap-3 sm:grid-cols-6" method="post" action="/admin/savings" data-savings-form>
       <div class="sm:col-span-2">
         <label class="label"><%= t('vehicle') %></label>
         <select class="input" name="vehicle_id" required>
@@ -44,10 +44,19 @@
       </div>
       <div>
         <label class="label"><%= t('savingsType') %></label>
-        <select class="input" name="entry_type" required>
+        <select class="input" name="entry_type" required data-savings-type>
           <option value="deposit"><%= t('savingsDeposit') %></option>
           <option value="withdraw"><%= t('savingsWithdraw') %></option>
         </select>
+      </div>
+      <div data-savings-source-wrap>
+        <label class="label"><%= t('paymentSourceLabel') %></label>
+        <select class="input" name="payment_source" data-savings-source>
+          <option value="DAILY_COLLECTION"><%= t('sourceDailyCollection') %></option>
+          <option value="OWNER_PERSONAL"><%= t('sourceOwnerPersonal') %></option>
+          <option value="BANK_OTHER"><%= t('sourceBankOther') %></option>
+        </select>
+        <p class="mt-1 text-xs text-slate-500" data-savings-source-hint><%= t('savingsDepositSourceFixed') %></p>
       </div>
       <div>
         <label class="label"><%= t('amount') %></label>
@@ -89,6 +98,8 @@
           <tr>
             <th class="px-4 py-3"><%= t('date') %></th>
             <th class="px-4 py-3"><%= t('vehicle') %></th>
+            <th class="px-4 py-3"><%= t('savingsType') %></th>
+            <th class="px-4 py-3"><%= t('paymentSourceLabel') %></th>
             <th class="px-4 py-3"><%= t('amount') %></th>
             <th class="px-4 py-3"><%= t('savingsBalance') %></th>
             <th class="px-4 py-3"><%= t('note') %></th>
@@ -98,15 +109,19 @@
         <tbody>
           <% if (!entries || entries.length === 0) { %>
             <tr>
-              <td class="px-4 py-4 text-slate-500" colspan="6"><%= t('noSavings') %></td>
+              <td class="px-4 py-4 text-slate-500" colspan="8"><%= t('noSavings') %></td>
             </tr>
           <% } %>
           <% entries.forEach((row) => { %>
             <% const label = `${row.owner_name} • ${row.vehicle_number}`; %>
+            <% const entryType = row.amount < 0 ? 'withdraw' : 'deposit'; %>
+            <% const sourceLabel = row.payment_source === 'OWNER_PERSONAL' ? t('sourceOwnerPersonal') : row.payment_source === 'BANK_OTHER' ? t('sourceBankOther') : t('sourceDailyCollection'); %>
             <tr class="table-row">
               <td class="px-4 py-3"><%= row.entry_date %></td>
               <td class="px-4 py-3 font-medium"><%= label %></td>
-              <td class="px-4 py-3"><%= row.amount %></td>
+              <td class="px-4 py-3"><%= entryType === 'withdraw' ? t('savingsWithdraw') : t('savingsDeposit') %></td>
+              <td class="px-4 py-3"><%= sourceLabel %></td>
+              <td class="px-4 py-3"><%= Math.abs(row.amount) %></td>
               <td class="px-4 py-3"><%= balances[row.vehicle_id] || 0 %></td>
               <td class="px-4 py-3"><%= row.note || '-' %></td>
               <td class="px-4 py-3"><%= row.recorded_by || '-' %></td>
@@ -117,4 +132,32 @@
     </div>
   </div>
 </section>
+<script>
+  (() => {
+    const form = document.querySelector("[data-savings-form]");
+    if (!form) return;
+    const typeSelect = form.querySelector("[data-savings-type]");
+    const sourceWrap = form.querySelector("[data-savings-source-wrap]");
+    const sourceSelect = form.querySelector("[data-savings-source]");
+    const sourceHint = form.querySelector("[data-savings-source-hint]");
+    if (!typeSelect || !sourceWrap || !sourceSelect || !sourceHint) return;
+
+    const updateSourceUI = () => {
+      const isWithdraw = typeSelect.value === "withdraw";
+      if (isWithdraw) {
+        sourceWrap.classList.remove("opacity-60");
+        sourceSelect.disabled = false;
+        sourceHint.classList.add("hidden");
+      } else {
+        sourceSelect.value = "DAILY_COLLECTION";
+        sourceSelect.disabled = true;
+        sourceWrap.classList.add("opacity-60");
+        sourceHint.classList.remove("hidden");
+      }
+    };
+
+    typeSelect.addEventListener("change", updateSourceUI);
+    updateSourceUI();
+  })();
+</script>
 <%- include('../partials/shell-end') %>

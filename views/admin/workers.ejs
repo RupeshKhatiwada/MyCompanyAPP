@@ -1,5 +1,6 @@
 <%- include('../partials/shell-start', { title }) %>
 <% const showInactive = Number(includeInactive || 0) === 1; %>
+<% const searchValue = String(q || ''); %>
 <section class="py-8">
   <div class="flex flex-wrap items-center justify-between gap-3">
     <div>
@@ -8,11 +9,23 @@
     </div>
     <div class="flex flex-wrap gap-2">
       <a class="btn-outline" href="/admin/workers?include_inactive=<%= showInactive ? '0' : '1' %>">
-        <%= showInactive ? t('hideArchived') : t('showArchived') %>
+        <%= showInactive ? t('hideInactive') : t('showInactive') %>
       </a>
       <a class="btn-primary" href="/admin/workers/new"><%= t('addWorkerTitle') %></a>
     </div>
   </div>
+
+  <form class="mt-4 flex flex-wrap items-end gap-3" method="get" action="/admin/workers">
+    <input type="hidden" name="include_inactive" value="<%= showInactive ? '1' : '0' %>" />
+    <div class="min-w-[220px] flex-1">
+      <label class="label"><%= t('search') %></label>
+      <input class="input" type="text" name="q" value="<%= searchValue %>" placeholder="<%= t('workerSearchPlaceholder') %>" />
+    </div>
+    <button class="btn-primary" type="submit"><%= t('search') %></button>
+    <% if (searchValue) { %>
+      <a class="btn-outline" href="/admin/workers?include_inactive=<%= showInactive ? '1' : '0' %>"><%= t('clear') %></a>
+    <% } %>
+  </form>
 
   <div class="mt-6 card overflow-hidden">
     <% if (success) { %>
@@ -59,12 +72,12 @@
                   <a class="btn-outline" href="/admin/workers/<%= worker.id %>"><%= t('manage') %></a>
                   <a class="btn-outline" href="/admin/workers/<%= worker.id %>/edit"><%= t('edit') %></a>
                   <% if (Number(worker.is_active) === 1) { %>
-                    <form method="post" action="/admin/workers/<%= worker.id %>/delete" onsubmit="return confirm('<%= t('archiveWorkerConfirm') %>');">
-                      <button class="btn-danger" type="submit"><%= t('archive') %></button>
+                    <form method="post" action="/admin/workers/<%= worker.id %>/delete" onsubmit="return confirm('<%= t('deactivateWorkerConfirm') %>');">
+                      <button class="btn-danger" type="submit"><%= t('inactive') %></button>
                     </form>
                   <% } else { %>
-                    <form method="post" action="/admin/workers/<%= worker.id %>/activate" onsubmit="return confirm('<%= t('unarchiveWorkerConfirm') %>');">
-                      <button class="btn-primary" type="submit"><%= t('unarchive') %></button>
+                    <form method="post" action="/admin/workers/<%= worker.id %>/activate" onsubmit="return confirm('<%= t('activateWorkerConfirm') %>');">
+                      <button class="btn-primary" type="submit"><%= t('active') %></button>
                     </form>
                   <% } %>
                 </div>

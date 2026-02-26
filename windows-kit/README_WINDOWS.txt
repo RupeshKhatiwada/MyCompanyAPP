@@ -9,6 +9,12 @@ Auto start when Windows logs in:
 - Right click PowerShell and Run:
   powershell -ExecutionPolicy Bypass -File .\install-startup-task.ps1
 
+One-click maintenance (health check + backup test + CSS build + kit refresh):
+- Double click: maintenance-one-click.bat
+
+One-click update (git pull + npm install + maintenance):
+- Double click: update-aqua-msk.bat
+
 Stop server:
 - Double click: stop-aqua-msk.bat
 

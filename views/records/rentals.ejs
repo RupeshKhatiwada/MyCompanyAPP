@@ -1,0 +1,145 @@
+<%- include('../partials/shell-start', { title }) %>
+<section class="py-8">
+  <div class="flex flex-wrap items-center justify-between gap-3">
+    <div>
+      <h1 class="text-3xl font-semibold"><%= t('rentalsTitle') %></h1>
+      <p class="text-slate-600"><%= t('rentalsSubtitle') %></p>
+    </div>
+  </div>
+
+  <% if (error) { %>
+    <div class="mt-4 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700"><%= error %></div>
+  <% } %>
+  <% if (success) { %>
+    <div class="mt-4 rounded-lg bg-emerald-50 px-4 py-3 text-sm text-emerald-700"><%= success %></div>
+  <% } %>
+
+  <form class="mt-4 flex flex-wrap items-end gap-3" method="get" action="/records/rentals">
+    <div>
+      <label class="label"><%= t('from') %></label>
+      <input class="input" type="date" name="from" value="<%= from %>" />
+    </div>
+    <div>
+      <label class="label"><%= t('to') %></label>
+      <input class="input" type="date" name="to" value="<%= to %>" />
+    </div>
+    <div class="min-w-[220px]">
+      <label class="label"><%= t('search') %></label>
+      <input class="input" type="text" name="q" value="<%= q || '' %>" placeholder="<%= t('searchPlaceholder') %>" />
+    </div>
+    <button class="btn-outline" type="submit"><%= t('filter') %></button>
+  </form>
+
+  <div class="mt-6 card p-6">
+    <h2 class="text-lg font-semibold"><%= t('addRentEntry') %></h2>
+    <form class="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-6" method="post" action="/records/rentals">
+      <div>
+        <label class="label"><%= t('date') %></label>
+        <input class="input" type="date" name="rent_date" value="<%= to %>" required />
+      </div>
+      <div class="lg:col-span-2">
+        <label class="label"><%= t('renterName') %></label>
+        <input class="input" type="text" name="renter_name" required />
+      </div>
+      <div class="lg:col-span-2">
+        <label class="label"><%= t('rentItem') %></label>
+        <input class="input" type="text" name="item_name" required />
+      </div>
+      <div>
+        <label class="label"><%= t('amount') %></label>
+        <input class="input" type="number" min="0.01" step="0.01" name="amount" required />
+      </div>
+      <div>
+        <label class="label"><%= t('paymentMethodLabel') %></label>
+        <select class="input" name="payment_method">
+          <option value="CASH"><%= t('methodCash') %></option>
+          <option value="BANK"><%= t('methodBank') %></option>
+          <option value="E_WALLET"><%= t('methodEWallet') %></option>
+        </select>
+      </div>
+      <div class="sm:col-span-2 lg:col-span-3">
+        <label class="inline-flex items-center gap-2 text-sm pt-8">
+          <input type="checkbox" name="add_to_collection" value="1" checked />
+          <span><%= t('rentAddToCollection') %></span>
+        </label>
+      </div>
+      <div class="sm:col-span-2 lg:col-span-6">
+        <label class="label"><%= t('note') %></label>
+        <input class="input" type="text" name="note" />
+      </div>
+      <div class="sm:col-span-2 lg:col-span-6">
+        <button class="btn-primary" type="submit"><%= t('save') %></button>
+      </div>
+    </form>
+  </div>
+
+  <div class="mt-6 grid gap-3 sm:grid-cols-3">
+    <div class="card p-4">
+      <p class="text-slate-500"><%= t('entries') %></p>
+      <p class="text-lg font-semibold"><%= totals.count || 0 %></p>
+    </div>
+    <div class="card p-4">
+      <p class="text-slate-500"><%= t('totalAmount') %></p>
+      <p class="text-lg font-semibold"><%= totals.total || 0 %></p>
+    </div>
+    <div class="card p-4">
+      <p class="text-slate-500"><%= t('rentCollectionAmount') %></p>
+      <p class="text-lg font-semibold"><%= totals.collection || 0 %></p>
+    </div>
+  </div>
+
+  <div class="mt-6 card overflow-hidden">
+    <div class="overflow-x-auto">
+      <table class="table-base">
+        <thead class="table-head">
+          <tr>
+            <th class="px-4 py-3"><%= t('date') %></th>
+            <th class="px-4 py-3"><%= t('renterName') %></th>
+            <th class="px-4 py-3"><%= t('rentItem') %></th>
+            <th class="px-4 py-3"><%= t('amount') %></th>
+            <th class="px-4 py-3"><%= t('paymentMethodLabel') %></th>
+            <th class="px-4 py-3"><%= t('includeInCollection') %></th>
+            <th class="px-4 py-3"><%= t('note') %></th>
+            <th class="px-4 py-3"><%= t('recordedBy') %></th>
+            <th class="table-action-sticky px-4 py-3 text-right"><%= t('actions') %></th>
+          </tr>
+        </thead>
+        <tbody>
+          <% if (!rows || rows.length === 0) { %>
+            <tr>
+              <td class="px-4 py-4 text-slate-500" colspan="9"><%= t('noRentEntries') %></td>
+            </tr>
+          <% } %>
+          <% (rows || []).forEach((row) => { %>
+            <% const methodLabel = row.payment_method === 'BANK' ? t('methodBank') : row.payment_method === 'E_WALLET' ? t('methodEWallet') : t('methodCash'); %>
+            <tr class="table-row">
+              <td class="px-4 py-3"><%= row.rent_date %></td>
+              <td class="px-4 py-3"><%= row.renter_name %></td>
+              <td class="px-4 py-3"><%= row.item_name %></td>
+              <td class="px-4 py-3"><%= row.amount %></td>
+              <td class="px-4 py-3"><%= methodLabel %></td>
+              <td class="px-4 py-3">
+                <span class="badge <%= Number(row.add_to_collection) === 1 ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-700' %>">
+                  <%= Number(row.add_to_collection) === 1 ? t('yes') : t('no') %>
+                </span>
+              </td>
+              <td class="px-4 py-3"><%= row.note || '-' %></td>
+              <td class="px-4 py-3"><%= row.recorded_by || '-' %></td>
+              <td class="table-action-sticky px-4 py-3 text-right">
+                <details class="action-menu">
+                  <summary class="btn-outline h-9 w-9 flex items-center justify-center">⋯</summary>
+                  <div class="action-menu-panel">
+                    <form method="post" action="/records/rentals/<%= row.id %>/delete" onsubmit="return confirm('<%= t('deleteRentConfirm') %>');">
+                      <button class="action-menu-item action-menu-danger" type="submit"><%= t('delete') %></button>
+                    </form>
+                  </div>
+                </details>
+              </td>
+            </tr>
+          <% }) %>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+<%- include('../partials/shell-end') %>

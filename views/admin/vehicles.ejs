@@ -9,7 +9,7 @@
     </div>
     <div class="flex flex-wrap gap-2">
       <a class="btn-outline" href="<%= routeBase %>?include_inactive=<%= showInactive ? '0' : '1' %>">
-        <%= showInactive ? t('hideArchived') : t('showArchived') %>
+        <%= showInactive ? t('hideInactive') : t('showInactive') %>
       </a>
       <a class="btn-primary" href="<%= routeBase %>/new"><%= t('addVehicle') %></a>
     </div>
@@ -52,7 +52,7 @@
               <td class="px-4 py-3"><%= vehicle.phone || '-' %></td>
               <td class="px-4 py-3"><%= vehicle.is_company ? t('companyVehicle') : t('partnerVehicle') %></td>
               <td class="px-4 py-3">
-                <% if (Number(vehicle.is_active || 1) === 1) { %>
+                <% if (Number(vehicle.is_active ?? 1) === 1) { %>
                   <span class="badge bg-emerald-100 text-emerald-700"><%= t('active') %></span>
                 <% } else { %>
                   <span class="badge bg-slate-100 text-slate-700"><%= t('inactive') %></span>
@@ -61,13 +61,13 @@
               <td class="px-4 py-3 text-right">
                 <div class="flex justify-end gap-2">
                   <a class="btn-outline" href="<%= routeBase %>/<%= vehicle.id %>/edit"><%= t('edit') %></a>
-                  <% if (Number(vehicle.is_active || 1) === 1) { %>
+                  <% if (Number(vehicle.is_active ?? 1) === 1) { %>
                     <form method="post" action="<%= routeBase %>/<%= vehicle.id %>/archive" onsubmit="return confirm('<%= t('archiveVehicleConfirm') %>');">
-                      <button class="btn-danger" type="submit"><%= t('archive') %></button>
+                      <button class="btn-danger" type="submit"><%= t('inactive') %></button>
                     </form>
                   <% } else { %>
                     <form method="post" action="<%= routeBase %>/<%= vehicle.id %>/activate" onsubmit="return confirm('<%= t('activateVehicleConfirm') %>');">
-                      <button class="btn-primary" type="submit"><%= t('activate') %></button>
+                      <button class="btn-primary" type="submit"><%= t('active') %></button>
                     </form>
                   <% } %>
                 </div>

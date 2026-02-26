@@ -21,6 +21,64 @@
     </form>
   </div>
 
+  <div class="mt-4 card p-6">
+    <h2 class="text-lg font-semibold"><%= t('quickActions') %></h2>
+    <div class="mt-4 flex flex-wrap gap-2">
+      <a class="btn-primary" href="/admin/vehicles/new"><%= t('addVehicle') %></a>
+      <a class="btn-outline" href="/records/exports/new"><%= t('addExport') %></a>
+      <a class="btn-outline" href="/records/credits/new"><%= t('addCredit') %></a>
+      <a class="btn-outline" href="/records/water-tests"><%= t('waterTestsTitle') %></a>
+      <a class="btn-outline" href="/records/reconciliation"><%= t('reconciliationTitle') %></a>
+      <a class="btn-outline" href="/search"><%= t('search') %></a>
+      <a class="btn-outline" href="/records/imports"><%= t('importsTitle') %></a>
+      <a class="btn-outline" href="/admin/audit"><%= t('auditCenterTitle') %></a>
+    </div>
+  </div>
+
+  <div class="mt-4 card p-6">
+    <h2 class="text-lg font-semibold"><%= t('snapshotViewsTitle') %></h2>
+    <p class="mt-1 text-sm text-slate-600"><%= t('snapshotViewsSubtitle') %></p>
+    <div class="mt-4 flex flex-wrap gap-2" id="snapshotRangeToggle">
+      <button
+        class="btn-outline snapshot-range-btn !border-red-600 !bg-red-600 !text-white"
+        type="button"
+        data-default-selected="1"
+        data-from="<%= snapshotRanges.daily.from %>"
+        data-to="<%= snapshotRanges.daily.to %>"
+      ><%= t('snapshotDaily') %></button>
+      <button
+        class="btn-outline snapshot-range-btn"
+        type="button"
+        data-from="<%= snapshotRanges.weekly.from %>"
+        data-to="<%= snapshotRanges.weekly.to %>"
+      ><%= t('snapshotWeekly') %></button>
+      <button
+        class="btn-outline snapshot-range-btn"
+        type="button"
+        data-from="<%= snapshotRanges.monthly.from %>"
+        data-to="<%= snapshotRanges.monthly.to %>"
+      ><%= t('snapshotMonthly') %></button>
+      <button
+        class="btn-outline snapshot-range-btn"
+        type="button"
+        data-from="<%= snapshotRanges.yearly.from %>"
+        data-to="<%= snapshotRanges.yearly.to %>"
+      ><%= t('snapshotYearly') %></button>
+      <button
+        class="btn-outline snapshot-range-btn"
+        type="button"
+        data-from="<%= snapshotRanges.all.from %>"
+        data-to="<%= snapshotRanges.all.to %>"
+      ><%= t('snapshotAllTime') %></button>
+    </div>
+    <form class="mt-3 flex flex-wrap items-center gap-2" id="snapshotRangeForm" method="get" action="/admin/reports/all">
+      <input type="hidden" name="from" value="<%= snapshotRanges.daily.from %>" />
+      <input type="hidden" name="to" value="<%= snapshotRanges.daily.to %>" />
+      <button class="btn-primary" type="submit"><%= t('openSnapshotView') %></button>
+      <span class="pill" id="snapshotRangeText"><%= snapshotRanges.daily.from %> → <%= snapshotRanges.daily.to %></span>
+    </form>
+  </div>
+
   <% if (stats.backupOverdue) { %>
     <div class="mt-6 card border border-amber-200 bg-amber-50 p-5">
       <div class="flex flex-wrap items-center justify-between gap-3">
@@ -56,6 +114,11 @@
         <%= t('exportsTitle') %>: <span class="font-semibold"><%= stats.monthExport.paid %></span> •
         <%= t('customerPayments') %>: <span class="font-semibold"><%= stats.monthCustomer.paid %></span>
       </p>
+      <p class="mt-1 text-xs text-slate-600">
+        <%= t('methodCash') %>: <span class="font-semibold"><%= stats.monthPaidByMethod?.cash || 0 %></span> •
+        <%= t('methodBank') %>: <span class="font-semibold"><%= stats.monthPaidByMethod?.bank || 0 %></span> •
+        <%= t('methodEWallet') %>: <span class="font-semibold"><%= stats.monthPaidByMethod?.eWallet || 0 %></span>
+      </p>
     </div>
     <div class="card border border-amber-200/80 bg-gradient-to-br from-white via-amber-50 to-white p-5">
       <p class="text-xs font-semibold uppercase tracking-wide text-amber-700"><%= t('monthCredit') %></p>
@@ -78,30 +141,18 @@
     </div>
   </div>
 
-  <div class="mt-8 grid gap-4 md:grid-cols-2">
-    <div class="card p-6">
-      <h2 class="text-lg font-semibold"><%= t('quickActions') %></h2>
-      <div class="mt-4 flex flex-wrap gap-2">
-        <a class="btn-primary" href="/admin/vehicles/new"><%= t('addVehicle') %></a>
-        <a class="btn-outline" href="/records/exports/new"><%= t('addExport') %></a>
-        <a class="btn-outline" href="/records/credits/new"><%= t('addCredit') %></a>
-        <a class="btn-outline" href="/records/water-tests"><%= t('waterTestsTitle') %></a>
-        <a class="btn-outline" href="/search"><%= t('search') %></a>
-        <a class="btn-outline" href="/records/imports"><%= t('importsTitle') %></a>
-      </div>
+  <div class="mt-4 card p-6">
+    <h2 class="text-lg font-semibold"><%= t('reports') %></h2>
+    <p class="mt-2 text-sm text-slate-600"><%= t('printExportSales') %></p>
+    <div class="mt-3">
+      <% const backupText = stats.lastBackupAt ? new Date(stats.lastBackupAt).toLocaleString() : t('backupNever'); %>
+      <span class="pill"><%= t('lastBackup') %>: <%= backupText %></span>
     </div>
-    <div class="card p-6">
-      <h2 class="text-lg font-semibold"><%= t('reports') %></h2>
-      <p class="mt-2 text-sm text-slate-600"><%= t('printExportSales') %></p>
-      <div class="mt-3">
-        <% const backupText = stats.lastBackupAt ? new Date(stats.lastBackupAt).toLocaleString() : t('backupNever'); %>
-        <span class="pill"><%= t('lastBackup') %>: <%= backupText %></span>
-      </div>
-      <div class="mt-4 flex flex-wrap gap-2">
-        <a class="btn-outline" href="/admin/reports/summary"><%= t('summaryChart') %></a>
-        <a class="btn-outline" href="/admin/reports/sales"><%= t('salesReport') %></a>
-        <a class="btn-outline" href="/admin/backup"><%= t('backupDatabase') %></a>
-      </div>
+    <div class="mt-4 flex flex-wrap gap-2">
+      <a class="btn-outline" href="/admin/reports/summary"><%= t('summaryChart') %></a>
+      <a class="btn-outline" href="/admin/reports/sales"><%= t('salesReport') %></a>
+      <a class="btn-outline" href="/admin/reports/payroll-summary"><%= t('payrollSummaryTitle') %></a>
+      <a class="btn-outline" href="/admin/backup"><%= t('backupDatabase') %></a>
     </div>
   </div>
 
@@ -178,4 +229,38 @@
     </div>
   </div>
 </section>
+<script>
+  (function () {
+    var wrap = document.getElementById("snapshotRangeToggle");
+    var form = document.getElementById("snapshotRangeForm");
+    if (!wrap || !form) return;
+    var fromInput = form.querySelector('input[name="from"]');
+    var toInput = form.querySelector('input[name="to"]');
+    var rangeText = document.getElementById("snapshotRangeText");
+    var buttons = Array.prototype.slice.call(wrap.querySelectorAll(".snapshot-range-btn"));
+
+    function setActive(button) {
+      if (!button) return;
+      buttons.forEach(function (btn) {
+        var active = btn === button;
+        btn.setAttribute("aria-pressed", active ? "true" : "false");
+        btn.classList.toggle("!border-red-600", active);
+        btn.classList.toggle("!bg-red-600", active);
+        btn.classList.toggle("!text-white", active);
+      });
+      fromInput.value = button.getAttribute("data-from") || "";
+      toInput.value = button.getAttribute("data-to") || "";
+      if (rangeText) rangeText.textContent = fromInput.value + " → " + toInput.value;
+    }
+
+    wrap.addEventListener("click", function (event) {
+      var button = event.target.closest(".snapshot-range-btn");
+      if (!button) return;
+      setActive(button);
+    });
+
+    var defaultButton = wrap.querySelector("[data-default-selected]") || buttons[0];
+    setActive(defaultButton);
+  })();
+</script>
 <%- include('../partials/shell-end') %>

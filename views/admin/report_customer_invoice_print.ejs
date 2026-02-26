@@ -23,6 +23,10 @@
       <span><%= t('from') %>: <%= from %></span>
       <span class="mx-2">•</span>
       <span><%= t('to') %>: <%= to %></span>
+      <% if (invoiceNo) { %>
+        <span class="mx-2">•</span>
+        <span><%= t('invoiceNo') %>: <strong><%= invoiceNo %></strong></span>
+      <% } %>
     </div>
 
     <div class="mt-6 grid gap-3 text-sm sm:grid-cols-3">
@@ -70,5 +74,12 @@
       </table>
     </div>
   </div>
+  <% if (autoPrint) { %>
+    <script>
+      window.addEventListener('load', function () {
+        window.print();
+      });
+    </script>
+  <% } %>
 </body>
 </html>

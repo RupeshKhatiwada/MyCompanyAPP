@@ -70,6 +70,10 @@
             <option value="CITIZENSHIP" <%= document && document.doc_type === 'CITIZENSHIP' ? 'selected' : '' %>><%= t('docCitizenship') %></option>
             <option value="LICENSE" <%= document && document.doc_type === 'LICENSE' ? 'selected' : '' %>><%= t('docLicense') %></option>
             <option value="PASSPORT" <%= document && document.doc_type === 'PASSPORT' ? 'selected' : '' %>><%= t('docPassport') %></option>
+            <option value="PAN" <%= document && document.doc_type === 'PAN' ? 'selected' : '' %>><%= t('docPan') %></option>
+            <option value="NATIONAL_ID" <%= document && document.doc_type === 'NATIONAL_ID' ? 'selected' : '' %>><%= t('docNationalId') %></option>
+            <option value="VOTER_CARD" <%= document && document.doc_type === 'VOTER_CARD' ? 'selected' : '' %>><%= t('docVoterCard') %></option>
+            <option value="OTHERS" <%= document && document.doc_type === 'OTHERS' ? 'selected' : '' %>><%= t('docOthers') %></option>
           </select>
         </div>
         <div class="mt-3 grid gap-3 sm:grid-cols-2" id="docDouble">

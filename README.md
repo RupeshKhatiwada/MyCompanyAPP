@@ -22,6 +22,16 @@ Offline, localhost-only management system for water jar production.
 4. Open:
    - `http://localhost:3000`
 
+## Stability & Deployment Readiness
+- Run full health check:
+  - `npm run health:check`
+- Create + verify backup:
+  - `npm run backup:test`
+- One-click maintenance (build CSS + health + backup test + regenerate Windows kit):
+  - `npm run maintenance:one-click`
+- Unix shell helper:
+  - `bash scripts/maintenance-one-click.sh`
+
 ## Windows Deployment Kit
 Generate helper scripts:
 
@@ -31,6 +41,8 @@ Generate helper scripts:
    - `windows-kit/start-aqua-msk.bat` (one-click run)
    - `windows-kit/install-startup-task.ps1` (auto-start on login)
    - `windows-kit/backup-to-usb.ps1` (copy DB/backups to USB/cloud folder)
+   - `windows-kit/maintenance-one-click.bat` (one-click maintenance)
+   - `windows-kit/update-aqua-msk.bat` (one-click update + maintenance)
 
 ## Data & Backup Notes
 - Database file: `data/aqua.db`

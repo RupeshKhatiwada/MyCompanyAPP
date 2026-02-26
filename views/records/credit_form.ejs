@@ -12,17 +12,61 @@
     <% if (error) { %>
       <div class="mb-4 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700"><%= error %></div>
     <% } %>
-    <% const tripDateValue = record ? (record.trip_date || '') : (typeof defaultTripDate !== 'undefined' ? defaultTripDate : ''); %>
-    <form method="post" action="<%= record ? '/records/credits/' + record.id : '/records/credits' %>" class="space-y-4">
+    <% const duplicateWarningValue = typeof duplicateWarning !== 'undefined' ? duplicateWarning : null; %>
+    <%
+      const safeFormValues = typeof formValues !== 'undefined' && formValues ? formValues : {};
+      const isEdit = !!(record && record.id);
+      const pickValue = (key, fallback = '') => {
+        if (Object.prototype.hasOwnProperty.call(safeFormValues, key)) return safeFormValues[key];
+        if (record && typeof record[key] !== 'undefined' && record[key] !== null) return record[key];
+        return fallback;
+      };
+      const selectedVehicleRaw = pickValue('vehicle_id', typeof selectedVehicleId !== 'undefined' ? selectedVehicleId : '');
+      const selectedVehicleValue = String(selectedVehicleRaw || '');
+      const tripDateValue = pickValue('trip_date', typeof defaultTripDate !== 'undefined' ? defaultTripDate : '');
+    %>
+    <form method="post" action="<%= isEdit ? '/records/credits/' + record.id : '/records/credits' %>" class="space-y-4">
+      <% if (duplicateWarningValue && duplicateWarningValue.type === 'credit') { %>
+        <div class="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          <p class="font-semibold"><%= t('duplicateCreditWarningTitle') %></p>
+          <p class="mt-1"><%= t('duplicateCreditWarningText') %></p>
+          <div class="mt-3 overflow-x-auto">
+            <table class="table-base text-xs">
+              <thead class="table-head">
+                <tr>
+                  <th class="px-2 py-1"><%= t('receiptNo') %></th>
+                  <th class="px-2 py-1"><%= t('date') %></th>
+                  <th class="px-2 py-1"><%= t('vehicle') %></th>
+                  <th class="px-2 py-1"><%= t('customerName') %></th>
+                  <th class="px-2 py-1"><%= t('amount') %></th>
+                </tr>
+              </thead>
+              <tbody>
+                <% duplicateWarningValue.rows.forEach((row) => { %>
+                  <tr class="table-row">
+                    <td class="px-2 py-1"><%= row.receipt_no || (`#${row.id}`) %></td>
+                    <td class="px-2 py-1"><%= row.credit_date %></td>
+                    <td class="px-2 py-1"><%= `${row.owner_name} • ${row.vehicle_number}` %></td>
+                    <td class="px-2 py-1"><%= row.customer_name %></td>
+                    <td class="px-2 py-1"><%= row.amount %></td>
+                  </tr>
+                <% }) %>
+              </tbody>
+            </table>
+          </div>
+          <label class="mt-3 inline-flex items-center gap-2 text-sm">
+            <input type="checkbox" name="allow_duplicate_entry" value="1" required />
+            <span><%= t('confirmDuplicateEntry') %></span>
+          </label>
+        </div>
+      <% } %>
       <div>
         <label class="label"><%= t('vehicle') %></label>
         <select class="input" name="vehicle_id" required>
           <option value=""><%= t('selectVehicle') %></option>
           <% vehicles.forEach((vehicle) => { %>
             <% const label = `${vehicle.owner_name} • ${vehicle.vehicle_number}`; %>
-            <% const isSelected = record
-              ? Number(record.vehicle_id) === Number(vehicle.id)
-              : Number(typeof selectedVehicleId !== 'undefined' ? selectedVehicleId : 0) === Number(vehicle.id); %>
+            <% const isSelected = Number(selectedVehicleValue || 0) === Number(vehicle.id); %>
             <option value="<%= vehicle.id %>" <%= isSelected ? 'selected' : '' %>><%= label %></option>
           <% }) %>
         </select>
@@ -34,7 +78,7 @@
       </div>
       <div>
         <label class="label"><%= t('customerName') %></label>
-        <input class="input" type="text" name="customer_name" list="customerList" value="<%= record ? record.customer_name : '' %>" required />
+        <input class="input" type="text" name="customer_name" list="customerList" value="<%= pickValue('customer_name', '') %>" required />
         <datalist id="customerList">
           <% (customers || []).forEach((name) => { %>
             <option value="<%= name %>"></option>
@@ -43,60 +87,69 @@
       </div>
       <div>
         <label class="label"><%= t('date') %></label>
-        <input class="input" type="date" name="credit_date" value="<%= defaultDate %>" required />
+        <input class="input" type="date" name="credit_date" value="<%= pickValue('credit_date', defaultDate) %>" required />
       </div>
       <div class="grid gap-4 md:grid-cols-4">
         <div>
           <label class="label"><%= t('creditJars') %></label>
-          <input id="creditJars" class="input" type="number" min="0" name="credit_jars" value="<%= record ? record.credit_jars : 0 %>" />
+          <input id="creditJars" class="input" type="number" min="0" name="credit_jars" value="<%= pickValue('credit_jars', 0) %>" />
         </div>
         <div>
           <label class="label"><%= t('pricePerJar') %></label>
-          <input id="jarPrice" class="input" type="number" min="0" step="0.01" name="jar_price" value="<%= record ? (record.jar_price || 0) : 0 %>" />
+          <input id="jarPrice" class="input" type="number" min="0" step="0.01" name="jar_price" value="<%= pickValue('jar_price', 0) %>" />
         </div>
         <div>
           <label class="label"><%= t('creditBottleCases') %></label>
-          <input id="creditBottles" class="input" type="number" min="0" name="credit_bottle_cases" value="<%= record ? record.credit_bottle_cases : 0 %>" />
+          <input id="creditBottles" class="input" type="number" min="0" name="credit_bottle_cases" value="<%= pickValue('credit_bottle_cases', 0) %>" />
         </div>
         <div>
           <label class="label"><%= t('pricePerBottleCase') %></label>
-          <input id="bottlePrice" class="input" type="number" min="0" step="0.01" name="bottle_case_price" value="<%= record ? (record.bottle_case_price || 0) : 0 %>" />
+          <input id="bottlePrice" class="input" type="number" min="0" step="0.01" name="bottle_case_price" value="<%= pickValue('bottle_case_price', 0) %>" />
         </div>
       </div>
       <div class="grid gap-4 md:grid-cols-4">
         <div>
           <label class="label"><%= t('creditDispensers') %></label>
-          <input id="creditDispensers" class="input" type="number" min="0" name="credit_dispensers" value="<%= record ? (record.credit_dispensers || 0) : 0 %>" />
+          <input id="creditDispensers" class="input" type="number" min="0" name="credit_dispensers" value="<%= pickValue('credit_dispensers', 0) %>" />
         </div>
         <div>
           <label class="label"><%= t('pricePerDispenser') %></label>
-          <input id="dispenserPrice" class="input" type="number" min="0" step="0.01" name="dispenser_price" value="<%= record ? (record.dispenser_price || 0) : 0 %>" />
+          <input id="dispenserPrice" class="input" type="number" min="0" step="0.01" name="dispenser_price" value="<%= pickValue('dispenser_price', 0) %>" />
         </div>
         <div>
           <label class="label"><%= t('creditJarContainers') %></label>
-          <input id="creditJarContainers" class="input" type="number" min="0" name="credit_jar_containers" value="<%= record ? (record.credit_jar_containers || 0) : 0 %>" />
+          <input id="creditJarContainers" class="input" type="number" min="0" name="credit_jar_containers" value="<%= pickValue('credit_jar_containers', 0) %>" />
         </div>
         <div>
           <label class="label"><%= t('jarContainerPrice') %></label>
-          <input id="jarContainerPrice" class="input" type="number" min="0" step="0.01" name="jar_container_price" value="<%= record ? (record.jar_container_price || 0) : 0 %>" />
+          <input id="jarContainerPrice" class="input" type="number" min="0" step="0.01" name="jar_container_price" value="<%= pickValue('jar_container_price', 0) %>" />
         </div>
       </div>
       <div class="grid gap-4 md:grid-cols-3">
         <div>
           <label class="label"><%= t('amount') %></label>
-          <input id="creditAmount" class="input bg-slate-50" type="number" step="0.01" name="amount" value="<%= record ? record.amount : 0 %>" readonly />
+          <input id="creditAmount" class="input bg-slate-50" type="number" step="0.01" name="amount" value="<%= pickValue('amount', 0) %>" readonly />
         </div>
         <div>
           <label class="label"><%= t('paidAmount') %></label>
-          <input id="paidAmount" class="input" type="number" step="0.01" min="0" name="paid_amount" value="<%= record ? record.paid_amount : 0 %>" />
+          <input id="paidAmount" class="input" type="number" step="0.01" min="0" name="paid_amount" value="<%= pickValue('paid_amount', 0) %>" />
         </div>
         <div>
           <label class="label"><%= t('remainingAmount') %></label>
           <input id="remainingAmount" class="input bg-slate-50" type="number" step="0.01" value="0" readonly />
         </div>
       </div>
+      <div>
+        <label class="label"><%= t('paymentMethodLabel') %></label>
+        <% const creditPaymentMethod = String(pickValue('payment_method', 'CASH') || 'CASH').toUpperCase(); %>
+        <select class="input" name="payment_method">
+          <option value="CASH" <%= creditPaymentMethod === 'CASH' ? 'selected' : '' %>><%= t('methodCash') %></option>
+          <option value="BANK" <%= creditPaymentMethod === 'BANK' ? 'selected' : '' %>><%= t('methodBank') %></option>
+          <option value="E_WALLET" <%= creditPaymentMethod === 'E_WALLET' ? 'selected' : '' %>><%= t('methodEWallet') %></option>
+        </select>
+      </div>
       <div class="flex items-center gap-2">
-        <input id="markPaid" type="checkbox" name="paid" class="h-4 w-4" <%= record && record.amount <= record.paid_amount ? 'checked' : '' %> />
+        <input id="markPaid" type="checkbox" name="paid" class="h-4 w-4" <%= Number(pickValue('amount', 0)) <= Number(pickValue('paid_amount', 0)) && Number(pickValue('amount', 0)) > 0 ? 'checked' : '' %> />
         <label class="label" for="markPaid"><%= t('markAsPaid') %></label>
       </div>
       <button class="btn-primary" type="submit"><%= t('save') %></button>

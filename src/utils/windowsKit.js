@@ -32,6 +32,49 @@ echo AQUA MSK server stopped.
 pause
 `);
 
+  writeFile("maintenance-one-click.bat", `@echo off
+setlocal
+set APP_DIR=%~dp0..
+cd /d "%APP_DIR%"
+if not exist data\\sessions mkdir data\\sessions
+if not exist data\\backups mkdir data\\backups
+call npm run deploy:ready
+if errorlevel 1 (
+  echo Maintenance failed.
+  pause
+  exit /b 1
+)
+echo Maintenance completed successfully.
+pause
+`);
+
+  writeFile("update-aqua-msk.bat", `@echo off
+setlocal
+set APP_DIR=%~dp0..
+cd /d "%APP_DIR%"
+if not exist data\\sessions mkdir data\\sessions
+if not exist data\\backups mkdir data\\backups
+where git >nul 2>&1
+if %errorlevel%==0 (
+  echo Pulling latest changes...
+  git pull
+)
+call npm install
+if errorlevel 1 (
+  echo npm install failed.
+  pause
+  exit /b 1
+)
+call npm run deploy:ready
+if errorlevel 1 (
+  echo Update failed.
+  pause
+  exit /b 1
+)
+echo Update completed successfully.
+pause
+`);
+
   writeFile("install-startup-task.ps1", `# Run in PowerShell as current user
 $ScriptPath = Join-Path $PSScriptRoot "start-aqua-msk-hidden.vbs"
 $Action = New-ScheduledTaskAction -Execute "wscript.exe" -Argument ("\\"" + $ScriptPath + "\\"")
@@ -75,6 +118,12 @@ Write-Host "Backup copied to $OutDir"
 Auto start when Windows logs in:
 - Right click PowerShell and Run:
   powershell -ExecutionPolicy Bypass -File .\\install-startup-task.ps1
+
+One-click maintenance (health check + backup test + CSS build + kit refresh):
+- Double click: maintenance-one-click.bat
+
+One-click update (git pull + npm install + maintenance):
+- Double click: update-aqua-msk.bat
 
 Stop server:
 - Double click: stop-aqua-msk.bat

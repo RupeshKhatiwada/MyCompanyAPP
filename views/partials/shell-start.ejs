@@ -1,10 +1,11 @@
 <!DOCTYPE html>
-<html lang="<%= lang %>">
+<html lang="<%= lang %>" data-calendar-mode="<%= calendarMode || 'AD' %>" data-calendar-available="<%= canConvertBs ? '1' : '0' %>">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title><%= title %> | AQUA MSK</title>
   <link rel="stylesheet" href="/css/styles.css?v=<%= assetVersion %>" />
+  <script src="/js/calendar-ui.js?v=<%= assetVersion %>" defer></script>
   <style>
     :root[data-font-size="sm"] { font-size: 14px; }
     :root[data-font-size="md"] { font-size: 16px; }

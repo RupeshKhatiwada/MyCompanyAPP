@@ -32,6 +32,7 @@
             <th class="px-4 py-3"><%= t('date') %></th>
             <th class="px-4 py-3"><%= t('receiptNo') %></th>
             <th class="px-4 py-3"><%= t('paymentSource') %></th>
+            <th class="px-4 py-3"><%= t('paymentMethodLabel') %></th>
             <th class="px-4 py-3"><%= t('amount') %></th>
             <th class="px-4 py-3"><%= t('details') %></th>
           </tr>
@@ -39,15 +40,17 @@
         <tbody>
           <% if (!payments || payments.length === 0) { %>
             <tr>
-              <td class="px-4 py-4 text-slate-500" colspan="6"><%= t('noPaymentHistory') %></td>
+              <td class="px-4 py-4 text-slate-500" colspan="7"><%= t('noPaymentHistory') %></td>
             </tr>
           <% } %>
           <% payments.forEach((row) => { %>
+            <% const methodLabel = row.payment_method === 'BANK' ? t('methodBank') : row.payment_method === 'E_WALLET' ? t('methodEWallet') : t('methodCash'); %>
             <tr class="table-row">
               <td class="px-4 py-3"><%= row.created_at %></td>
               <td class="px-4 py-3"><%= row.export_date %></td>
               <td class="px-4 py-3"><%= row.receipt_no %></td>
               <td class="px-4 py-3"><%= row.source === 'day' ? t('paymentSourceDay') : t('paymentSourceTrip') %></td>
+              <td class="px-4 py-3"><%= methodLabel %></td>
               <td class="px-4 py-3"><%= row.payment_amount %></td>
               <td class="px-4 py-3"><%= row.details || '-' %></td>
             </tr>

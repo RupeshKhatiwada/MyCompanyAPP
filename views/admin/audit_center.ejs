@@ -1,0 +1,271 @@
+<%- include('../partials/shell-start', { title }) %>
+<section class="py-8">
+  <div class="flex flex-wrap items-center justify-between gap-3">
+    <div>
+      <h1 class="text-3xl font-semibold"><%= t('auditCenterTitle') %></h1>
+      <p class="text-slate-600"><%= t('auditCenterSubtitle') %></p>
+    </div>
+  </div>
+
+  <form class="mt-4 flex flex-wrap items-end gap-3" method="get" action="/admin/audit">
+    <div>
+      <label class="label"><%= t('from') %></label>
+      <input class="input" type="date" name="from" value="<%= from %>" />
+    </div>
+    <div>
+      <label class="label"><%= t('to') %></label>
+      <input class="input" type="date" name="to" value="<%= to %>" />
+    </div>
+    <button class="btn-outline" type="submit"><%= t('runAudit') %></button>
+  </form>
+
+  <div class="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+    <div class="card p-5">
+      <p class="text-xs font-semibold uppercase tracking-wide text-red-700"><%= t('totalAuditIssues') %></p>
+      <p class="mt-2 text-3xl font-semibold text-slate-900"><%= totalIssues %></p>
+    </div>
+    <div class="card p-5">
+      <p class="text-xs font-semibold uppercase tracking-wide text-slate-600"><%= t('totalOverpayments') %></p>
+      <p class="mt-2 text-3xl font-semibold text-slate-900"><%= summary.totalOverpayments %></p>
+    </div>
+    <div class="card p-5">
+      <p class="text-xs font-semibold uppercase tracking-wide text-slate-600"><%= t('paymentDriftTitle') %></p>
+      <p class="mt-2 text-3xl font-semibold text-slate-900"><%= summary.paymentDrift %></p>
+    </div>
+    <div class="card p-5">
+      <p class="text-xs font-semibold uppercase tracking-wide text-slate-600"><%= t('reconciliationDriftTitle') %></p>
+      <p class="mt-2 text-3xl font-semibold text-slate-900"><%= summary.reconciliationDrift %></p>
+    </div>
+    <div class="card p-5">
+      <p class="text-xs font-semibold uppercase tracking-wide text-slate-600"><%= t('roleSummaryTitle') %></p>
+      <p class="mt-2 text-sm text-slate-700">
+        SA: <span class="font-semibold"><%= roleSummary.superAdmins %></span> •
+        A: <span class="font-semibold"><%= roleSummary.admins %></span> •
+        W: <span class="font-semibold"><%= roleSummary.workers %></span> •
+        S: <span class="font-semibold"><%= roleSummary.activeStaff %></span>
+      </p>
+    </div>
+  </div>
+
+  <div class="mt-6 card p-6">
+    <h2 class="text-lg font-semibold"><%= t('permissionAuditTitle') %></h2>
+    <div class="mt-4 overflow-x-auto">
+      <table class="table-base text-sm">
+        <thead class="table-head">
+          <tr>
+            <th class="px-4 py-3"><%= t('module') %></th>
+            <th class="px-4 py-3"><%= t('route') %></th>
+            <th class="px-4 py-3"><%= t('allowedRoles') %></th>
+            <th class="px-4 py-3"><%= t('status') %></th>
+          </tr>
+        </thead>
+        <tbody>
+          <% permissionChecks.forEach((row) => { %>
+            <tr class="table-row">
+              <td class="px-4 py-3"><%= row.label %></td>
+              <td class="px-4 py-3"><code><%= row.route %></code></td>
+              <td class="px-4 py-3"><%= row.allowed %></td>
+              <td class="px-4 py-3">
+                <span class="pill"><%= row.status %></span>
+              </td>
+            </tr>
+          <% }) %>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="mt-6 card p-6">
+    <h2 class="text-lg font-semibold"><%= t('financialAuditTitle') %></h2>
+    <div class="mt-4 grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-3">
+      <% overpaymentChecks.forEach((row) => { %>
+        <div class="card p-4">
+          <p class="text-slate-500"><%= row.label %></p>
+          <p class="mt-1 text-xl font-semibold"><%= row.count %></p>
+        </div>
+      <% }) %>
+      <div class="card p-4">
+        <p class="text-slate-500"><%= t('exportSplitMismatchTitle') %></p>
+        <p class="mt-1 text-xl font-semibold"><%= summary.exportMismatch %></p>
+      </div>
+      <div class="card p-4">
+        <p class="text-slate-500"><%= t('creditFormulaMismatchTitle') %></p>
+        <p class="mt-1 text-xl font-semibold"><%= summary.creditFormulaMismatch %></p>
+      </div>
+      <div class="card p-4">
+        <p class="text-slate-500"><%= t('companyVehicleCreditFound') %></p>
+        <p class="mt-1 text-xl font-semibold"><%= summary.companyVehicleCredits %></p>
+      </div>
+      <div class="card p-4">
+        <p class="text-slate-500"><%= t('nonCompanyVehicleExpenseFound') %></p>
+        <p class="mt-1 text-xl font-semibold"><%= summary.nonCompanyVehicleExpenses %></p>
+      </div>
+    </div>
+  </div>
+
+  <div class="mt-6 grid gap-6 lg:grid-cols-2">
+    <div class="card p-6">
+      <h3 class="text-base font-semibold"><%= t('overpaymentDetailsTitle') %></h3>
+      <div class="mt-4 overflow-x-auto">
+        <table class="table-base text-xs">
+          <thead class="table-head">
+            <tr>
+              <th class="px-3 py-2"><%= t('source') %></th>
+              <th class="px-3 py-2"><%= t('date') %></th>
+              <th class="px-3 py-2">#</th>
+              <th class="px-3 py-2"><%= t('vehicle') %></th>
+              <th class="px-3 py-2"><%= t('customerName') %></th>
+              <th class="px-3 py-2"><%= t('amount') %></th>
+              <th class="px-3 py-2"><%= t('paidAmount') %></th>
+              <th class="px-3 py-2"><%= t('difference') %></th>
+            </tr>
+          </thead>
+          <tbody>
+            <% if (!overpaymentDetails || overpaymentDetails.length === 0) { %>
+              <tr><td class="px-3 py-3 text-slate-500" colspan="8"><%= t('noIssuesFound') %></td></tr>
+            <% } %>
+            <% (overpaymentDetails || []).forEach((row) => { %>
+              <tr class="table-row">
+                <td class="px-3 py-2"><%= row.source %></td>
+                <td class="px-3 py-2"><%= row.entry_date %></td>
+                <td class="px-3 py-2"><%= row.record_id %></td>
+                <td class="px-3 py-2"><%= row.vehicle_number ? `${row.owner_name || '-'} • ${row.vehicle_number}` : '-' %></td>
+                <td class="px-3 py-2"><%= row.customer_name || '-' %></td>
+                <td class="px-3 py-2"><%= row.expected_amount %></td>
+                <td class="px-3 py-2"><%= row.paid_amount %></td>
+                <td class="px-3 py-2 text-red-700"><%= row.difference %></td>
+              </tr>
+            <% }) %>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card p-6">
+      <h3 class="text-base font-semibold"><%= t('paymentDriftTitle') %></h3>
+      <div class="mt-4 overflow-x-auto">
+        <table class="table-base text-xs">
+          <thead class="table-head">
+            <tr>
+              <th class="px-3 py-2"><%= t('source') %></th>
+              <th class="px-3 py-2"><%= t('date') %></th>
+              <th class="px-3 py-2">#</th>
+              <th class="px-3 py-2"><%= t('totalPaidAmount') %></th>
+              <th class="px-3 py-2"><%= t('paymentsTotal') %></th>
+              <th class="px-3 py-2"><%= t('difference') %></th>
+            </tr>
+          </thead>
+          <tbody>
+            <% if (!paymentDriftRows || paymentDriftRows.length === 0) { %>
+              <tr><td class="px-3 py-3 text-slate-500" colspan="6"><%= t('noIssuesFound') %></td></tr>
+            <% } %>
+            <% (paymentDriftRows || []).forEach((row) => { %>
+              <tr class="table-row">
+                <td class="px-3 py-2"><%= row.source %></td>
+                <td class="px-3 py-2"><%= row.entry_date %></td>
+                <td class="px-3 py-2"><%= row.record_id %></td>
+                <td class="px-3 py-2"><%= row.parent_paid %></td>
+                <td class="px-3 py-2"><%= row.payment_rows_total %></td>
+                <td class="px-3 py-2 text-red-700"><%= row.drift %></td>
+              </tr>
+            <% }) %>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div class="mt-6 grid gap-6 lg:grid-cols-3">
+    <div class="card p-6">
+      <h3 class="text-base font-semibold"><%= t('exportSplitMismatchTitle') %></h3>
+      <p class="mt-1 text-sm text-slate-600"><%= t('exportSplitMismatchHint') %></p>
+      <div class="mt-3 max-h-64 overflow-auto text-xs">
+        <% if (!exportMismatchRows || exportMismatchRows.length === 0) { %>
+          <p class="text-slate-500"><%= t('noIssuesFound') %></p>
+        <% } %>
+        <% (exportMismatchRows || []).forEach((row) => { %>
+          <div class="mb-2 rounded-lg border border-slate-200 p-2">
+            <p><span class="font-semibold">#<%= row.id %></span> • <%= row.export_date %></p>
+            <p><%= row.owner_name %> • <%= row.vehicle_number %></p>
+            <p><%= t('difference') %>: <span class="font-semibold text-red-700"><%= row.delta %></span></p>
+          </div>
+        <% }) %>
+      </div>
+    </div>
+    <div class="card p-6">
+      <h3 class="text-base font-semibold"><%= t('creditFormulaMismatchTitle') %></h3>
+      <p class="mt-1 text-sm text-slate-600"><%= t('creditFormulaMismatchHint') %></p>
+      <div class="mt-3 max-h-64 overflow-auto text-xs">
+        <% if (!creditFormulaMismatchRows || creditFormulaMismatchRows.length === 0) { %>
+          <p class="text-slate-500"><%= t('noIssuesFound') %></p>
+        <% } %>
+        <% (creditFormulaMismatchRows || []).forEach((row) => { %>
+          <div class="mb-2 rounded-lg border border-slate-200 p-2">
+            <p><span class="font-semibold">#<%= row.id %></span> • <%= row.credit_date %></p>
+            <p><%= row.customer_name %> • <%= row.owner_name %> • <%= row.vehicle_number %></p>
+            <p><%= t('difference') %>: <span class="font-semibold text-red-700"><%= row.delta %></span></p>
+          </div>
+        <% }) %>
+      </div>
+    </div>
+    <div class="card p-6">
+      <h3 class="text-base font-semibold"><%= t('policyExceptionsTitle') %></h3>
+      <div class="mt-3 text-xs">
+        <p class="font-medium"><%= t('companyVehicleCreditFound') %>: <%= summary.companyVehicleCredits %></p>
+        <p class="font-medium mt-2"><%= t('nonCompanyVehicleExpenseFound') %>: <%= summary.nonCompanyVehicleExpenses %></p>
+      </div>
+      <div class="mt-3 max-h-56 overflow-auto text-xs">
+        <% (companyVehicleCreditRows || []).forEach((row) => { %>
+          <div class="mb-2 rounded-lg border border-slate-200 p-2">
+            <p>EXPORT #<%= row.id %> • <%= row.export_date %></p>
+            <p><%= row.owner_name %> • <%= row.vehicle_number %></p>
+            <p><%= t('creditAmount') %>: <span class="font-semibold text-red-700"><%= row.credit_amount %></span></p>
+          </div>
+        <% }) %>
+        <% (nonCompanyExpenseRows || []).forEach((row) => { %>
+          <div class="mb-2 rounded-lg border border-slate-200 p-2">
+            <p>EXPENSE #<%= row.id %> • <%= row.expense_date %></p>
+            <p><%= row.owner_name %> • <%= row.vehicle_number %></p>
+            <p><%= row.expense_type %> • <span class="font-semibold"><%= row.amount %></span></p>
+          </div>
+        <% }) %>
+        <% if ((!companyVehicleCreditRows || companyVehicleCreditRows.length === 0) && (!nonCompanyExpenseRows || nonCompanyExpenseRows.length === 0)) { %>
+          <p class="text-slate-500"><%= t('noIssuesFound') %></p>
+        <% } %>
+      </div>
+    </div>
+  </div>
+
+  <div class="mt-6 card p-6">
+    <h3 class="text-base font-semibold"><%= t('reconciliationDriftTitle') %></h3>
+    <p class="mt-1 text-sm text-slate-600"><%= t('reconciliationDriftHint') %></p>
+    <div class="mt-4 overflow-x-auto">
+      <table class="table-base text-xs">
+        <thead class="table-head">
+          <tr>
+            <th class="px-3 py-2"><%= t('date') %></th>
+            <th class="px-3 py-2">#</th>
+            <th class="px-3 py-2"><%= t('difference') %> (Inflow)</th>
+            <th class="px-3 py-2"><%= t('difference') %> (Net)</th>
+            <th class="px-3 py-2"><%= t('difference') %> (Diff)</th>
+          </tr>
+        </thead>
+        <tbody>
+          <% if (!reconciliationDriftRows || reconciliationDriftRows.length === 0) { %>
+            <tr><td class="px-3 py-3 text-slate-500" colspan="5"><%= t('noIssuesFound') %></td></tr>
+          <% } %>
+          <% (reconciliationDriftRows || []).forEach((row) => { %>
+            <tr class="table-row">
+              <td class="px-3 py-2"><%= row.business_date %></td>
+              <td class="px-3 py-2"><%= row.id %></td>
+              <td class="px-3 py-2"><%= row.inflow_delta %></td>
+              <td class="px-3 py-2"><%= row.net_delta %></td>
+              <td class="px-3 py-2"><%= row.diff_delta %></td>
+            </tr>
+          <% }) %>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+<%- include('../partials/shell-end') %>

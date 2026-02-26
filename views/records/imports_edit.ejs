@@ -103,6 +103,22 @@
         <label class="label"><%= t('remaining') %></label>
         <input class="input" type="number" value="<%= safeDueAmount %>" disabled />
       </div>
+      <div>
+        <label class="label"><%= t('paymentMethodLabel') %></label>
+        <select class="input" name="payment_method">
+          <option value="CASH"><%= t('methodCash') %></option>
+          <option value="BANK"><%= t('methodBank') %></option>
+          <option value="E_WALLET"><%= t('methodEWallet') %></option>
+        </select>
+      </div>
+      <div>
+        <label class="label"><%= t('paymentSourceLabel') %></label>
+        <select class="input" name="payment_source">
+          <option value="DAILY_COLLECTION"><%= t('sourceDailyCollection') %></option>
+          <option value="OWNER_PERSONAL"><%= t('sourceOwnerPersonal') %></option>
+          <option value="BANK_OTHER"><%= t('sourceBankOther') %></option>
+        </select>
+      </div>
       <div class="sm:col-span-2">
         <label class="inline-flex items-center gap-2 text-sm pt-8">
           <input type="checkbox" name="is_credit" value="1" <%= Number(safeEntry.is_credit) === 1 ? 'checked' : '' %> />
@@ -130,6 +146,22 @@
         <label class="label"><%= t('amount') %></label>
         <input class="input" type="number" min="0.01" step="0.01" name="amount" required />
       </div>
+      <div>
+        <label class="label"><%= t('paymentMethodLabel') %></label>
+        <select class="input" name="payment_method">
+          <option value="CASH"><%= t('methodCash') %></option>
+          <option value="BANK"><%= t('methodBank') %></option>
+          <option value="E_WALLET"><%= t('methodEWallet') %></option>
+        </select>
+      </div>
+      <div>
+        <label class="label"><%= t('paymentSourceLabel') %></label>
+        <select class="input" name="payment_source">
+          <option value="DAILY_COLLECTION"><%= t('sourceDailyCollection') %></option>
+          <option value="OWNER_PERSONAL"><%= t('sourceOwnerPersonal') %></option>
+          <option value="BANK_OTHER"><%= t('sourceBankOther') %></option>
+        </select>
+      </div>
       <div class="sm:col-span-2">
         <label class="label"><%= t('note') %></label>
         <input class="input" type="text" name="note" placeholder="<%= t('paymentForWhatHint') %>" />
@@ -148,6 +180,8 @@
           <tr>
             <th class="px-4 py-3"><%= t('date') %></th>
             <th class="px-4 py-3"><%= t('amount') %></th>
+            <th class="px-4 py-3"><%= t('paymentMethodLabel') %></th>
+            <th class="px-4 py-3"><%= t('paymentSourceLabel') %></th>
             <th class="px-4 py-3"><%= t('note') %></th>
             <th class="px-4 py-3"><%= t('recordedBy') %></th>
             <th class="px-4 py-3 text-right"><%= t('actions') %></th>
@@ -156,13 +190,17 @@
         <tbody>
           <% if (!safePayments.length) { %>
             <tr>
-              <td class="px-4 py-4 text-slate-500" colspan="5"><%= t('noPaymentHistory') %></td>
+              <td class="px-4 py-4 text-slate-500" colspan="7"><%= t('noPaymentHistory') %></td>
             </tr>
           <% } %>
           <% safePayments.forEach((payment) => { %>
+            <% const methodLabel = payment.payment_method === 'BANK' ? t('methodBank') : payment.payment_method === 'E_WALLET' ? t('methodEWallet') : t('methodCash'); %>
+            <% const sourceLabel = payment.payment_source === 'OWNER_PERSONAL' ? t('sourceOwnerPersonal') : payment.payment_source === 'BANK_OTHER' ? t('sourceBankOther') : t('sourceDailyCollection'); %>
             <tr class="table-row">
               <td class="px-4 py-3"><%= payment.payment_date %></td>
               <td class="px-4 py-3"><%= payment.amount %></td>
+              <td class="px-4 py-3"><%= methodLabel %></td>
+              <td class="px-4 py-3"><%= sourceLabel %></td>
               <td class="px-4 py-3"><%= payment.note || '-' %></td>
               <td class="px-4 py-3"><%= payment.recorded_by || '-' %></td>
               <td class="px-4 py-3 text-right">

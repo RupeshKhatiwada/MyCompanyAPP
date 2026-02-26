@@ -69,7 +69,7 @@
     <div class="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"><%= t(error) %></div>
   <% } %>
 
-  <div class="mt-6 card overflow-hidden">
+  <div class="mt-6 card">
     <div class="overflow-x-auto">
       <table class="table-base">
         <thead class="table-head">
@@ -99,6 +99,7 @@
             <% const isPartial = !isPaid && record.paid_amount > 0; %>
             <% const statusLabel = isPaid ? t('paid') : (isPartial ? t('statusPartial') : t('unpaid')); %>
             <% const statusClass = isPaid ? 'bg-emerald-100 text-emerald-700' : (isPartial ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700'); %>
+            <% const methodLabel = record.payment_method === 'BANK' ? t('methodBank') : record.payment_method === 'E_WALLET' ? t('methodEWallet') : t('methodCash'); %>
             <tr class="table-row">
               <td class="px-4 py-3"><%= record.credit_date %></td>
               <td class="px-4 py-3"><%= record.receipt_no || (`#${record.id}`) %></td>
@@ -106,7 +107,10 @@
               <td class="px-4 py-3 font-medium"><%= `${record.owner_name} • ${record.vehicle_number}` %></td>
               <td class="px-4 py-3"><%= record.customer_name %></td>
               <td class="px-4 py-3"><%= record.amount %></td>
-              <td class="px-4 py-3"><%= record.paid_amount %></td>
+              <td class="px-4 py-3">
+                <div><%= record.paid_amount %></div>
+                <div class="text-xs text-slate-500"><%= methodLabel %></div>
+              </td>
               <td class="px-4 py-3"><%= record.remaining_amount %></td>
               <td class="px-4 py-3">
                 <div><%= t('jars') %>: <%= record.credit_jars %>, <%= t('bottleCases') %>: <%= record.credit_bottle_cases %></div>
@@ -208,7 +212,14 @@
               <td class="px-4 py-3"><%= row.last_credit_date || '-' %></td>
               <td class="px-4 py-3">
                 <% if ((row.customer_name || '').trim() && Number(row.total_remaining || 0) > 0) { %>
-                  <input form="customer-pay-<%= idx %>" class="input h-9 w-28" type="number" step="0.01" min="0.01" max="<%= row.total_remaining %>" name="payment_amount" placeholder="<%= t('paymentAmount') %>" required />
+                  <div class="flex flex-wrap items-center gap-2">
+                    <input form="customer-pay-<%= idx %>" class="input h-9 w-28" type="number" step="0.01" min="0.01" max="<%= row.total_remaining %>" name="payment_amount" placeholder="<%= t('paymentAmount') %>" required />
+                    <select form="customer-pay-<%= idx %>" class="input h-9 w-28" name="payment_method">
+                      <option value="CASH"><%= t('methodCash') %></option>
+                      <option value="BANK"><%= t('methodBank') %></option>
+                      <option value="E_WALLET"><%= t('methodEWallet') %></option>
+                    </select>
+                  </div>
                 <% } else { %>
                   -
                 <% } %>

@@ -7,19 +7,39 @@
   <title><%= slipTitle %> | AQUA MSK</title>
   <link rel="stylesheet" href="/css/styles.css?v=<%= assetVersion %>" />
   <style>
-    @media print { .print-hidden { display: none !important; } }
+    .print-report-header {
+      border-bottom: 1px solid #cbd5e1;
+      padding-bottom: 10px;
+    }
+    @media print {
+      @page {
+        size: A4 portrait;
+        margin: 12mm;
+      }
+      .print-hidden { display: none !important; }
+      .print-sheet {
+        max-width: none !important;
+        width: 100% !important;
+        margin: 0 !important;
+        padding: 0 !important;
+      }
+      .pay-slip-card {
+        break-inside: avoid;
+        page-break-inside: avoid;
+      }
+    }
   </style>
 </head>
 <body class="bg-white text-slate-900">
-  <div class="mx-auto max-w-3xl p-6">
-    <div class="flex items-center justify-between gap-4">
+  <div class="print-sheet mx-auto max-w-3xl p-6">
+    <div class="print-report-header flex items-center justify-between gap-4">
       <div class="flex-1">
         <%- include('../partials/print-brand', { subtitle: slipTitle }) %>
       </div>
       <button class="btn-primary print-hidden" onclick="window.print()"><%= t('print') %></button>
     </div>
 
-    <div class="mt-6 card p-6">
+    <div class="mt-6 card p-6 pay-slip-card">
       <div class="grid gap-4 sm:grid-cols-2 text-sm">
         <div class="sm:col-span-2 flex items-center gap-4">
           <% if (payment.photo_path) { %>
@@ -39,6 +59,16 @@
         <div>
           <p class="text-slate-500"><%= t('paymentType') %></p>
           <p class="font-semibold"><%= payment.payment_type === 'SALARY' ? t('salaryPaid') : t('advancePaid') %></p>
+        </div>
+        <div>
+          <p class="text-slate-500"><%= t('paymentSourceLabel') %></p>
+          <p class="font-semibold">
+            <%= payment.payment_source === 'OWNER_PERSONAL'
+              ? t('sourceOwnerPersonal')
+              : payment.payment_source === 'BANK_OTHER'
+                ? t('sourceBankOther')
+                : t('sourceDailyCollection') %>
+          </p>
         </div>
         <div>
           <p class="text-slate-500"><%= t('receiptNo') %></p>

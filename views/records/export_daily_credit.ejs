@@ -30,12 +30,20 @@
   <div class="mt-6 card p-6">
     <h2 class="text-lg font-semibold"><%= t('dayCreditPaymentTitle') %></h2>
     <p class="text-sm text-slate-600"><%= t('dayCreditPaymentSubtitle') %></p>
-    <form class="mt-4 grid gap-3 sm:grid-cols-3" method="post" action="/records/exports/daily-credit">
+    <form class="mt-4 grid gap-3 sm:grid-cols-4" method="post" action="/records/exports/daily-credit">
       <input type="hidden" name="date" value="<%= date %>" />
       <input type="hidden" name="vehicle_id" value="<%= vehicle.id %>" />
       <div>
         <label class="label"><%= t('paymentAmount') %></label>
         <input class="input" type="number" min="0" step="0.01" name="payment_amount" required />
+      </div>
+      <div>
+        <label class="label"><%= t('paymentMethodLabel') %></label>
+        <select class="input" name="payment_method">
+          <option value="CASH"><%= t('methodCash') %></option>
+          <option value="BANK"><%= t('methodBank') %></option>
+          <option value="E_WALLET"><%= t('methodEWallet') %></option>
+        </select>
       </div>
       <div class="sm:col-span-2 flex items-end">
         <button class="btn-primary" type="submit"><%= t('addPayment') %></button>

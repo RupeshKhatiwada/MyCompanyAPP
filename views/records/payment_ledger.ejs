@@ -1,0 +1,116 @@
+<%- include('../partials/shell-start', { title }) %>
+<section class="py-8">
+  <div class="flex flex-wrap items-center justify-between gap-3">
+    <div>
+      <h1 class="text-3xl font-semibold"><%= t('paymentLedgerTitle') %></h1>
+      <p class="text-slate-600"><%= t('paymentLedgerSubtitle') %></p>
+    </div>
+    <div class="flex flex-wrap gap-2">
+      <button class="btn-outline" type="button" onclick="window.print()"><%= t('print') %></button>
+      <a class="btn-outline" href="/records/payment-ledger/export?from=<%= from %>&to=<%= to %>&channel=<%= channel %>"><%= t('exportCsv') %></a>
+    </div>
+  </div>
+
+  <% if (error) { %>
+    <div class="mt-4 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700"><%= error %></div>
+  <% } %>
+  <% if (success) { %>
+    <div class="mt-4 rounded-lg bg-emerald-50 px-4 py-3 text-sm text-emerald-700"><%= success %></div>
+  <% } %>
+
+  <form class="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-5" method="get" action="/records/payment-ledger">
+    <div>
+      <label class="label"><%= t('from') %></label>
+      <input class="input" type="date" name="from" value="<%= from %>" />
+    </div>
+    <div>
+      <label class="label"><%= t('to') %></label>
+      <input class="input" type="date" name="to" value="<%= to %>" />
+    </div>
+    <div>
+      <label class="label"><%= t('paymentChannel') %></label>
+      <select class="input" name="channel">
+        <option value="BANK" <%= channel === 'BANK' ? 'selected' : '' %>><%= t('methodBank') %></option>
+        <option value="E_WALLET" <%= channel === 'E_WALLET' ? 'selected' : '' %>><%= t('methodEWallet') %></option>
+      </select>
+    </div>
+    <div class="flex items-end">
+      <button class="btn-outline w-full" type="submit"><%= t('filter') %></button>
+    </div>
+  </form>
+
+  <div class="mt-4 card p-4">
+    <form class="flex flex-wrap items-end gap-3" method="post" action="/records/payment-ledger/opening">
+      <input type="hidden" name="from" value="<%= from %>" />
+      <input type="hidden" name="to" value="<%= to %>" />
+      <input type="hidden" name="channel" value="<%= channel %>" />
+      <div>
+        <label class="label"><%= t('openingBalance') %> (<%= channel === 'BANK' ? t('methodBank') : t('methodEWallet') %>)</label>
+        <input class="input" type="number" min="0" step="0.01" name="opening_balance" value="<%= openingBalance %>" />
+      </div>
+      <button class="btn-primary" type="submit"><%= t('save') %></button>
+    </form>
+  </div>
+
+  <div class="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+    <div class="card p-4">
+      <p class="text-slate-500"><%= t('openingBalance') %></p>
+      <p class="text-lg font-semibold"><%= totals.opening %></p>
+    </div>
+    <div class="card p-4">
+      <p class="text-slate-500"><%= t('totalInflow') %></p>
+      <p class="text-lg font-semibold text-emerald-700"><%= totals.inflow %></p>
+    </div>
+    <div class="card p-4">
+      <p class="text-slate-500"><%= t('totalOutflow') %></p>
+      <p class="text-lg font-semibold text-red-700"><%= totals.outflow %></p>
+    </div>
+    <div class="card p-4">
+      <p class="text-slate-500"><%= t('netMovement') %></p>
+      <p class="text-lg font-semibold <%= totals.net >= 0 ? 'text-emerald-700' : 'text-red-700' %>"><%= totals.net %></p>
+    </div>
+    <div class="card p-4">
+      <p class="text-slate-500"><%= t('closingBalance') %></p>
+      <p class="text-lg font-semibold"><%= totals.closing %></p>
+    </div>
+  </div>
+
+  <div class="mt-6 card overflow-hidden">
+    <div class="overflow-x-auto">
+      <table class="table-base">
+        <thead class="table-head">
+          <tr>
+            <th class="px-4 py-3"><%= t('date') %></th>
+            <th class="px-4 py-3"><%= t('source') %></th>
+            <th class="px-4 py-3"><%= t('reference') %></th>
+            <th class="px-4 py-3"><%= t('party') %></th>
+            <th class="px-4 py-3"><%= t('totalInflow') %></th>
+            <th class="px-4 py-3"><%= t('totalOutflow') %></th>
+            <th class="px-4 py-3"><%= t('runningBalance') %></th>
+            <th class="px-4 py-3"><%= t('note') %></th>
+          </tr>
+        </thead>
+        <tbody>
+          <% if (!rows || rows.length === 0) { %>
+            <tr>
+              <td class="px-4 py-4 text-slate-500" colspan="8"><%= t('noLedgerRows') %></td>
+            </tr>
+          <% } %>
+          <% (rows || []).forEach((row) => { %>
+            <tr class="table-row">
+              <td class="px-4 py-3"><%= row.date %></td>
+              <td class="px-4 py-3"><%= row.source %></td>
+              <td class="px-4 py-3"><%= row.reference %></td>
+              <td class="px-4 py-3"><%= row.party %></td>
+              <td class="px-4 py-3 text-emerald-700"><%= row.inflow > 0 ? row.inflow : '-' %></td>
+              <td class="px-4 py-3 text-red-700"><%= row.outflow > 0 ? row.outflow : '-' %></td>
+              <td class="px-4 py-3 font-semibold"><%= row.balance %></td>
+              <td class="px-4 py-3"><%= row.note || '-' %></td>
+            </tr>
+          <% }) %>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+<%- include('../partials/shell-end') %>

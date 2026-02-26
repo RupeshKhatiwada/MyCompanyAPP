@@ -10,6 +10,18 @@ const { attachUser, requireAuth } = require("./middleware/auth");
 const { t } = require("./i18n");
 const { createBackupFile, pruneOldBackups } = require("./utils/backup");
 const { syncLocalToPostgres, shouldAutoSync } = require("./utils/hybridSync");
+const { runRetentionArchive } = require("./utils/retention");
+const {
+  CALENDAR_COOKIE,
+  CALENDAR_AD,
+  CALENDAR_BS,
+  normalizeCalendarMode,
+  isConverterReady,
+  formatDateForMode,
+  formatDateDual,
+  adToBs,
+  bsToAd
+} = require("./utils/calendar");
 const authRoutes = require("./routes/auth");
 const adminRoutes = require("./routes/admin");
 const recordsRoutes = require("./routes/records");
@@ -93,6 +105,22 @@ const getWorkerAlertSummary = () => {
   };
 };
 
+const getLatestBusinessDate = () => {
+  const row = db.prepare(
+    `SELECT MAX(d) as max_date
+     FROM (
+       SELECT MAX(export_date) as d FROM exports
+       UNION ALL SELECT MAX(credit_date) as d FROM credits
+       UNION ALL SELECT MAX(sale_date) as d FROM jar_sales
+       UNION ALL SELECT MAX(payment_date) as d FROM staff_salary_payments
+       UNION ALL SELECT MAX(payment_date) as d FROM worker_salary_payments
+       UNION ALL SELECT MAX(purchase_date) as d FROM company_purchases
+       UNION ALL SELECT MAX(expense_date) as d FROM vehicle_expenses
+     ) x`
+  ).get();
+  return row && row.max_date ? row.max_date : "";
+};
+
 app.use(express.json({ limit: "1mb" }));
 app.use(express.urlencoded({ extended: true }));
 app.use(
@@ -138,9 +166,15 @@ app.use((req, res, next) => {
 app.use((req, res, next) => {
   const cookieLang = readCookie(req, "lang");
   const lang = cookieLang === "ne" ? "ne" : "en";
+  const calendarMode = normalizeCalendarMode(readCookie(req, CALENDAR_COOKIE));
   res.locals.lang = lang;
+  res.locals.calendarMode = calendarMode;
   res.locals.t = (key, vars) => t(lang, key, vars);
+  res.locals.formatDateForMode = (adDateText) => formatDateForMode(adDateText, calendarMode);
+  res.locals.formatDateDual = (adDateText) => formatDateDual(adDateText);
+  res.locals.canConvertBs = isConverterReady();
   req.t = res.locals.t;
+  req.calendarMode = calendarMode;
   try {
     const row = db.prepare("SELECT value FROM settings WHERE key = 'logo_path'").get();
     res.locals.logoPath = row ? row.value : "";
@@ -180,6 +214,54 @@ app.use((req, res, next) => {
 });
 
 app.use(authRoutes);
+
+app.get("/calendar/:mode", requireAuth, (req, res) => {
+  const requestedMode = normalizeCalendarMode(req.params.mode);
+  const safeMode = requestedMode === CALENDAR_BS && isConverterReady() ? CALENDAR_BS : CALENDAR_AD;
+  const referrer = req.get("Referrer");
+  const fallback = req.currentUser && (req.currentUser.role === "ADMIN" || req.currentUser.role === "SUPER_ADMIN")
+    ? "/admin"
+    : "/worker";
+  let redirectTo = fallback;
+  if (referrer) {
+    try {
+      const parsed = new URL(referrer);
+      if (parsed.host === req.get("host")) {
+        redirectTo = `${parsed.pathname}${parsed.search || ""}`;
+      }
+    } catch (err) {
+      if (referrer.startsWith("/")) redirectTo = referrer;
+    }
+  }
+  res.cookie(CALENDAR_COOKIE, safeMode, {
+    httpOnly: false,
+    sameSite: "lax",
+    maxAge: 1000 * 60 * 60 * 24 * 365
+  });
+  return res.redirect(redirectTo);
+});
+
+app.post("/calendar/convert", requireAuth, (req, res) => {
+  const directionRaw = String(req.body.direction || "").trim().toLowerCase();
+  const direction = directionRaw === "bs_to_ad" ? "bs_to_ad" : "ad_to_bs";
+  const values = Array.isArray(req.body.values) ? req.body.values : [req.body.value];
+  const unique = [...new Set(values
+    .map((value) => String(value || "").trim())
+    .filter((value) => value.length > 0)
+  )].slice(0, 200);
+
+  const converted = {};
+  unique.forEach((value) => {
+    converted[value] = direction === "bs_to_ad" ? (bsToAd(value) || null) : (adToBs(value) || null);
+  });
+
+  return res.json({
+    ok: true,
+    direction,
+    available: isConverterReady(),
+    converted
+  });
+});
 
 const normalizeFingerprintId = (value) => {
   const safe = String(value || "").trim();
@@ -227,7 +309,7 @@ app.post("/iot/attendance/push", (req, res) => {
   const note = String(req.body.note || "").trim();
 
   const staff = db.prepare(
-    "SELECT id, full_name FROM staff WHERE lower(trim(fingerprint_id)) = lower(trim(?))"
+    "SELECT id, full_name FROM staff WHERE COALESCE(is_active, 1) = 1 AND lower(trim(fingerprint_id)) = lower(trim(?))"
   ).get(fingerprintId);
   const worker = db.prepare(
     "SELECT id, full_name FROM users WHERE role = 'WORKER' AND is_active = 1 AND lower(trim(fingerprint_id)) = lower(trim(?))"
@@ -323,29 +405,361 @@ app.get("/worker", requireAuth, (req, res) => {
   const user = res.locals.currentUser;
   if (!user) return res.redirect("/login");
   const today = dayjs().format("YYYY-MM-DD");
+  const latestBusinessDate = getLatestBusinessDate();
+  const defaultDate = latestBusinessDate || today;
+  const requestedDateRaw = String(req.query.date || "").trim();
+  const selectedDate = requestedDateRaw && dayjs(requestedDateRaw).isValid()
+    ? dayjs(requestedDateRaw).format("YYYY-MM-DD")
+    : defaultDate;
   const myExports = db.prepare(
     "SELECT COUNT(*) as count, COALESCE(SUM(total_amount), 0) as total FROM exports WHERE export_date = ? AND created_by = ?"
-  ).get(today, user.id);
+  ).get(selectedDate, user.id);
   const myCredits = db.prepare(
     "SELECT COUNT(*) as count, COALESCE(SUM(amount), 0) as total, COALESCE(SUM(amount - paid_amount), 0) as remaining FROM credits WHERE credit_date = ? AND created_by = ?"
-  ).get(today, user.id);
+  ).get(selectedDate, user.id);
   const myJarSales = db.prepare(
     "SELECT COUNT(*) as count, COALESCE(SUM(total_amount), 0) as total FROM jar_sales WHERE sale_date = ? AND created_by = ?"
-  ).get(today, user.id);
+  ).get(selectedDate, user.id);
   const myVehicleExpenses = db.prepare(
     "SELECT COUNT(*) as count, COALESCE(SUM(amount), 0) as total FROM vehicle_expenses WHERE expense_date = ? AND created_by = ?"
-  ).get(today, user.id);
+  ).get(selectedDate, user.id);
+
+  const exportDaily = db.prepare(
+    `SELECT COUNT(*) as trip_count,
+            COALESCE(SUM(total_amount), 0) as total_amount,
+            COALESCE(SUM(paid_amount), 0) as paid_amount,
+            COALESCE(SUM(credit_amount), 0) as credit_amount
+     FROM exports
+     WHERE export_date = ?`
+  ).get(selectedDate);
+  const exportMethodDaily = db.prepare(
+    `SELECT
+        COALESCE(SUM(CASE WHEN payment_method = 'CASH' THEN paid_amount ELSE 0 END), 0) as cash_amount,
+        COALESCE(SUM(CASE WHEN payment_method = 'BANK' THEN paid_amount ELSE 0 END), 0) as bank_amount,
+        COALESCE(SUM(CASE WHEN payment_method = 'E_WALLET' THEN paid_amount ELSE 0 END), 0) as ewallet_amount
+     FROM exports
+     WHERE export_date = ?`
+  ).get(selectedDate);
+
+  const jarSaleDaily = db.prepare(
+    `SELECT COUNT(*) as sale_count,
+            COALESCE(SUM(total_amount), 0) as total_amount,
+            COALESCE(SUM(paid_amount), 0) as paid_amount,
+            COALESCE(SUM(credit_amount), 0) as credit_amount
+     FROM jar_sales
+     WHERE sale_date = ?`
+  ).get(selectedDate);
+
+  const customerCreditDaily = db.prepare(
+    `SELECT COUNT(*) as entry_count,
+            COALESCE(SUM(amount), 0) as total_amount,
+            COALESCE(SUM(paid_amount), 0) as paid_amount,
+            COALESCE(SUM(CASE WHEN amount - paid_amount < 0 THEN 0 ELSE amount - paid_amount END), 0) as remaining_amount
+     FROM credits
+     WHERE credit_date = ?`
+  ).get(selectedDate);
+
+  const vehicleCreditDaily = db.prepare(
+    `SELECT COUNT(*) as trip_count,
+            COALESCE(SUM(exports.total_amount), 0) as total_amount,
+            COALESCE(SUM(exports.credit_amount), 0) as remaining_amount
+     FROM exports
+     JOIN vehicles ON vehicles.id = exports.vehicle_id
+     WHERE exports.export_date = ?
+       AND vehicles.is_company = 0`
+  ).get(selectedDate);
+
+  const openCustomerCredits = db.prepare(
+    `SELECT COUNT(*) as entry_count,
+            COALESCE(SUM(CASE WHEN amount - paid_amount < 0 THEN 0 ELSE amount - paid_amount END), 0) as remaining_amount
+     FROM credits
+     WHERE amount - paid_amount > 0`
+  ).get();
+
+  const openVehicleCredits = db.prepare(
+    `SELECT COUNT(*) as trip_count,
+            COALESCE(SUM(exports.credit_amount), 0) as remaining_amount
+     FROM exports
+     JOIN vehicles ON vehicles.id = exports.vehicle_id
+     WHERE vehicles.is_company = 0
+       AND exports.credit_amount > 0`
+  ).get();
+
+  const staffSalaryDaily = db.prepare(
+    `SELECT COUNT(*) as payment_count,
+            COALESCE(SUM(amount), 0) as total_amount,
+            COALESCE(SUM(CASE WHEN payment_source = 'DAILY_COLLECTION' THEN amount ELSE 0 END), 0) as collection_amount
+     FROM staff_salary_payments
+     WHERE payment_date = ?`
+  ).get(selectedDate);
+  const workerSalaryDaily = db.prepare(
+    `SELECT COUNT(*) as payment_count,
+            COALESCE(SUM(amount), 0) as total_amount,
+            COALESCE(SUM(CASE WHEN payment_source = 'DAILY_COLLECTION' THEN amount ELSE 0 END), 0) as collection_amount
+     FROM worker_salary_payments
+     WHERE payment_date = ?`
+  ).get(selectedDate);
+  const staffSalaryAllTime = db.prepare(
+    `SELECT COUNT(*) as payment_count,
+            COALESCE(SUM(amount), 0) as total_amount,
+            COALESCE(SUM(CASE WHEN payment_source = 'DAILY_COLLECTION' THEN amount ELSE 0 END), 0) as collection_amount
+     FROM staff_salary_payments`
+  ).get();
+  const workerSalaryAllTime = db.prepare(
+    `SELECT COUNT(*) as payment_count,
+            COALESCE(SUM(amount), 0) as total_amount,
+            COALESCE(SUM(CASE WHEN payment_source = 'DAILY_COLLECTION' THEN amount ELSE 0 END), 0) as collection_amount
+     FROM worker_salary_payments`
+  ).get();
+
+  const companyPurchaseDaily = db.prepare(
+    `SELECT COUNT(*) as entry_count,
+            COALESCE(SUM(amount), 0) as total_amount,
+            COALESCE(SUM(paid_amount), 0) as paid_amount,
+            COALESCE(SUM(CASE WHEN amount - paid_amount < 0 THEN 0 ELSE amount - paid_amount END), 0) as due_amount
+     FROM company_purchases
+     WHERE purchase_date = ?`
+  ).get(selectedDate);
+  const companyPurchasePaymentDaily = db.prepare(
+    `SELECT COUNT(*) as payment_count,
+            COALESCE(SUM(amount), 0) as total_amount,
+            COALESCE(SUM(CASE WHEN payment_source = 'DAILY_COLLECTION' THEN amount ELSE 0 END), 0) as collection_amount
+     FROM company_purchase_payments
+     WHERE payment_date = ?`
+  ).get(selectedDate);
+  const importDaily = db.prepare(
+    `SELECT COUNT(*) as entry_count,
+            COALESCE(SUM(total_amount), 0) as total_amount,
+            COALESCE(SUM(paid_amount), 0) as paid_amount,
+            COALESCE(SUM(CASE WHEN total_amount - paid_amount < 0 THEN 0 ELSE total_amount - paid_amount END), 0) as due_amount
+     FROM import_entries
+     WHERE entry_date = ?`
+  ).get(selectedDate);
+  const importPaymentDaily = db.prepare(
+    `SELECT COUNT(*) as payment_count,
+            COALESCE(SUM(amount), 0) as total_amount,
+            COALESCE(SUM(CASE WHEN payment_source = 'DAILY_COLLECTION' THEN amount ELSE 0 END), 0) as collection_amount
+     FROM import_payments
+     WHERE payment_date = ?`
+  ).get(selectedDate);
+
+  const vehicleExpenseDaily = db.prepare(
+    `SELECT COUNT(*) as entry_count,
+            COALESCE(SUM(amount), 0) as total_amount,
+            COALESCE(SUM(paid_amount), 0) as paid_amount,
+            COALESCE(SUM(CASE WHEN amount - paid_amount < 0 THEN 0 ELSE amount - paid_amount END), 0) as due_amount
+     FROM vehicle_expenses
+     WHERE expense_date = ?`
+  ).get(selectedDate);
+  const vehicleExpensePaymentDaily = db.prepare(
+    `SELECT COUNT(*) as payment_count,
+            COALESCE(SUM(amount), 0) as total_amount,
+            COALESCE(SUM(CASE WHEN payment_source = 'DAILY_COLLECTION' THEN amount ELSE 0 END), 0) as collection_amount
+     FROM vehicle_expense_payments
+     WHERE payment_date = ?`
+  ).get(selectedDate);
+
+  const savingsDaily = db.prepare(
+    `SELECT
+        COALESCE(SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END), 0) as deposits,
+        COALESCE(SUM(CASE WHEN amount < 0 THEN ABS(amount) ELSE 0 END), 0) as withdrawals,
+        COALESCE(SUM(CASE
+          WHEN amount < 0 AND payment_source = 'DAILY_COLLECTION' THEN ABS(amount)
+          ELSE 0
+        END), 0) as withdrawals_from_collection
+     FROM vehicle_savings
+     WHERE entry_date = ?`
+  ).get(selectedDate);
+  const rentDaily = db.prepare(
+    `SELECT COUNT(*) as entry_count,
+            COALESCE(SUM(amount), 0) as total_amount,
+            COALESCE(SUM(CASE WHEN add_to_collection = 1 THEN amount ELSE 0 END), 0) as collection_amount
+     FROM rent_entries
+     WHERE rent_date = ?`
+  ).get(selectedDate);
+  const rentMethodDaily = db.prepare(
+    `SELECT
+        COALESCE(SUM(CASE WHEN add_to_collection = 1 AND payment_method = 'CASH' THEN amount ELSE 0 END), 0) as cash_amount,
+        COALESCE(SUM(CASE WHEN add_to_collection = 1 AND payment_method = 'BANK' THEN amount ELSE 0 END), 0) as bank_amount,
+        COALESCE(SUM(CASE WHEN add_to_collection = 1 AND payment_method = 'E_WALLET' THEN amount ELSE 0 END), 0) as ewallet_amount
+     FROM rent_entries
+     WHERE rent_date = ?`
+  ).get(selectedDate);
+
+  const customerCreditRows = db.prepare(
+    `SELECT customer_name,
+            COUNT(*) as entry_count,
+            COALESCE(SUM(amount), 0) as total_amount,
+            COALESCE(SUM(CASE WHEN amount - paid_amount < 0 THEN 0 ELSE amount - paid_amount END), 0) as remaining_amount
+     FROM credits
+     WHERE credit_date = ?
+     GROUP BY customer_name
+     ORDER BY remaining_amount DESC, customer_name ASC
+     LIMIT 8`
+  ).all(selectedDate);
+
+  const vehicleCreditRows = db.prepare(
+    `SELECT vehicles.id as vehicle_id,
+            vehicles.owner_name,
+            vehicles.vehicle_number,
+            COUNT(*) as trip_count,
+            COALESCE(SUM(exports.total_amount), 0) as total_amount,
+            COALESCE(SUM(exports.credit_amount), 0) as remaining_amount
+     FROM exports
+     JOIN vehicles ON vehicles.id = exports.vehicle_id
+     WHERE exports.export_date = ?
+       AND vehicles.is_company = 0
+     GROUP BY vehicles.id, vehicles.owner_name, vehicles.vehicle_number
+     ORDER BY remaining_amount DESC, vehicles.owner_name ASC
+     LIMIT 8`
+  ).all(selectedDate);
+
+  const totalSalesAmount = Number(exportDaily.total_amount || 0) + Number(jarSaleDaily.total_amount || 0);
+  const totalSalesPaid = Number(exportDaily.paid_amount || 0) + Number(jarSaleDaily.paid_amount || 0);
+  const totalSalesCredit = Number(exportDaily.credit_amount || 0) + Number(jarSaleDaily.credit_amount || 0);
+  const savingsDeposits = Number(savingsDaily.deposits || 0);
+  const savingsWithdrawFromCollection = Number(savingsDaily.withdrawals_from_collection || 0);
+  const rentTotal = Number(rentDaily.total_amount || 0);
+  const rentCollection = Number(rentDaily.collection_amount || 0);
+  const companyPurchasePaymentCount = Number(companyPurchasePaymentDaily.payment_count || 0);
+  const vehicleExpensePaymentCount = Number(vehicleExpensePaymentDaily.payment_count || 0);
+  const companyPurchasePaidRaw = Number(companyPurchaseDaily.paid_amount || 0);
+  const importPaidRaw = Number(importDaily.paid_amount || 0);
+  const vehicleExpensePaidRaw = Number(vehicleExpenseDaily.paid_amount || 0);
+  const importPaymentCount = Number(importPaymentDaily.payment_count || 0);
+  const companyPurchasePaidFromCollection = companyPurchasePaymentCount > 0
+    ? Number(companyPurchasePaymentDaily.collection_amount || 0)
+    : companyPurchasePaidRaw;
+  const importPaidFromCollection = importPaymentCount > 0
+    ? Number(importPaymentDaily.collection_amount || 0)
+    : importPaidRaw;
+  const vehicleExpensePaidFromCollection = vehicleExpensePaymentCount > 0
+    ? Number(vehicleExpensePaymentDaily.collection_amount || 0)
+    : vehicleExpensePaidRaw;
+  const totalSalaryPaid = Number(staffSalaryDaily.total_amount || 0) + Number(workerSalaryDaily.total_amount || 0);
+  const totalSalaryFromCollection =
+    Number(staffSalaryDaily.collection_amount || 0) + Number(workerSalaryDaily.collection_amount || 0);
+  const totalSalaryPayments = Number(staffSalaryDaily.payment_count || 0) + Number(workerSalaryDaily.payment_count || 0);
+  const totalSalaryAllTime = Number(staffSalaryAllTime.total_amount || 0) + Number(workerSalaryAllTime.total_amount || 0);
+  const totalSalaryAllTimePayments = Number(staffSalaryAllTime.payment_count || 0) + Number(workerSalaryAllTime.payment_count || 0);
+  const totalSalaryAllTimeFromCollection =
+    Number(staffSalaryAllTime.collection_amount || 0) + Number(workerSalaryAllTime.collection_amount || 0);
+  const totalOutflow =
+    totalSalaryFromCollection +
+    importPaidFromCollection +
+    companyPurchasePaidFromCollection +
+    vehicleExpensePaidFromCollection +
+    savingsWithdrawFromCollection;
+  const totalPaidIn = totalSalesPaid + savingsDeposits + rentCollection;
+  const paidByMethod = {
+    cash:
+      Number(exportMethodDaily.cash_amount || 0) +
+      Number(rentMethodDaily.cash_amount || 0) +
+      Number(jarSaleDaily.paid_amount || 0) +
+      savingsDeposits,
+    bank: Number(exportMethodDaily.bank_amount || 0) + Number(rentMethodDaily.bank_amount || 0),
+    eWallet: Number(exportMethodDaily.ewallet_amount || 0) + Number(rentMethodDaily.ewallet_amount || 0)
+  };
+  const netDayResult = totalPaidIn - totalOutflow;
+
+  const dailyFinance = {
+    date: selectedDate,
+    exports: {
+      trips: Number(exportDaily.trip_count || 0),
+      total: Number(exportDaily.total_amount || 0),
+      paid: Number(exportDaily.paid_amount || 0),
+      credit: Number(exportDaily.credit_amount || 0)
+    },
+    jarSales: {
+      count: Number(jarSaleDaily.sale_count || 0),
+      total: Number(jarSaleDaily.total_amount || 0),
+      paid: Number(jarSaleDaily.paid_amount || 0),
+      credit: Number(jarSaleDaily.credit_amount || 0)
+    },
+    customerCredits: {
+      count: Number(customerCreditDaily.entry_count || 0),
+      total: Number(customerCreditDaily.total_amount || 0),
+      paid: Number(customerCreditDaily.paid_amount || 0),
+      remaining: Number(customerCreditDaily.remaining_amount || 0),
+      openCount: Number(openCustomerCredits.entry_count || 0),
+      openRemaining: Number(openCustomerCredits.remaining_amount || 0)
+    },
+    vehicleCredits: {
+      trips: Number(vehicleCreditDaily.trip_count || 0),
+      total: Number(vehicleCreditDaily.total_amount || 0),
+      remaining: Number(vehicleCreditDaily.remaining_amount || 0),
+      openTrips: Number(openVehicleCredits.trip_count || 0),
+      openRemaining: Number(openVehicleCredits.remaining_amount || 0)
+    },
+    salaries: {
+      paymentCount: totalSalaryPayments,
+      total: totalSalaryPaid,
+      fromCollection: totalSalaryFromCollection,
+      fromOther: Math.max(0, totalSalaryPaid - totalSalaryFromCollection),
+      allTimeTotal: totalSalaryAllTime,
+      allTimeCount: totalSalaryAllTimePayments,
+      allTimeFromCollection: totalSalaryAllTimeFromCollection,
+      allTimeFromOther: Math.max(0, totalSalaryAllTime - totalSalaryAllTimeFromCollection)
+    },
+    purchases: {
+      count: Number(companyPurchaseDaily.entry_count || 0),
+      total: Number(companyPurchaseDaily.total_amount || 0),
+      paid: companyPurchasePaidRaw,
+      fromCollection: companyPurchasePaidFromCollection,
+      fromOther: Math.max(0, companyPurchasePaidRaw - companyPurchasePaidFromCollection),
+      due: Number(companyPurchaseDaily.due_amount || 0)
+    },
+    imports: {
+      count: Number(importDaily.entry_count || 0),
+      total: Number(importDaily.total_amount || 0),
+      paid: importPaidRaw,
+      fromCollection: importPaidFromCollection,
+      fromOther: Math.max(0, importPaidRaw - importPaidFromCollection),
+      due: Number(importDaily.due_amount || 0)
+    },
+    vehicleExpenses: {
+      count: Number(vehicleExpenseDaily.entry_count || 0),
+      total: Number(vehicleExpenseDaily.total_amount || 0),
+      paid: vehicleExpensePaidRaw,
+      fromCollection: vehicleExpensePaidFromCollection,
+      fromOther: Math.max(0, vehicleExpensePaidRaw - vehicleExpensePaidFromCollection),
+      due: Number(vehicleExpenseDaily.due_amount || 0)
+    },
+    savings: {
+      deposits: savingsDeposits,
+      withdrawals: Number(savingsDaily.withdrawals || 0),
+      withdrawalFromCollection: savingsWithdrawFromCollection
+    },
+    rentals: {
+      count: Number(rentDaily.entry_count || 0),
+      total: rentTotal,
+      collection: rentCollection
+    },
+    totals: {
+      sales: totalSalesAmount,
+      paidIn: totalPaidIn,
+      paidByMethod,
+      credited: totalSalesCredit,
+      outflow: totalOutflow,
+      net: netDayResult
+    },
+    customerRows: customerCreditRows,
+    vehicleRows: vehicleCreditRows
+  };
+
   const workerAlerts = getWorkerAlertSummary();
   const jarTypes = db.prepare("SELECT name, default_qty FROM jar_types WHERE active = 1 ORDER BY name").all();
   res.render("worker/dashboard", {
     title: req.t("workerDashboardTitle"),
     jarTypes,
-    today,
+    today: selectedDate,
+    selectedDate,
     myExports,
     myCredits,
     myJarSales,
     myVehicleExpenses,
-    workerAlerts
+    workerAlerts,
+    dailyFinance
   });
 });
 
@@ -397,14 +811,16 @@ app.get("/search", requireAuth, (req, res) => {
   const staffRows = db.prepare(
     `SELECT id, full_name, phone, 'STAFF' as role
      FROM staff
-     WHERE full_name LIKE ? OR COALESCE(phone, '') LIKE ?
+     WHERE COALESCE(is_active, 1) = 1
+       AND (full_name LIKE ? OR COALESCE(phone, '') LIKE ?)
      ORDER BY full_name
      LIMIT 15`
   ).all(like, like);
   const userRows = db.prepare(
     `SELECT id, full_name, phone, role
      FROM users
-     WHERE full_name LIKE ? OR username LIKE ? OR COALESCE(phone, '') LIKE ?
+     WHERE (full_name LIKE ? OR username LIKE ? OR COALESCE(phone, '') LIKE ?)
+       AND (role != 'WORKER' OR is_active = 1)
      ORDER BY full_name
      LIMIT 15`
   ).all(like, like, like);
@@ -590,6 +1006,21 @@ const runAutoBackupIfDue = () => {
   }
 };
 
+const runAutoRetentionIfDue = () => {
+  try {
+    const result = runRetentionArchive(db, { force: false });
+    if (result && !result.skipped) {
+      db.prepare(
+        "INSERT INTO activity_logs (user_id, action, entity_type, entity_id, details) VALUES (?, ?, ?, ?, ?)"
+      ).run(null, "archive", "retention", "auto", `archived=${result.archivedCount || 0}, cutoff=${result.cutoffDateText || ""}`);
+    }
+  } catch (err) {
+    db.prepare(
+      "INSERT INTO activity_logs (user_id, action, entity_type, entity_id, details) VALUES (?, ?, ?, ?, ?)"
+    ).run(null, "archive_failed", "retention", "auto", (err && err.message) ? err.message : "archive_failed");
+  }
+};
+
 let hybridSyncBusy = false;
 const runAutoHybridSyncIfDue = async () => {
   if (hybridSyncBusy) return;
@@ -611,6 +1042,8 @@ const runAutoHybridSyncIfDue = async () => {
 
 setTimeout(runAutoBackupIfDue, 2500);
 setInterval(runAutoBackupIfDue, 5 * 60 * 1000);
+setTimeout(runAutoRetentionIfDue, 4000);
+setInterval(runAutoRetentionIfDue, 15 * 60 * 1000);
 setTimeout(() => {
   runAutoHybridSyncIfDue();
 }, 6000);

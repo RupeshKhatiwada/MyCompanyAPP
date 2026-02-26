@@ -31,6 +31,44 @@
         </div>
       </div>
       <div class="rounded-xl border border-slate-200 bg-slate-50 p-4">
+        <h3 class="text-sm font-semibold"><%= t('numberingRulesTitle') %></h3>
+        <p class="mt-1 text-xs text-slate-600"><%= t('numberingRulesSubtitle') %></p>
+        <div class="mt-3 grid gap-3 sm:grid-cols-2">
+          <div>
+            <label class="label"><%= t('fiscalYearStartMonth') %></label>
+            <input class="input" type="number" min="1" max="12" name="numbering_fiscal_start_month" value="<%= numberingConfig ? numberingConfig.fiscalStartMonth : 7 %>" required />
+          </div>
+          <div>
+            <label class="label"><%= t('numberingPadding') %></label>
+            <input class="input" type="number" min="3" max="8" name="numbering_sequence_pad" value="<%= numberingConfig ? numberingConfig.sequencePad : 5 %>" required />
+          </div>
+        </div>
+      </div>
+      <div class="rounded-xl border border-slate-200 bg-slate-50 p-4">
+        <h3 class="text-sm font-semibold"><%= t('retentionTitle') %></h3>
+        <p class="mt-1 text-xs text-slate-600"><%= t('retentionSubtitle') %></p>
+        <div class="mt-3 flex items-center gap-2 text-sm">
+          <input id="retention_enabled" type="checkbox" name="retention_enabled" <%= retentionConfig && retentionConfig.enabled ? 'checked' : '' %> />
+          <label for="retention_enabled"><%= t('retentionEnabled') %></label>
+        </div>
+        <div class="mt-3 grid gap-3 sm:grid-cols-2">
+          <div>
+            <label class="label"><%= t('retentionDays') %></label>
+            <input class="input" type="number" min="30" max="3650" name="retention_days" value="<%= retentionConfig ? retentionConfig.days : 365 %>" required />
+          </div>
+          <div>
+            <label class="label"><%= t('retentionBatchSize') %></label>
+            <input class="input" type="number" min="50" max="5000" name="retention_batch_size" value="<%= retentionConfig ? retentionConfig.batchSize : 500 %>" required />
+          </div>
+        </div>
+        <div class="mt-3 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-600">
+          <div><strong><%= t('lastRun') %>:</strong> <%= retentionStatus && retentionStatus.lastRunAt ? retentionStatus.lastRunAt : '-' %></div>
+          <div><strong><%= t('lastArchivedCount') %>:</strong> <%= retentionStatus ? retentionStatus.lastRunCount : 0 %></div>
+          <div><strong><%= t('pendingArchiveRows') %>:</strong> <%= retentionStatus ? retentionStatus.pendingTotal : 0 %></div>
+          <div><strong><%= t('archivedRows') %>:</strong> <%= retentionStatus ? retentionStatus.archivedTotal : 0 %></div>
+        </div>
+      </div>
+      <div class="rounded-xl border border-slate-200 bg-slate-50 p-4">
         <h3 class="text-sm font-semibold"><%= t('alertCenterTitle') %></h3>
         <p class="mt-1 text-xs text-slate-600"><%= t('alertSettingsSubtitle') %></p>
         <div class="mt-3 grid gap-3 sm:grid-cols-3">
@@ -130,9 +168,34 @@
       </div>
       <button class="btn-primary" type="submit"><%= t('saveSettings') %></button>
     </form>
+    <form method="post" action="/admin/retention/run" class="mt-3">
+      <button class="btn-outline" type="submit"><%= t('runArchiveNow') %></button>
+    </form>
     <form method="post" action="/admin/hybrid-sync/run" class="mt-3">
       <button class="btn-outline" type="submit"><%= t('hybridSyncRunNow') %></button>
     </form>
+    <% if (archiveRuns && archiveRuns.length > 0) { %>
+      <div class="mt-4 overflow-x-auto">
+        <table class="table-base text-sm">
+          <thead class="table-head">
+            <tr>
+              <th class="px-3 py-2"><%= t('date') %></th>
+              <th class="px-3 py-2"><%= t('retentionDays') %></th>
+              <th class="px-3 py-2"><%= t('archivedRows') %></th>
+            </tr>
+          </thead>
+          <tbody>
+            <% archiveRuns.forEach((run) => { %>
+              <tr class="table-row">
+                <td class="px-3 py-2"><%= run.run_at %></td>
+                <td class="px-3 py-2"><%= run.retention_days %></td>
+                <td class="px-3 py-2"><%= run.archived_count %></td>
+              </tr>
+            <% }) %>
+          </tbody>
+        </table>
+      </div>
+    <% } %>
   </div>
 
   <div class="mt-6 card p-6">

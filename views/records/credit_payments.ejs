@@ -45,6 +45,15 @@
           <label class="label"><%= t('paymentAmount') %></label>
           <input class="input" type="number" step="0.01" min="0" max="<%= Math.max(0, record.amount - record.paid_amount) %>" name="payment_amount" required />
         </div>
+        <div>
+          <label class="label"><%= t('paymentMethodLabel') %></label>
+          <% const defaultMethod = String(record.payment_method || 'CASH').toUpperCase(); %>
+          <select class="input" name="payment_method">
+            <option value="CASH" <%= defaultMethod === 'CASH' ? 'selected' : '' %>><%= t('methodCash') %></option>
+            <option value="BANK" <%= defaultMethod === 'BANK' ? 'selected' : '' %>><%= t('methodBank') %></option>
+            <option value="E_WALLET" <%= defaultMethod === 'E_WALLET' ? 'selected' : '' %>><%= t('methodEWallet') %></option>
+          </select>
+        </div>
         <button class="btn-primary w-full" type="submit"><%= t('addPayment') %></button>
       </form>
     </div>
@@ -72,6 +81,7 @@
           <tr>
             <th class="px-4 py-3"><%= t('dateTime') %></th>
             <th class="px-4 py-3"><%= t('amount') %></th>
+            <th class="px-4 py-3"><%= t('paymentMethodLabel') %></th>
             <th class="px-4 py-3"><%= t('note') %></th>
             <th class="px-4 py-3"><%= t('recordedBy') %></th>
           </tr>
@@ -79,13 +89,15 @@
         <tbody>
           <% if (payments.length === 0) { %>
             <tr>
-              <td class="px-4 py-4 text-slate-500" colspan="4"><%= t('noPayments') %></td>
+              <td class="px-4 py-4 text-slate-500" colspan="5"><%= t('noPayments') %></td>
             </tr>
           <% } %>
           <% payments.forEach((payment) => { %>
+            <% const methodLabel = payment.payment_method === 'BANK' ? t('methodBank') : payment.payment_method === 'E_WALLET' ? t('methodEWallet') : t('methodCash'); %>
             <tr class="table-row">
               <td class="px-4 py-3"><%= payment.paid_at %></td>
               <td class="px-4 py-3 <%= payment.amount >= 0 ? 'text-emerald-700' : 'text-red-600' %>"><%= payment.amount %></td>
+              <td class="px-4 py-3"><%= methodLabel %></td>
               <td class="px-4 py-3"><%= payment.note || '-' %></td>
               <td class="px-4 py-3"><%= payment.full_name || '-' %></td>
             </tr>

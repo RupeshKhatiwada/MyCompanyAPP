@@ -11,7 +11,7 @@
   </div>
 
   <div class="mt-6 card p-6 max-w-4xl">
-    <form class="grid gap-3 sm:grid-cols-5" method="post" action="/records/savings/<%= entry.id %>">
+    <form class="grid gap-3 sm:grid-cols-6" method="post" action="/records/savings/<%= entry.id %>" data-savings-form>
       <div class="sm:col-span-2">
         <label class="label"><%= t('vehicle') %></label>
         <select class="input" name="vehicle_id" required>
@@ -23,10 +23,20 @@
       </div>
       <div>
         <label class="label"><%= t('savingsType') %></label>
-        <select class="input" name="entry_type" required>
+        <select class="input" name="entry_type" required data-savings-type>
           <option value="deposit" <%= entryType === 'deposit' ? 'selected' : '' %>><%= t('savingsDeposit') %></option>
           <option value="withdraw" <%= entryType === 'withdraw' ? 'selected' : '' %>><%= t('savingsWithdraw') %></option>
         </select>
+      </div>
+      <% const entrySource = entry.payment_source || 'DAILY_COLLECTION'; %>
+      <div data-savings-source-wrap>
+        <label class="label"><%= t('paymentSourceLabel') %></label>
+        <select class="input" name="payment_source" data-savings-source>
+          <option value="DAILY_COLLECTION" <%= entrySource === 'DAILY_COLLECTION' ? 'selected' : '' %>><%= t('sourceDailyCollection') %></option>
+          <option value="OWNER_PERSONAL" <%= entrySource === 'OWNER_PERSONAL' ? 'selected' : '' %>><%= t('sourceOwnerPersonal') %></option>
+          <option value="BANK_OTHER" <%= entrySource === 'BANK_OTHER' ? 'selected' : '' %>><%= t('sourceBankOther') %></option>
+        </select>
+        <p class="mt-1 text-xs text-slate-500" data-savings-source-hint><%= t('savingsDepositSourceFixed') %></p>
       </div>
       <div>
         <label class="label"><%= t('amount') %></label>
@@ -47,4 +57,32 @@
     </form>
   </div>
 </section>
+<script>
+  (() => {
+    const form = document.querySelector("[data-savings-form]");
+    if (!form) return;
+    const typeSelect = form.querySelector("[data-savings-type]");
+    const sourceWrap = form.querySelector("[data-savings-source-wrap]");
+    const sourceSelect = form.querySelector("[data-savings-source]");
+    const sourceHint = form.querySelector("[data-savings-source-hint]");
+    if (!typeSelect || !sourceWrap || !sourceSelect || !sourceHint) return;
+
+    const updateSourceUI = () => {
+      const isWithdraw = typeSelect.value === "withdraw";
+      if (isWithdraw) {
+        sourceWrap.classList.remove("opacity-60");
+        sourceSelect.disabled = false;
+        sourceHint.classList.add("hidden");
+      } else {
+        sourceSelect.value = "DAILY_COLLECTION";
+        sourceSelect.disabled = true;
+        sourceWrap.classList.add("opacity-60");
+        sourceHint.classList.remove("hidden");
+      }
+    };
+
+    typeSelect.addEventListener("change", updateSourceUI);
+    updateSourceUI();
+  })();
+</script>
 <%- include('../partials/shell-end') %>
