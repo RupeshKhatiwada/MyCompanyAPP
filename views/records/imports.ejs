@@ -27,6 +27,7 @@
   <% const safeJarTypeBalances = typeof jarTypeBalances !== 'undefined' ? jarTypeBalances : {}; %>
   <% const safeJarContainerBalance = typeof jarContainerBalance !== 'undefined' ? jarContainerBalance : 0; %>
   <% const safeBottleCaseBalance = typeof bottleCaseBalance !== 'undefined' ? bottleCaseBalance : 0; %>
+  <% const safeDispenserBalance = typeof dispenserBalance !== 'undefined' ? dispenserBalance : 0; %>
   <% const safeEntries = typeof entries !== 'undefined' ? entries : []; %>
   <% const safePaymentRows = typeof paymentRows !== 'undefined' ? paymentRows : []; %>
   <% const safeItemMetaByCode = typeof itemMetaByCode !== 'undefined' ? itemMetaByCode : {}; %>
@@ -164,6 +165,9 @@
           <span class="badge <%= safeBottleCaseBalance <= 0 ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-700' %>">
             <%= t('bottleCaseBalance') %>: <%= safeBottleCaseBalance %>
           </span>
+          <span class="badge <%= safeDispenserBalance <= 0 ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-700' %>">
+            <%= t('dispenserBalance') %>: <%= safeDispenserBalance %>
+          </span>
           <span class="badge <%= safeJarContainerBalance <= 0 ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-700' %>">
             <%= t('jarContainerBalance') %>: <%= safeJarContainerBalance %>
           </span>
@@ -217,7 +221,11 @@
         <tbody>
           <% safeItemTypes.forEach((entry) => { %>
             <% const unit = entry.unit || ''; %>
-            <% const balance = safeTotals.byItem[entry.code] || 0; %>
+            <% const balance = entry.code === 'BOTTLE_CASE'
+              ? safeBottleCaseBalance
+              : entry.code === 'DISPENSER'
+                ? safeDispenserBalance
+                : (safeTotals.byItem[entry.code] || 0); %>
             <tr class="table-row">
               <td class="px-4 py-3"><%= entry.label %></td>
               <td class="px-4 py-3 text-right">

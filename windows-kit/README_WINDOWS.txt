@@ -1,23 +1,31 @@
-AQUA MSK Windows Deployment Kit
-================================
+AQUA MSK Windows Production Package
+===================================
 
-1) Place this "windows-kit" folder inside your AQUA MSK project root.
-2) Double click: start-aqua-msk.bat
-3) Open browser: http://localhost:3000
+Goal: staff run AQUA MSK with one click, no terminal.
 
-Auto start when Windows logs in:
-- Right click PowerShell and Run:
-  powershell -ExecutionPolicy Bypass -File .\install-startup-task.ps1
+First-time setup on each staff PC:
+1) Install Node.js 20 LTS.
+2) Open PowerShell in this windows-kit folder.
+3) Run:
+   powershell -ExecutionPolicy Bypass -File .\install-staff-pc.ps1
 
-One-click maintenance (health check + backup test + CSS build + kit refresh):
-- Double click: maintenance-one-click.bat
+Daily staff use:
+- Double click desktop shortcut: "AQUA MSK"
 
-One-click update (git pull + npm install + maintenance):
-- Double click: update-aqua-msk.bat
+Auto-start on login:
+- Installed automatically by install-staff-pc.ps1
+- Task name: AQUA_MSK_AutoStart
 
-Stop server:
-- Double click: stop-aqua-msk.bat
+Manual controls:
+- Start: start-aqua-msk.bat
+- Stop: stop-aqua-msk.bat
+- Restart: restart-aqua-msk.bat
 
-Backup to USB drive:
-- Example:
-  powershell -ExecutionPolicy Bypass -File .\backup-to-usb.ps1 -TargetPath E:\
+Maintenance:
+- maintenance-one-click.bat
+
+Update package:
+- update-aqua-msk.bat
+
+Backup to USB:
+- powershell -ExecutionPolicy Bypass -File .\backup-to-usb.ps1 -TargetPath E:\

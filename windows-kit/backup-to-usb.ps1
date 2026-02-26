@@ -13,6 +13,12 @@ New-Item -ItemType Directory -Path $OutDir -Force | Out-Null
 if (Test-Path (Join-Path $DataPath "aqua.db")) {
   Copy-Item (Join-Path $DataPath "aqua.db") (Join-Path $OutDir "aqua.db") -Force
 }
+if (Test-Path (Join-Path $DataPath "aqua.db-shm")) {
+  Copy-Item (Join-Path $DataPath "aqua.db-shm") (Join-Path $OutDir "aqua.db-shm") -Force
+}
+if (Test-Path (Join-Path $DataPath "aqua.db-wal")) {
+  Copy-Item (Join-Path $DataPath "aqua.db-wal") (Join-Path $OutDir "aqua.db-wal") -Force
+}
 if (Test-Path $BackupPath) {
   Copy-Item $BackupPath (Join-Path $OutDir "backups") -Recurse -Force
 }

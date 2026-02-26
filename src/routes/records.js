@@ -19,7 +19,8 @@ const importLabelKeyByCode = {
   CHEMICAL_LABEL: "importItemChemicalLabel",
   LABEL_STICKER: "importItemLabelSticker",
   DATE_LABEL: "importItemDateLabel",
-  BOTTLE_CASE: "importItemBottleCase"
+  BOTTLE_CASE: "importItemBottleCase",
+  DISPENSER: "importItemDispenser"
 };
 const importUnitFallbackByCode = {
   JAR_CONTAINER: "",
@@ -27,7 +28,8 @@ const importUnitFallbackByCode = {
   CHEMICAL_LABEL: "unitGallon",
   LABEL_STICKER: "unitBundle",
   DATE_LABEL: "unitRoll",
-  BOTTLE_CASE: "unitCase"
+  BOTTLE_CASE: "unitCase",
+  DISPENSER: "unitPiece"
 };
 const vehicleExpenseTypes = ["FUEL", "REPAIR", "SERVICE", "OTHER"];
 const normalizeSalaryPaymentSource = (value) => {
@@ -702,6 +704,27 @@ const getBottleCaseStorageBalance = ({ excludeExportId = null } = {}) => {
   const returned = Number(exportRow?.returned || 0);
   const netExport = Math.max(0, exported - returned);
   return imported - netExport;
+};
+
+const getDispenserStorageBalance = ({ excludeExportId = null } = {}) => {
+  const importRow = db.prepare(
+    `SELECT COALESCE(SUM(CASE WHEN direction = 'OUT' THEN -quantity ELSE quantity END), 0) as qty
+     FROM import_entries
+     WHERE item_type = 'DISPENSER'`
+  ).get();
+  const exportRow = excludeExportId
+    ? db.prepare(
+      `SELECT COALESCE(SUM(dispenser_count), 0) as exported
+       FROM exports
+       WHERE id != ?`
+    ).get(excludeExportId)
+    : db.prepare(
+      `SELECT COALESCE(SUM(dispenser_count), 0) as exported
+       FROM exports`
+    ).get();
+  const imported = Number(importRow?.qty || 0);
+  const exported = Number(exportRow?.exported || 0);
+  return imported - exported;
 };
 
 const normalizeFingerprintId = (value) => {
@@ -2404,6 +2427,27 @@ router.post("/exports", (req, res) => {
       externalOrganization: externalOrganizationRaw
     });
   }
+  const dispenserAvailable = getDispenserStorageBalance();
+  if (dispenserCount > dispenserAvailable) {
+    return res.render("records/export_form", {
+      title: req.t("addExportTitle"),
+      record: null,
+      vehicles,
+      staffOptions,
+      nameSuggestions,
+      formValues: req.body,
+      error: req.t("dispenserInsufficient", { available: dispenserAvailable }),
+      defaultDate: export_date || dayjs().format("YYYY-MM-DD"),
+      selectedVehicleId: vehicle_id || "",
+      checkedByStaffName: checkedByStaffNameRaw,
+      forceWashStaffName: forceWashStaffNameRaw,
+      useExternalVehicle: useExternalVehicleRaw,
+      externalVehicleNumber: externalVehicleNumberRaw,
+      externalOwnerName: externalOwnerNameRaw,
+      externalPhone: externalPhoneRaw,
+      externalOrganization: externalOrganizationRaw
+    });
+  }
   const resolvedVehicleId = Number(vehicleResolution.vehicleId);
   const vehicleRow = db.prepare("SELECT is_company FROM vehicles WHERE id = ?").get(resolvedVehicleId);
   const isCompany = vehicleRow && Number(vehicleRow.is_company) === 1;
@@ -2802,6 +2846,27 @@ router.post("/exports/:id", (req, res) => {
       externalOrganization: externalOrganizationRaw
     });
   }
+  const dispenserAvailable = getDispenserStorageBalance({ excludeExportId: req.params.id });
+  if (dispenserCount > dispenserAvailable) {
+    return res.render("records/export_form", {
+      title: req.t("editExportTitle"),
+      record,
+      vehicles,
+      staffOptions,
+      nameSuggestions,
+      formValues: req.body,
+      error: req.t("dispenserInsufficient", { available: dispenserAvailable }),
+      defaultDate: export_date || record.export_date,
+      selectedVehicleId: vehicle_id || record.vehicle_id,
+      checkedByStaffName: checkedByStaffNameRaw,
+      forceWashStaffName: forceWashStaffNameRaw,
+      useExternalVehicle: useExternalVehicleRaw,
+      externalVehicleNumber: externalVehicleNumberRaw,
+      externalOwnerName: externalOwnerNameRaw,
+      externalPhone: externalPhoneRaw,
+      externalOrganization: externalOrganizationRaw
+    });
+  }
   const resolvedVehicleId = Number(vehicleResolution.vehicleId);
   const vehicleRow = db.prepare("SELECT is_company FROM vehicles WHERE id = ?").get(resolvedVehicleId);
   const isCompany = vehicleRow && Number(vehicleRow.is_company) === 1;
@@ -3157,6 +3222,18 @@ router.get("/imports", (req, res) => {
   const bottleCaseReturned = Number(bottleCaseExportRow?.returned || 0);
   const bottleCaseNetExport = Math.max(0, bottleCaseExported - bottleCaseReturned);
   const bottleCaseBalance = bottleCaseImported - bottleCaseNetExport;
+  const dispenserImportRow = db.prepare(
+    `SELECT COALESCE(SUM(CASE WHEN direction = 'OUT' THEN -quantity ELSE quantity END), 0) as qty
+     FROM import_entries
+     WHERE item_type = 'DISPENSER'`
+  ).get();
+  const dispenserExportRow = db.prepare(
+    `SELECT COALESCE(SUM(dispenser_count), 0) as exported
+     FROM exports`
+  ).get();
+  const dispenserImported = Number(dispenserImportRow?.qty || 0);
+  const dispenserExported = Number(dispenserExportRow?.exported || 0);
+  const dispenserBalance = dispenserImported - dispenserExported;
 
   const itemMetaByCode = itemTypes.reduce((acc, row) => {
     acc[row.code] = {
@@ -3211,6 +3288,7 @@ router.get("/imports", (req, res) => {
     success,
     jarContainerBalance,
     bottleCaseBalance,
+    dispenserBalance,
     jarTypeBalances,
     itemTypes,
     itemMetaByCode,

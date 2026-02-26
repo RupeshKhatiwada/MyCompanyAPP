@@ -45,7 +45,9 @@ const importLabelKeyByCode = {
   JAR_CAP: "importItemJarCap",
   CHEMICAL_LABEL: "importItemChemicalLabel",
   LABEL_STICKER: "importItemLabelSticker",
-  DATE_LABEL: "importItemDateLabel"
+  DATE_LABEL: "importItemDateLabel",
+  BOTTLE_CASE: "importItemBottleCase",
+  DISPENSER: "importItemDispenser"
 };
 const workerDocumentFields = [
   { name: "photo", maxCount: 1 },
@@ -5767,7 +5769,7 @@ router.post("/backup/test", (req, res) => {
 });
 
 router.post("/day-close/close", (req, res) => {
-  const closureDate = req.body.closure_date || dayjs().format("YYYY-MM-DD");
+  const closureDate = normalizeIsoDate(req.body.closure_date) || dayjs().format("YYYY-MM-DD");
   const note = String(req.body.note || "").trim() || null;
   db.prepare(
     `INSERT INTO day_closures (closure_date, is_closed, note, closed_by, closed_at, reopened_by, reopened_at)
@@ -5789,7 +5791,7 @@ router.post("/day-close/close", (req, res) => {
 });
 
 router.post("/day-close/reopen", (req, res) => {
-  const closureDate = req.body.closure_date || dayjs().format("YYYY-MM-DD");
+  const closureDate = normalizeIsoDate(req.body.closure_date) || dayjs().format("YYYY-MM-DD");
   db.prepare(
     "UPDATE day_closures SET is_closed = 0, reopened_by = ?, reopened_at = datetime('now') WHERE closure_date = ?"
   ).run(req.session.userId || null, closureDate);
@@ -5803,6 +5805,67 @@ router.post("/day-close/reopen", (req, res) => {
   return renderSettingsPage(req, res, {
     selectedClosureDate: closureDate,
     success: req.t("dayReopenedSuccess")
+  });
+});
+
+router.post("/day-close/bulk", (req, res) => {
+  const fromDate = normalizeIsoDate(req.body.from_date);
+  const toDate = normalizeIsoDate(req.body.to_date);
+  const bulkAction = String(req.body.bulk_action || "close").trim().toLowerCase() === "reopen"
+    ? "reopen"
+    : "close";
+  const note = String(req.body.note || "").trim() || null;
+
+  if (!fromDate || !toDate) {
+    return renderSettingsPage(req, res, {
+      selectedClosureDate: req.body.to_date || req.body.from_date || dayjs().format("YYYY-MM-DD"),
+      error: req.t("dayCloseRangeRequired")
+    });
+  }
+
+  const range = listClosureDatesInRange(fromDate, toDate, 366);
+  if (!range.ok) {
+    const errorKey = range.reason === "TOO_LARGE" ? "dayCloseRangeTooLarge" : "dayCloseRangeInvalid";
+    return renderSettingsPage(req, res, {
+      selectedClosureDate: toDate,
+      error: req.t(errorKey)
+    });
+  }
+
+  let changedCount = 0;
+  if (bulkAction === "close") {
+    const closeStmt = db.prepare(
+      `INSERT INTO day_closures (closure_date, is_closed, note, closed_by, closed_at, reopened_by, reopened_at)
+       VALUES (?, 1, ?, ?, datetime('now'), NULL, NULL)
+       ON CONFLICT(closure_date)
+       DO UPDATE SET is_closed = 1, note = excluded.note, closed_by = excluded.closed_by, closed_at = datetime('now'), reopened_by = NULL, reopened_at = NULL`
+    );
+    range.dates.forEach((dateText) => {
+      closeStmt.run(dateText, note, req.session.userId || null);
+      changedCount += 1;
+    });
+  } else {
+    const reopenStmt = db.prepare(
+      "UPDATE day_closures SET is_closed = 0, reopened_by = ?, reopened_at = datetime('now') WHERE closure_date = ?"
+    );
+    range.dates.forEach((dateText) => {
+      const result = reopenStmt.run(req.session.userId || null, dateText);
+      changedCount += Number(result.changes || 0);
+    });
+  }
+
+  logActivity({
+    userId: req.session.userId,
+    action: "update",
+    entityType: "system",
+    entityId: "day_close_bulk",
+    details: `status=${bulkAction === "close" ? "closed" : "open"}, from=${fromDate}, to=${toDate}, count=${changedCount}`
+  });
+
+  const successKey = bulkAction === "close" ? "dayBulkClosedSuccess" : "dayBulkReopenedSuccess";
+  return renderSettingsPage(req, res, {
+    selectedClosureDate: toDate,
+    success: req.t(successKey, { count: changedCount, from: fromDate, to: toDate })
   });
 });
 

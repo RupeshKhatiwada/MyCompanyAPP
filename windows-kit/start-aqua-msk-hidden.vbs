@@ -1,3 +1,4 @@
-Set WshShell = CreateObject("WScript.Shell")
-WshShell.Run chr(34) & ".\start-aqua-msk.bat" & Chr(34), 0
-Set WshShell = Nothing
+Set shell = CreateObject("WScript.Shell")
+Set fso = CreateObject("Scripting.FileSystemObject")
+scriptPath = fso.GetParentFolderName(WScript.ScriptFullName) & "\start-aqua-msk.ps1"
+shell.Run "powershell -NoProfile -ExecutionPolicy Bypass -File """ & scriptPath & """", 0, False

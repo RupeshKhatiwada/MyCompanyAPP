@@ -10,8 +10,10 @@
     :root[data-font-size="sm"] { font-size: 14px; }
     :root[data-font-size="md"] { font-size: 16px; }
     :root[data-font-size="lg"] { font-size: 18px; }
+    :root[data-font-size="xl"] { font-size: 20px; }
     .print-only { display: none; }
     .action-menu { position: relative; display: inline-block; }
+    .action-menu[open] { z-index: 10000; }
     .action-menu > summary { list-style: none; }
     .action-menu > summary::-webkit-details-marker { display: none; }
     .action-menu-panel {
@@ -58,6 +60,7 @@
       z-index: 2;
       background: rgba(255, 255, 255, 0.96);
       box-shadow: -6px 0 8px -8px rgba(15, 23, 42, 0.25);
+      overflow: visible;
     }
     .table-head .table-action-sticky {
       background: rgba(241, 245, 249, 0.98);
@@ -81,13 +84,30 @@
         return menu && menu.dataset && menu.dataset.forceUp === "1";
       }
 
+      function getPanel(menu) {
+        if (!(menu instanceof HTMLElement)) return null;
+        var panel = menu.querySelector(".action-menu-panel");
+        return panel instanceof HTMLElement ? panel : null;
+      }
+
+      function resetPanelPosition(menu) {
+        var panel = getPanel(menu);
+        if (!panel) return;
+        panel.style.left = "";
+        panel.style.top = "";
+        panel.style.right = "";
+        panel.style.bottom = "";
+        panel.style.maxHeight = "";
+        panel.style.visibility = "";
+        panel.style.display = "";
+      }
+
       function closeAll(except) {
         var menus = document.querySelectorAll(selector + "[open]");
         for (var i = 0; i < menus.length; i += 1) {
           if (!except || menus[i] !== except) {
-            if (!isForcedUp(menus[i])) {
-              menus[i].classList.remove("action-menu-up");
-            }
+            resetPanelPosition(menus[i]);
+            menus[i].classList.remove("action-menu-up");
             menus[i].open = false;
           }
         }
@@ -95,26 +115,43 @@
 
       function placeMenu(menu) {
         if (!(menu instanceof HTMLElement)) return;
-        if (isForcedUp(menu)) {
-          menu.classList.add("action-menu-up");
-          return;
-        }
-        menu.classList.remove("action-menu-up");
-        var panel = menu.querySelector(".action-menu-panel");
+        var panel = getPanel(menu);
         if (!(panel instanceof HTMLElement)) return;
-        var viewportMargin = 10;
+        var anchor = menu.querySelector("summary");
+        var anchorRect = (anchor instanceof HTMLElement ? anchor : menu).getBoundingClientRect();
+        var viewportMargin = 8;
+
+        panel.style.left = "";
+        panel.style.right = "";
         panel.style.maxHeight = "";
-        panel.style.overflowY = "auto";
-        var rect = panel.getBoundingClientRect();
-        var panelHeight = rect.height;
-        var spaceBelow = Math.max(0, window.innerHeight - rect.top - viewportMargin);
-        var spaceAbove = Math.max(0, rect.top - viewportMargin);
-        var openUp = panelHeight > spaceBelow && spaceAbove > spaceBelow;
-        if (openUp) {
-          menu.classList.add("action-menu-up");
-        }
+        panel.style.visibility = "hidden";
+        panel.style.display = "block";
+
+        var panelRect = panel.getBoundingClientRect();
+        var panelHeight = Math.max(panelRect.height || 120, 120);
+        panel.style.display = "";
+        panel.style.visibility = "";
+
+        var spaceBelow = Math.max(0, window.innerHeight - anchorRect.bottom - viewportMargin);
+        var spaceAbove = Math.max(0, anchorRect.top - viewportMargin);
+        var openUp = isForcedUp(menu) || (panelHeight > spaceBelow && spaceAbove > spaceBelow);
+
+        if (openUp) menu.classList.add("action-menu-up");
+        else menu.classList.remove("action-menu-up");
+
         var availableSpace = openUp ? spaceAbove : spaceBelow;
         panel.style.maxHeight = Math.max(140, Math.floor(availableSpace)) + "px";
+
+        var viewportRect = panel.getBoundingClientRect();
+        if (viewportRect.left < viewportMargin) {
+          panel.style.left = "0";
+          panel.style.right = "auto";
+          viewportRect = panel.getBoundingClientRect();
+        }
+        if (viewportRect.right > window.innerWidth - viewportMargin) {
+          panel.style.left = "auto";
+          panel.style.right = "0";
+        }
       }
 
       document.addEventListener("toggle", function (event) {
@@ -125,9 +162,8 @@
           closeAll(target);
           placeMenu(target);
         } else {
-          if (!isForcedUp(target)) {
-            target.classList.remove("action-menu-up");
-          }
+          resetPanelPosition(target);
+          target.classList.remove("action-menu-up");
         }
       }, true);
 
@@ -140,6 +176,13 @@
       document.addEventListener("keydown", function (event) {
         if (event.key === "Escape") closeAll();
       });
+
+      document.addEventListener("scroll", function () {
+        var openMenus = document.querySelectorAll(selector + "[open]");
+        for (var i = 0; i < openMenus.length; i += 1) {
+          placeMenu(openMenus[i]);
+        }
+      }, true);
 
       window.addEventListener("resize", function () {
         var openMenus = document.querySelectorAll(selector + "[open]");

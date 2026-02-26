@@ -82,9 +82,6 @@
               <th class="px-4 py-3"><%= t('date') %></th>
               <th class="px-4 py-3"><%= t('receiptNo') %></th>
               <th class="px-4 py-3"><%= t('vehicle') %></th>
-              <th class="px-4 py-3"><%= t('checkedByStaff') %></th>
-              <th class="px-4 py-3"><%= t('forceWash') %></th>
-              <th class="px-4 py-3"><%= t('forceWashBy') %></th>
               <th class="px-4 py-3"><%= t('jars') %></th>
               <th class="px-4 py-3"><%= t('returnJars') %></th>
               <th class="px-4 py-3"><%= t('leakageJars') %></th>
@@ -97,18 +94,16 @@
               <th class="px-4 py-3"><%= t('netBottles') %></th>
               <th class="px-4 py-3"><%= t('totalExportAmount') %></th>
               <th class="px-4 py-3"><%= t('collectionAmount') %></th>
-              <th class="px-4 py-3"><%= t('expenseAmount') %></th>
               <th class="px-4 py-3"><%= t('netCollectionAmount') %></th>
               <th class="px-4 py-3"><%= t('paidAmount') %></th>
               <th class="px-4 py-3"><%= t('creditAmount') %></th>
-              <th class="px-4 py-3"><%= t('route') %></th>
               <th class="px-4 py-3"><%= t('recordedBy') %></th>
             </tr>
           </thead>
           <tbody>
             <% if (exportsRows.length === 0) { %>
               <tr>
-                <td class="px-4 py-4 text-slate-500" colspan="24"><%= t('noExports') %></td>
+                <td class="px-4 py-4 text-slate-500" colspan="19"><%= t('noExports') %></td>
               </tr>
             <% } %>
             <% exportsRows.forEach((record) => { %>
@@ -123,9 +118,6 @@
                 <td class="px-4 py-3"><%= typeof formatDateDual === 'function' ? formatDateDual(record.export_date) : record.export_date %></td>
                 <td class="px-4 py-3"><%= record.receipt_no || (`#${record.id}`) %></td>
                 <td class="px-4 py-3 font-medium"><%= `${record.owner_name} • ${record.vehicle_number}` %></td>
-                <td class="px-4 py-3"><%= record.checked_by_name || '-' %></td>
-                <td class="px-4 py-3"><%= Number(record.force_wash_required || 0) === 1 ? t('yes') : t('no') %></td>
-                <td class="px-4 py-3"><%= record.force_wash_staff_name || '-' %></td>
                 <td class="px-4 py-3"><%= record.jar_count %></td>
                 <td class="px-4 py-3"><%= record.return_jar_count %></td>
                 <td class="px-4 py-3"><%= record.leakage_jar_count %></td>
@@ -138,11 +130,9 @@
                 <td class="px-4 py-3"><%= netBottles %></td>
                 <td class="px-4 py-3"><%= record.total_amount %></td>
                 <td class="px-4 py-3"><%= collectionAmount %></td>
-                <td class="px-4 py-3"><%= expenseAmount %></td>
                 <td class="px-4 py-3"><%= netCollectionAmount %></td>
                 <td class="px-4 py-3"><%= paidAmount %></td>
                 <td class="px-4 py-3"><%= creditAmount %></td>
-                <td class="px-4 py-3"><%= record.route || '-' %></td>
                 <td class="px-4 py-3"><%= record.recorded_by || '-' %></td>
               </tr>
             <% }) %>

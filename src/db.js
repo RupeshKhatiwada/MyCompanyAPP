@@ -1,5 +1,6 @@
 const fs = require("fs");
 const path = require("path");
+const crypto = require("crypto");
 const { DatabaseSync } = require("node:sqlite");
 
 const dbPath = path.join(__dirname, "..", "data", "aqua.db");
@@ -8,6 +9,275 @@ fs.mkdirSync(path.dirname(dbPath), { recursive: true });
 const db = new DatabaseSync(dbPath);
 
 db.exec("PRAGMA journal_mode = WAL;");
+
+const quoteIdentifier = (value) => `"${String(value || "").replace(/"/g, "\"\"")}"`;
+const toSafeLiteral = (value) => String(value || "").replace(/'/g, "''");
+const toSafeName = (value) => String(value || "").replace(/[^a-zA-Z0-9_]/g, "_");
+const normalizeSiteId = (value) => String(value || "")
+  .trim()
+  .toLowerCase()
+  .replace(/[^a-z0-9_-]/g, "-")
+  .replace(/-+/g, "-")
+  .replace(/^-+|-+$/g, "");
+const createLocalSiteId = () => {
+  const seed = `${process.env.COMPUTERNAME || process.env.HOSTNAME || "aqua"}-${crypto.randomBytes(3).toString("hex")}`;
+  return normalizeSiteId(seed) || `aqua-${crypto.randomBytes(4).toString("hex")}`;
+};
+const HYBRID_SYNC_TABLES = [
+  { name: "users", pk: "id" },
+  { name: "vehicles", pk: "id" },
+  { name: "staff", pk: "id" },
+  { name: "exports", pk: "id" },
+  { name: "credits", pk: "id" },
+  { name: "credit_payments", pk: "id" },
+  { name: "jar_sales", pk: "id" },
+  { name: "jar_sale_payments", pk: "id" },
+  { name: "import_entries", pk: "id" },
+  { name: "import_payments", pk: "id" },
+  { name: "company_purchases", pk: "id" },
+  { name: "company_purchase_payments", pk: "id" },
+  { name: "vehicle_expenses", pk: "id" },
+  { name: "vehicle_expense_payments", pk: "id" },
+  { name: "staff_salary_payments", pk: "id" },
+  { name: "worker_salary_payments", pk: "id" },
+  { name: "vehicle_savings", pk: "id" },
+  { name: "rent_entries", pk: "id" },
+  { name: "water_test_reports", pk: "id" }
+];
+
+const ensureColumn = (tableName, columnName, columnSql) => {
+  const tableSql = quoteIdentifier(tableName);
+  const cols = new Set(
+    db.prepare(`PRAGMA table_info(${tableSql})`).all().map((row) => row.name)
+  );
+  if (!cols.has(columnName)) {
+    db.exec(`ALTER TABLE ${tableSql} ADD COLUMN ${columnSql};`);
+  }
+};
+
+const getOrCreateHybridSiteId = () => {
+  const key = "hybrid_sync_site_id";
+  const existing = db.prepare("SELECT value FROM settings WHERE key = ?").get(key);
+  const normalized = normalizeSiteId(existing?.value || "");
+  if (normalized) {
+    if (normalized !== String(existing.value || "")) {
+      db.prepare("UPDATE settings SET value = ? WHERE key = ?").run(normalized, key);
+    }
+    return normalized;
+  }
+  const next = createLocalSiteId();
+  if (existing) {
+    db.prepare("UPDATE settings SET value = ? WHERE key = ?").run(next, key);
+  } else {
+    db.prepare("INSERT INTO settings (key, value) VALUES (?, ?)").run(key, next);
+  }
+  return next;
+};
+
+const ensureHybridSyncSchema = () => {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS sync_queue (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      table_name TEXT NOT NULL,
+      record_pk TEXT,
+      record_global_id TEXT NOT NULL,
+      operation TEXT NOT NULL CHECK (operation IN ('UPSERT','DELETE')),
+      changed_at TEXT NOT NULL DEFAULT (datetime('now')),
+      status TEXT NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING','PROCESSING','DONE','FAILED')),
+      attempt_count INTEGER NOT NULL DEFAULT 0,
+      last_error TEXT,
+      payload TEXT
+    );
+  `);
+  db.exec("CREATE INDEX IF NOT EXISTS idx_sync_queue_status_changed ON sync_queue(status, changed_at);");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_sync_queue_table_record ON sync_queue(table_name, record_global_id);");
+  db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_sync_queue_pending_unique ON sync_queue(table_name, record_global_id, status);");
+
+  const siteId = getOrCreateHybridSiteId();
+  const setAppMode = db.prepare(
+    `INSERT INTO settings (key, value)
+     VALUES ('app_mode', 'OFFLINE')
+     ON CONFLICT(key) DO NOTHING`
+  );
+  setAppMode.run();
+
+  HYBRID_SYNC_TABLES.forEach((table) => {
+    const tableSql = quoteIdentifier(table.name);
+    const pkSql = quoteIdentifier(table.pk);
+    const tableNameLiteral = toSafeLiteral(table.name);
+    const siteIdLiteral = toSafeLiteral(siteId);
+    const triggerNameBase = toSafeName(table.name);
+
+    ensureColumn(table.name, "global_id", "global_id TEXT");
+    ensureColumn(table.name, "site_id", "site_id TEXT");
+    ensureColumn(table.name, "sync_status", "sync_status TEXT NOT NULL DEFAULT 'PENDING'");
+    ensureColumn(table.name, "deleted_at", "deleted_at TEXT");
+    ensureColumn(table.name, "created_at", "created_at TEXT");
+    ensureColumn(table.name, "updated_at", "updated_at TEXT");
+
+    db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS ${quoteIdentifier(`idx_${triggerNameBase}_global_id`)} ON ${tableSql}(global_id);`);
+    db.exec(`CREATE INDEX IF NOT EXISTS ${quoteIdentifier(`idx_${triggerNameBase}_site_sync`)} ON ${tableSql}(site_id, sync_status);`);
+    db.exec(`CREATE INDEX IF NOT EXISTS ${quoteIdentifier(`idx_${triggerNameBase}_updated_sync`)} ON ${tableSql}(updated_at, sync_status);`);
+
+    db.prepare(
+      `UPDATE ${tableSql}
+       SET site_id = ?
+       WHERE site_id IS NULL OR TRIM(site_id) = ''`
+    ).run(siteId);
+    db.exec(
+      `UPDATE ${tableSql}
+       SET created_at = COALESCE(NULLIF(created_at, ''), datetime('now'))
+       WHERE created_at IS NULL OR TRIM(created_at) = ''`
+    );
+    db.exec(
+      `UPDATE ${tableSql}
+       SET updated_at = COALESCE(NULLIF(updated_at, ''), created_at, datetime('now'))
+       WHERE updated_at IS NULL OR TRIM(updated_at) = ''`
+    );
+    db.exec(
+      `UPDATE ${tableSql}
+       SET sync_status = 'PENDING'
+       WHERE sync_status IS NULL
+          OR TRIM(sync_status) = ''
+          OR sync_status NOT IN ('PENDING','SYNCED','FAILED')`
+    );
+
+    const missingRows = db.prepare(
+      `SELECT ${pkSql} as record_pk
+       FROM ${tableSql}
+       WHERE global_id IS NULL OR TRIM(global_id) = ''`
+    ).all();
+    const setGlobalId = db.prepare(
+      `UPDATE ${tableSql}
+       SET global_id = ?, sync_status = 'PENDING', updated_at = datetime('now')
+       WHERE ${pkSql} = ?`
+    );
+    missingRows.forEach((row) => {
+      setGlobalId.run(crypto.randomUUID(), row.record_pk);
+    });
+
+    db.exec(
+      `INSERT INTO sync_queue (table_name, record_pk, record_global_id, operation, changed_at, status, attempt_count, last_error, payload)
+       SELECT '${tableNameLiteral}', CAST(${pkSql} AS TEXT), global_id, 'UPSERT',
+              COALESCE(NULLIF(updated_at, ''), datetime('now')), 'PENDING', 0, NULL, NULL
+       FROM ${tableSql}
+       WHERE global_id IS NOT NULL
+         AND TRIM(global_id) <> ''
+         AND sync_status != 'SYNCED'
+       ON CONFLICT(table_name, record_global_id, status) DO UPDATE SET
+         record_pk = excluded.record_pk,
+         operation = excluded.operation,
+         changed_at = excluded.changed_at,
+         attempt_count = 0,
+         last_error = NULL`
+    );
+
+    db.exec(`DROP TRIGGER IF EXISTS ${quoteIdentifier(`trg_sync_${triggerNameBase}_ins`)};`);
+    db.exec(`DROP TRIGGER IF EXISTS ${quoteIdentifier(`trg_sync_${triggerNameBase}_upd`)};`);
+    db.exec(`DROP TRIGGER IF EXISTS ${quoteIdentifier(`trg_sync_${triggerNameBase}_del`)};`);
+
+    db.exec(`
+      CREATE TRIGGER IF NOT EXISTS ${quoteIdentifier(`trg_sync_${triggerNameBase}_ins`)}
+      AFTER INSERT ON ${tableSql}
+      FOR EACH ROW
+      BEGIN
+        UPDATE ${tableSql}
+        SET global_id = COALESCE(NULLIF(global_id, ''), LOWER(HEX(RANDOMBLOB(16)))),
+            site_id = COALESCE(NULLIF(site_id, ''), '${siteIdLiteral}'),
+            sync_status = CASE
+              WHEN sync_status IN ('PENDING','SYNCED','FAILED') THEN sync_status
+              ELSE 'PENDING'
+            END,
+            created_at = COALESCE(NULLIF(created_at, ''), datetime('now')),
+            updated_at = datetime('now')
+        WHERE ${pkSql} = NEW.${pkSql};
+        INSERT INTO sync_queue (table_name, record_pk, record_global_id, operation, changed_at, status, attempt_count, last_error, payload)
+        SELECT '${tableNameLiteral}',
+               CAST(${pkSql} AS TEXT),
+               global_id,
+               'UPSERT',
+               datetime('now'),
+               'PENDING',
+               0,
+               NULL,
+               NULL
+        FROM ${tableSql}
+        WHERE ${pkSql} = NEW.${pkSql}
+        ON CONFLICT(table_name, record_global_id, status) DO UPDATE SET
+          record_pk = excluded.record_pk,
+          operation = 'UPSERT',
+          changed_at = datetime('now'),
+          attempt_count = 0,
+          last_error = NULL,
+          payload = NULL;
+      END;
+    `);
+
+    db.exec(`
+      CREATE TRIGGER IF NOT EXISTS ${quoteIdentifier(`trg_sync_${triggerNameBase}_upd`)}
+      AFTER UPDATE ON ${tableSql}
+      FOR EACH ROW
+      BEGIN
+        UPDATE ${tableSql}
+        SET global_id = COALESCE(NULLIF(global_id, ''), LOWER(HEX(RANDOMBLOB(16)))),
+            site_id = COALESCE(NULLIF(site_id, ''), '${siteIdLiteral}'),
+            sync_status = CASE
+              WHEN sync_status IN ('PENDING','SYNCED','FAILED') THEN sync_status
+              ELSE 'PENDING'
+            END,
+            created_at = COALESCE(NULLIF(created_at, ''), datetime('now')),
+            updated_at = datetime('now')
+        WHERE ${pkSql} = NEW.${pkSql};
+        INSERT INTO sync_queue (table_name, record_pk, record_global_id, operation, changed_at, status, attempt_count, last_error, payload)
+        SELECT '${tableNameLiteral}',
+               CAST(${pkSql} AS TEXT),
+               global_id,
+               'UPSERT',
+               datetime('now'),
+               'PENDING',
+               0,
+               NULL,
+               NULL
+        FROM ${tableSql}
+        WHERE ${pkSql} = NEW.${pkSql}
+        ON CONFLICT(table_name, record_global_id, status) DO UPDATE SET
+          record_pk = excluded.record_pk,
+          operation = 'UPSERT',
+          changed_at = datetime('now'),
+          attempt_count = 0,
+          last_error = NULL,
+          payload = NULL;
+      END;
+    `);
+
+    db.exec(`
+      CREATE TRIGGER IF NOT EXISTS ${quoteIdentifier(`trg_sync_${triggerNameBase}_del`)}
+      AFTER DELETE ON ${tableSql}
+      FOR EACH ROW
+      BEGIN
+        INSERT INTO sync_queue (table_name, record_pk, record_global_id, operation, changed_at, status, attempt_count, last_error, payload)
+        VALUES (
+          '${tableNameLiteral}',
+          CAST(OLD.${pkSql} AS TEXT),
+          COALESCE(NULLIF(OLD.global_id, ''), 'legacy-${tableNameLiteral}-' || CAST(OLD.${pkSql} AS TEXT)),
+          'DELETE',
+          datetime('now'),
+          'PENDING',
+          0,
+          NULL,
+          NULL
+        )
+        ON CONFLICT(table_name, record_global_id, status) DO UPDATE SET
+          record_pk = excluded.record_pk,
+          operation = 'DELETE',
+          changed_at = datetime('now'),
+          attempt_count = 0,
+          last_error = NULL,
+          payload = NULL;
+      END;
+    `);
+  });
+};
 
 db.exec(`
 CREATE TABLE IF NOT EXISTS users (
@@ -675,6 +945,8 @@ CREATE TABLE IF NOT EXISTS archive_runs (
 CREATE INDEX IF NOT EXISTS idx_archive_runs_run_at ON archive_runs(run_at);
 `);
 
+ensureHybridSyncSchema();
+
 const documentTypeListSql = "'CITIZENSHIP','LICENSE','PASSPORT','PAN','NATIONAL_ID','VOTER_CARD','OTHERS'";
 
 const staffDocumentsTableDef = db.prepare(
@@ -1252,6 +1524,7 @@ if (recycleColumns.size > 0 && !recycleColumns.has("restored_by")) {
 const defaultImportItemTypes = [
   { code: "JAR_CONTAINER", name: "Jar Container", unit_label: "", uses_direction: 0 },
   { code: "BOTTLE_CASE", name: "Bottle Case", unit_label: "Case", uses_direction: 0 },
+  { code: "DISPENSER", name: "Dispenser", unit_label: "Piece", uses_direction: 0 },
   { code: "JAR_CAP", name: "Jar Cap", unit_label: "Bora", uses_direction: 1 },
   { code: "CHEMICAL_LABEL", name: "Wash Chemical", unit_label: "Gallon", uses_direction: 1 },
   { code: "LABEL_STICKER", name: "Label Sticker", unit_label: "Bundle", uses_direction: 1 },

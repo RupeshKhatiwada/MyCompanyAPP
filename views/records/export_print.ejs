@@ -195,24 +195,6 @@
             <p class="meta-value"><%= record.phone %></p>
           </div>
         <% } %>
-        <% if (record.route) { %>
-          <div>
-            <p class="meta-label"><%= t('route') %></p>
-            <p class="meta-value"><%= record.route %></p>
-          </div>
-        <% } %>
-        <% if (record.checked_by_name) { %>
-          <div>
-            <p class="meta-label"><%= t('checkedByStaff') %></p>
-            <p class="meta-value"><%= record.checked_by_name %></p>
-          </div>
-        <% } %>
-        <% if (record.force_wash_staff_name) { %>
-          <div>
-            <p class="meta-label"><%= t('forceWashBy') %></p>
-            <p class="meta-value"><%= record.force_wash_staff_name %></p>
-          </div>
-        <% } %>
       </div>
 
       <div class="divider"></div>
@@ -266,10 +248,6 @@
             <strong><%= collectionAmount %></strong>
           </div>
           <div class="row">
-            <span><%= t('expenseAmount') %></span>
-            <strong><%= expenseAmount %></strong>
-          </div>
-          <div class="row">
             <span><%= t('netCollectionAmount') %></span>
             <strong><%= netCollectionAmount %></strong>
           </div>
@@ -280,10 +258,6 @@
         </div>
       </div>
 
-      <% if (record.expense_note) { %>
-        <div class="divider"></div>
-        <p class="text-xs text-slate-600"><strong><%= t('expenseNote') %>:</strong> <%= record.expense_note %></p>
-      <% } %>
       <% if (record.note) { %>
         <p class="mt-2 text-xs text-slate-600"><strong><%= t('note') %>:</strong> <%= record.note %></p>
       <% } %>

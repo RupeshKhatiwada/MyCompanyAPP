@@ -4,30 +4,38 @@
 
 @layer base {
   :root {
-    --app-bg-main: #ffffff;
-    --app-bg-soft: #fff7f7;
+    --app-bg-main: #f6f8fb;
+    --app-bg-soft: #ffffff;
+    --app-bg-accent: #fef2f2;
     --app-text-main: #0f172a;
-    --app-border: rgba(148, 163, 184, 0.28);
-    --app-surface: rgba(255, 255, 255, 0.94);
-    --app-shadow: 0 10px 30px rgba(15, 23, 42, 0.07);
+    --app-text-subtle: #475569;
+    --app-surface: #ffffff;
+    --app-surface-soft: #fffafa;
+    --app-border: rgba(148, 163, 184, 0.38);
+    --app-shadow: 0 8px 22px rgba(2, 6, 23, 0.08);
+    --app-shadow-lg: 0 18px 36px rgba(2, 6, 23, 0.14);
   }
 
-  html { font-family: theme('fontFamily.body'); }
+  html {
+    font-family: theme("fontFamily.body");
+    color: var(--app-text-main);
+  }
 
   body {
-    @apply text-slate-900 antialiased;
-    color: var(--app-text-main);
+    @apply antialiased;
     background-color: var(--app-bg-main);
     background-image:
-      radial-gradient(circle at 6% 0%, rgba(220, 38, 38, 0.12), transparent 34%),
-      radial-gradient(circle at 100% 12%, rgba(185, 28, 28, 0.08), transparent 30%),
-      linear-gradient(180deg, var(--app-bg-soft) 0%, var(--app-bg-main) 52%, #ffffff 100%);
-    background-attachment: fixed;
+      radial-gradient(circle at 0% 0%, rgba(220, 38, 38, 0.06), transparent 34%),
+      radial-gradient(circle at 100% 8%, rgba(14, 116, 144, 0.05), transparent 32%),
+      linear-gradient(180deg, #ffffff 0%, #fcfdfd 48%, #f6f8fb 100%);
+    color: var(--app-text-main);
     overflow-x: hidden;
   }
 
-  h1, h2, h3 {
-    font-family: theme('fontFamily.display');
+  h1,
+  h2,
+  h3 {
+    font-family: theme("fontFamily.display");
     letter-spacing: -0.01em;
   }
 
@@ -55,61 +63,65 @@
   }
 
   @supports (height: 100dvh) {
-    .min-h-screen { min-height: 100dvh; }
+    .min-h-screen {
+      min-height: 100dvh;
+    }
   }
 }
 
 @layer components {
   .btn {
-    @apply inline-flex min-h-10 items-center justify-center rounded-xl px-4 py-2 text-sm font-semibold shadow-sm ring-1 ring-transparent;
-    transition: background-color 150ms ease, color 150ms ease, box-shadow 150ms ease, transform 150ms ease;
+    @apply inline-flex min-h-10 items-center justify-center gap-2 rounded-xl border px-4 py-2 text-sm font-semibold;
+    border-color: transparent;
+    transition: background-color 140ms ease, border-color 140ms ease, color 140ms ease, box-shadow 140ms ease, transform 140ms ease;
     touch-action: manipulation;
   }
 
   .btn-primary {
-    @apply btn bg-gradient-to-r from-aqua-600 to-aqua-700 text-white;
-    box-shadow: 0 8px 20px rgba(185, 28, 28, 0.22);
+    @apply btn border-red-600 bg-red-600 text-white;
+    box-shadow: 0 8px 18px rgba(220, 38, 38, 0.22);
   }
 
   .btn-primary:hover {
-    @apply from-aqua-700 to-aqua-800;
+    @apply border-red-700 bg-red-700 text-white;
     transform: translateY(-1px);
-    box-shadow: 0 12px 24px rgba(153, 27, 27, 0.28);
+    box-shadow: 0 10px 22px rgba(185, 28, 28, 0.28);
   }
 
   .btn-outline {
-    @apply btn border border-slate-200 bg-white text-slate-700;
+    @apply btn border-slate-300 bg-white text-slate-700;
     box-shadow: 0 1px 0 rgba(15, 23, 42, 0.04);
   }
 
   .btn-outline:hover {
-    @apply bg-slate-100 text-slate-900;
+    @apply border-slate-300 bg-slate-100 text-slate-900;
     transform: translateY(-1px);
   }
 
   .btn-danger {
-    @apply btn bg-gradient-to-r from-red-600 to-red-500 text-white;
-    box-shadow: 0 8px 20px rgba(190, 18, 60, 0.2);
+    @apply btn border-red-700 bg-red-600 text-white;
+    box-shadow: 0 8px 18px rgba(185, 28, 28, 0.22);
   }
 
   .btn-danger:hover {
-    @apply from-red-700 to-red-600;
+    @apply border-red-800 bg-red-700;
     transform: translateY(-1px);
-    box-shadow: 0 12px 24px rgba(190, 18, 60, 0.26);
+    box-shadow: 0 10px 20px rgba(153, 27, 27, 0.28);
   }
 
   .card {
-    @apply rounded-3xl ring-1 ring-slate-200/80;
+    @apply rounded-2xl border border-slate-200/85;
     background: var(--app-surface);
     box-shadow: var(--app-shadow);
-    backdrop-filter: blur(14px);
-    -webkit-backdrop-filter: blur(14px);
-    transition: box-shadow 200ms ease, transform 200ms ease, border-color 200ms ease;
   }
 
-  .card:hover {
-    box-shadow: 0 16px 36px rgba(15, 23, 42, 0.1);
-    border-color: rgba(148, 163, 184, 0.38);
+  .card-soft {
+    background: var(--app-surface-soft);
+  }
+
+  .card-hover:hover {
+    box-shadow: var(--app-shadow-lg);
+    border-color: rgba(248, 113, 113, 0.46);
   }
 
   .input {
@@ -120,13 +132,13 @@
   }
 
   .input:hover {
-    border-color: rgba(100, 116, 139, 0.36);
+    border-color: rgba(100, 116, 139, 0.52);
   }
 
   .input:focus {
     @apply outline-none;
-    border-color: rgba(220, 38, 38, 0.62);
-    box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.14);
+    border-color: rgba(220, 38, 38, 0.65);
+    box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.13);
   }
 
   .label {
@@ -138,17 +150,21 @@
   }
 
   .page-header {
-    @apply rounded-[28px] p-6 ring-1 ring-slate-200/80;
+    @apply rounded-2xl border border-slate-200/80 p-6;
     background:
-      linear-gradient(110deg, rgba(220, 38, 38, 0.12) 0%, rgba(220, 38, 38, 0.03) 26%, rgba(255, 255, 255, 0.96) 55%),
-      linear-gradient(160deg, rgba(255, 255, 255, 0.98) 0%, rgba(255, 248, 248, 0.94) 52%, rgba(255, 240, 240, 0.9) 100%);
+      linear-gradient(110deg, rgba(220, 38, 38, 0.05) 0%, rgba(220, 38, 38, 0.012) 30%, rgba(255, 255, 255, 0.98) 60%),
+      linear-gradient(180deg, #ffffff 0%, #fffdfd 100%);
     box-shadow: var(--app-shadow);
   }
 
+  .app-header {
+    box-shadow: 0 8px 18px rgba(15, 23, 42, 0.08);
+  }
+
   .stat-card {
-    @apply rounded-2xl p-5 ring-1 ring-slate-200/80;
-    background: rgba(255, 255, 255, 0.9);
-    box-shadow: 0 8px 18px rgba(15, 23, 42, 0.06);
+    @apply rounded-xl border border-slate-200/80 p-5;
+    background: #ffffff;
+    box-shadow: 0 6px 16px rgba(15, 23, 42, 0.06);
   }
 
   .table-base {
@@ -157,61 +173,88 @@
     border-spacing: 0;
   }
 
-  .overflow-x-auto {
-    -webkit-overflow-scrolling: touch;
-    overscroll-behavior-x: contain;
-  }
-
   .table-head {
     @apply bg-slate-100/95 text-slate-700;
     position: sticky;
     top: 0;
-    z-index: 1;
+    z-index: 3;
   }
 
   .table-head th {
-    @apply font-semibold;
+    @apply border-b border-slate-200/80 font-semibold;
+    white-space: nowrap;
   }
 
   .table-row {
-    @apply border-t border-slate-200/80 transition even:bg-slate-50/60;
+    @apply border-t border-slate-200/80;
+  }
+
+  .table-row:nth-child(even) {
+    background: rgba(248, 250, 252, 0.85);
   }
 
   .table-row:hover {
-    @apply bg-aqua-100/45;
+    background: rgba(241, 245, 249, 0.96);
+  }
+
+  .overflow-x-auto {
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
+    border-radius: 0.75rem;
+    overflow-x: auto;
+    overflow-y: visible;
+  }
+
+  .card > .overflow-x-auto {
+    max-height: none;
+    overflow-x: auto;
+    overflow-y: visible;
   }
 
   .pill {
-    @apply inline-flex items-center gap-2 rounded-full border bg-white/90 px-3 py-1 text-xs font-semibold text-slate-700;
+    @apply inline-flex items-center gap-2 rounded-full border bg-white px-3 py-1 text-xs font-semibold text-slate-700;
     border-color: var(--app-border);
   }
 
   .tile {
-    @apply flex items-center justify-between gap-4 rounded-2xl border border-slate-200/80 bg-white/95 p-4 text-left shadow-sm;
+    @apply flex items-center justify-between gap-4 rounded-xl border border-slate-200/90 bg-white p-4 text-left;
     transition: border-color 180ms ease, transform 180ms ease, box-shadow 180ms ease;
+    box-shadow: 0 6px 16px rgba(15, 23, 42, 0.06);
   }
 
   .tile:hover {
-    @apply -translate-y-0.5;
-    border-color: rgba(100, 116, 139, 0.38);
-    box-shadow: 0 14px 24px rgba(15, 23, 42, 0.08);
+    transform: translateY(-1px);
+    border-color: rgba(248, 113, 113, 0.5);
+    box-shadow: 0 12px 24px rgba(15, 23, 42, 0.1);
   }
 
   .drawer {
-    @apply rounded-3xl bg-white/95 shadow-xl ring-1 ring-slate-200/80 backdrop-blur;
-    backdrop-filter: blur(16px);
-    -webkit-backdrop-filter: blur(16px);
+    @apply rounded-2xl border border-slate-200 bg-white shadow-xl;
     max-height: calc(100vh - 2rem);
     max-height: calc(100dvh - 2rem);
     overflow-y: auto;
-    animation: drawer-in 180ms ease-out;
+    animation: drawer-in 170ms ease-out;
     box-shadow: 0 24px 40px rgba(15, 23, 42, 0.2);
+  }
+
+  #menuPanel .drawer .btn-outline {
+    @apply h-9 justify-start rounded-lg border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700;
+    box-shadow: none;
+    transform: none;
+  }
+
+  #menuPanel .drawer .btn-outline:hover {
+    @apply border-red-200 bg-red-50 text-red-800;
+  }
+
+  #menuPanel .drawer .pill {
+    @apply border-red-200 bg-red-50 text-red-700;
   }
 
   @keyframes drawer-in {
     from {
       opacity: 0;
-      transform: translateY(-8px) scale(0.98);
+      transform: translateY(-6px) scale(0.985);
     }
     to {
       opacity: 1;
@@ -233,13 +276,10 @@
 
   @media (max-width: 1024px) {
     .page-header {
-      @apply rounded-2xl p-4;
+      @apply p-4;
     }
     .card {
-      @apply rounded-2xl;
-    }
-    .stat-card {
-      @apply p-4;
+      @apply rounded-xl;
     }
   }
 
@@ -250,36 +290,143 @@
     .table-base {
       min-width: 640px;
     }
-    .btn, .btn-primary, .btn-outline, .btn-danger {
+    .btn,
+    .btn-primary,
+    .btn-outline,
+    .btn-danger {
       @apply px-3 text-xs;
-    }
-    .page-header {
-      @apply gap-4;
     }
     .page-header h1 {
       @apply text-2xl;
+    }
+    .card > .overflow-x-auto {
+      max-height: none;
     }
   }
 
   @media (max-width: 640px) {
     .drawer {
-      @apply rounded-2xl;
       width: calc(100vw - 1rem);
       max-width: none;
       right: 0.5rem;
       top: 0.5rem;
     }
-    .btn, .btn-primary, .btn-outline, .btn-danger {
+    .btn,
+    .btn-primary,
+    .btn-outline,
+    .btn-danger {
       min-height: 2.35rem;
-    }
-    .card {
-      @apply rounded-xl;
     }
     .page-header {
       @apply rounded-xl p-3;
     }
-    .table-base {
-      min-width: 520px;
+    .card > .overflow-x-auto {
+      max-height: none;
+    }
+  }
+
+  @media print {
+    @page {
+      size: A4;
+      margin: 10mm;
+    }
+
+    html,
+    body {
+      background: #ffffff !important;
+      color: #0f172a !important;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+
+    .print-hidden {
+      display: none !important;
+    }
+
+    .print-sheet,
+    .mx-auto,
+    .max-w-6xl,
+    .max-w-5xl,
+    .max-w-4xl,
+    .max-w-3xl {
+      width: 100% !important;
+      max-width: none !important;
+      margin: 0 !important;
+      padding-left: 0 !important;
+      padding-right: 0 !important;
+    }
+
+    main {
+      max-width: none !important;
+      padding: 0 !important;
+      margin: 0 !important;
+    }
+
+    .page-header,
+    .card,
+    .stat-card,
+    .tile {
+      box-shadow: none !important;
+      border-color: #cbd5e1 !important;
+      background: #ffffff !important;
+      break-inside: auto;
+      page-break-inside: auto;
+    }
+
+    details > summary {
+      list-style: none;
+      cursor: default;
+    }
+
+    details:not([open]) > :not(summary) {
+      display: block !important;
+    }
+
+    .overflow-x-auto,
+    .card > .overflow-x-auto,
+    .print-table-wrap {
+      overflow: visible !important;
+      max-height: none !important;
+    }
+
+    .table-head {
+      position: static !important;
+    }
+
+    .table-base,
+    .print-table {
+      width: 100% !important;
+      table-layout: fixed;
+      font-size: 9.5px !important;
+      line-height: 1.25 !important;
+    }
+
+    .table-base thead,
+    .print-table thead {
+      display: table-header-group !important;
+    }
+
+    .table-base tfoot,
+    .print-table tfoot {
+      display: table-footer-group !important;
+    }
+
+    .table-base th,
+    .table-base td,
+    .print-table th,
+    .print-table td {
+      white-space: normal !important;
+      word-break: break-word !important;
+      overflow-wrap: anywhere;
+      vertical-align: top;
+      padding: 4px 6px !important;
+      border-color: #cbd5e1 !important;
+    }
+
+    .table-base tr,
+    .print-table tr {
+      break-inside: avoid;
+      page-break-inside: avoid;
     }
   }
 }

@@ -300,6 +300,35 @@
       </form>
     </div>
 
+    <div class="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
+      <h3 class="text-sm font-semibold text-slate-800"><%= t('dayCloseBulkTitle') %></h3>
+      <p class="mt-1 text-xs text-slate-600"><%= t('dayCloseBulkSubtitle') %></p>
+      <form method="post" action="/admin/day-close/bulk" class="mt-3 grid gap-3 md:grid-cols-4">
+        <div>
+          <label class="label"><%= t('fromDate') %></label>
+          <input class="input" type="date" name="from_date" value="<%= selectedClosureDate %>" required />
+        </div>
+        <div>
+          <label class="label"><%= t('toDate') %></label>
+          <input class="input" type="date" name="to_date" value="<%= selectedClosureDate %>" required />
+        </div>
+        <div>
+          <label class="label"><%= t('bulkAction') %></label>
+          <select class="input" name="bulk_action">
+            <option value="close"><%= t('closeDay') %></option>
+            <option value="reopen"><%= t('reopenDay') %></option>
+          </select>
+        </div>
+        <div>
+          <label class="label"><%= t('note') %></label>
+          <input class="input" type="text" name="note" />
+        </div>
+        <div class="md:col-span-4">
+          <button class="btn-outline" type="submit"><%= t('applyBulkAction') %></button>
+        </div>
+      </form>
+    </div>
+
     <% if (recentClosures && recentClosures.length > 0) { %>
       <div class="mt-4 overflow-x-auto">
         <table class="table-base text-sm">

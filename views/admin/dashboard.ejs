@@ -23,15 +23,15 @@
 
   <div class="mt-4 card p-6">
     <h2 class="text-lg font-semibold"><%= t('quickActions') %></h2>
-    <div class="mt-4 flex flex-wrap gap-2">
-      <a class="btn-primary" href="/admin/vehicles/new"><%= t('addVehicle') %></a>
-      <a class="btn-outline" href="/records/exports/new"><%= t('addExport') %></a>
-      <a class="btn-outline" href="/records/credits/new"><%= t('addCredit') %></a>
-      <a class="btn-outline" href="/records/water-tests"><%= t('waterTestsTitle') %></a>
-      <a class="btn-outline" href="/records/reconciliation"><%= t('reconciliationTitle') %></a>
-      <a class="btn-outline" href="/search"><%= t('search') %></a>
-      <a class="btn-outline" href="/records/imports"><%= t('importsTitle') %></a>
-      <a class="btn-outline" href="/admin/audit"><%= t('auditCenterTitle') %></a>
+    <div class="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+      <a class="btn-primary w-full justify-start" href="/admin/vehicles/new"><%= t('addVehicle') %></a>
+      <a class="btn-outline w-full justify-start" href="/records/exports/new"><%= t('addExport') %></a>
+      <a class="btn-outline w-full justify-start" href="/records/credits/new"><%= t('addCredit') %></a>
+      <a class="btn-outline w-full justify-start" href="/records/imports"><%= t('importsTitle') %></a>
+      <a class="btn-outline w-full justify-start" href="/records/water-tests"><%= t('waterTestsTitle') %></a>
+      <a class="btn-outline w-full justify-start" href="/records/reconciliation"><%= t('reconciliationTitle') %></a>
+      <a class="btn-outline w-full justify-start" href="/admin/audit"><%= t('auditCenterTitle') %></a>
+      <a class="btn-outline w-full justify-start" href="/search"><%= t('search') %></a>
     </div>
   </div>
 
@@ -234,10 +234,79 @@
     var wrap = document.getElementById("snapshotRangeToggle");
     var form = document.getElementById("snapshotRangeForm");
     if (!wrap || !form) return;
+    var calendarMode = String(document.documentElement.dataset.calendarMode || "AD").toUpperCase();
+    var canConvertBs = document.documentElement.dataset.calendarAvailable === "1";
     var fromInput = form.querySelector('input[name="from"]');
     var toInput = form.querySelector('input[name="to"]');
     var rangeText = document.getElementById("snapshotRangeText");
     var buttons = Array.prototype.slice.call(wrap.querySelectorAll(".snapshot-range-btn"));
+    var conversionCache = new Map();
+    var rangeRenderToken = 0;
+
+    async function convertAdToBsMany(values) {
+      var unique = Array.from(new Set((values || [])
+        .map(function (value) { return String(value || "").trim(); })
+        .filter(function (value) { return value.length > 0; })
+      ));
+      if (!unique.length) return {};
+
+      var result = {};
+      var missing = [];
+      unique.forEach(function (value) {
+        if (conversionCache.has(value)) {
+          result[value] = conversionCache.get(value);
+        } else {
+          missing.push(value);
+        }
+      });
+      if (!missing.length) return result;
+
+      try {
+        var response = await fetch("/calendar/convert", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ direction: "ad_to_bs", values: missing })
+        });
+        if (response.ok) {
+          var payload = await response.json();
+          var converted = payload && payload.converted ? payload.converted : {};
+          missing.forEach(function (value) {
+            var mapped = Object.prototype.hasOwnProperty.call(converted, value) ? converted[value] : null;
+            conversionCache.set(value, mapped);
+            result[value] = mapped;
+          });
+          return result;
+        }
+      } catch (err) {
+        // ignore network/conversion errors and fall back to AD text
+      }
+
+      missing.forEach(function (value) {
+        conversionCache.set(value, null);
+        result[value] = null;
+      });
+      return result;
+    }
+
+    async function renderRangeText() {
+      if (!rangeText) return;
+      var fromValue = String(fromInput.value || "").trim();
+      var toValue = String(toInput.value || "").trim();
+      var myToken = ++rangeRenderToken;
+
+      if (calendarMode === "BS" && canConvertBs) {
+        var mapped = await convertAdToBsMany([fromValue, toValue]);
+        if (myToken !== rangeRenderToken) return;
+        var fromText = mapped[fromValue] || fromValue;
+        var toText = mapped[toValue] || toValue;
+        rangeText.textContent = fromText + " → " + toText;
+        rangeText.title = "AD: " + fromValue + " → " + toValue;
+        return;
+      }
+
+      rangeText.textContent = fromValue + " → " + toValue;
+      rangeText.title = "";
+    }
 
     function setActive(button) {
       if (!button) return;
@@ -250,7 +319,7 @@
       });
       fromInput.value = button.getAttribute("data-from") || "";
       toInput.value = button.getAttribute("data-to") || "";
-      if (rangeText) rangeText.textContent = fromInput.value + " → " + toInput.value;
+      void renderRangeText();
     }
 
     wrap.addEventListener("click", function (event) {

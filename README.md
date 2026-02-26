@@ -37,9 +37,12 @@ Generate helper scripts:
 
 1. Build kit:
    - `npm run make:windows-kit`
-2. Use generated folder:
-   - `windows-kit/start-aqua-msk.bat` (one-click run)
-   - `windows-kit/install-startup-task.ps1` (auto-start on login)
+2. First-time setup on each staff PC:
+   - `powershell -ExecutionPolicy Bypass -File .\windows-kit\install-staff-pc.ps1`
+3. Daily use:
+   - desktop shortcut `AQUA MSK` (hidden one-click launch, no terminal)
+4. Optional tools:
+   - `windows-kit/restart-aqua-msk.bat`
    - `windows-kit/backup-to-usb.ps1` (copy DB/backups to USB/cloud folder)
    - `windows-kit/maintenance-one-click.bat` (one-click maintenance)
    - `windows-kit/update-aqua-msk.bat` (one-click update + maintenance)
