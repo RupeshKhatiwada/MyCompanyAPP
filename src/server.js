@@ -119,7 +119,7 @@ app.use(
       reapInterval: 3600,
       logFn: () => {}
     }),
-    secret: process.env.SESSION_SECRET || "aqua-msk-secret",
+    secret: process.env.SESSION_SECRET || require("crypto").randomBytes(32).toString("hex"),
     resave: false,
     saveUninitialized: false,
     cookie: { maxAge: 1000 * 60 * 60 * 8 }
@@ -560,6 +560,18 @@ app.get("/health", (req, res) => {
 
 app.use((req, res) => {
   res.status(404).render("not_found", { title: req.t("notFoundTitle") });
+});
+
+app.use((err, req, res, next) => {
+  const status = err.status || 500;
+  const message = err.message || "Internal Server Error";
+  if (status !== 404) {
+    console.error(`[${new Date().toISOString()}] ${req.method} ${req.url} - ${status}: ${message}`);
+  }
+  if (res.headersSent) return next(err);
+  res.status(status).render("not_found", {
+    title: status === 413 ? "File Too Large" : status === 400 ? "Bad Request" : "Error"
+  });
 });
 
 const runAutoBackupIfDue = () => {

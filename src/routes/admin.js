@@ -372,7 +372,14 @@ const storage = multer.diskStorage({
     cb(null, `${base}${ext}`);
   }
 });
-const upload = multer({ storage });
+const upload = multer({
+  storage,
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype && file.mimetype.startsWith("image/")) return cb(null, true);
+    cb(new Error("Invalid file type"));
+  }
+});
 const logoStorage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, uploadDir),
   filename: (req, file, cb) => {
@@ -380,7 +387,14 @@ const logoStorage = multer.diskStorage({
     cb(null, `logo_${Date.now()}${ext}`);
   }
 });
-const logoUpload = multer({ storage: logoStorage });
+const logoUpload = multer({
+  storage: logoStorage,
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype && file.mimetype.startsWith("image/")) return cb(null, true);
+    cb(new Error("Invalid file type"));
+  }
+});
 const wordmarkStorage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, uploadDir),
   filename: (req, file, cb) => {
@@ -388,8 +402,18 @@ const wordmarkStorage = multer.diskStorage({
     cb(null, `brand_${Date.now()}${ext}`);
   }
 });
-const wordmarkUpload = multer({ storage: wordmarkStorage });
-const restoreUpload = multer({ dest: restoreDir });
+const wordmarkUpload = multer({
+  storage: wordmarkStorage,
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype && file.mimetype.startsWith("image/")) return cb(null, true);
+    cb(new Error("Invalid file type"));
+  }
+});
+const restoreUpload = multer({
+  dest: restoreDir,
+  limits: { fileSize: 100 * 1024 * 1024 }
+});
 const staffStorage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, uploadDir),
   filename: (req, file, cb) => {
