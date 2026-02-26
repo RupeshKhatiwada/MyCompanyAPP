@@ -1,12 +1,17 @@
 <%- include('../partials/shell-start', { title }) %>
+<% const staffBase = typeof basePath !== 'undefined' ? basePath : '/admin/staffs'; %>
+<% const showInactive = Number(includeInactive || 0) === 1; %>
+<% const searchValue = String(q || ''); %>
 <section class="py-8">
   <div class="flex flex-wrap items-center justify-between gap-3">
     <div>
       <h1 class="text-3xl font-semibold"><%= t('staffsTitle') %></h1>
       <p class="text-slate-600"><%= t('staffsSubtitle') %></p>
     </div>
-    <% const staffBase = typeof basePath !== 'undefined' ? basePath : '/admin/staffs'; %>
     <div class="flex flex-wrap gap-2">
+      <a class="btn-outline" href="<%= staffBase %>?include_inactive=<%= showInactive ? '0' : '1' %>">
+        <%= showInactive ? t('hideInactive') : t('showInactive') %>
+      </a>
       <% if (staffBase === '/admin/staffs') { %>
         <a class="btn-outline" href="/admin/staff-roles"><%= t('manageStaffRoles') %></a>
       <% } %>
@@ -14,7 +19,22 @@
     </div>
   </div>
 
+  <form class="mt-4 flex flex-wrap items-end gap-3" method="get" action="<%= staffBase %>">
+    <input type="hidden" name="include_inactive" value="<%= showInactive ? '1' : '0' %>" />
+    <div class="min-w-[220px] flex-1">
+      <label class="label"><%= t('search') %></label>
+      <input class="input" type="text" name="q" value="<%= searchValue %>" placeholder="<%= t('staffSearchPlaceholder') %>" />
+    </div>
+    <button class="btn-primary" type="submit"><%= t('search') %></button>
+    <% if (searchValue) { %>
+      <a class="btn-outline" href="<%= staffBase %>?include_inactive=<%= showInactive ? '1' : '0' %>"><%= t('clear') %></a>
+    <% } %>
+  </form>
+
   <div class="mt-6 card overflow-hidden">
+    <% if (success) { %>
+      <div class="mx-4 mt-4 rounded-lg bg-emerald-50 px-4 py-3 text-sm text-emerald-700"><%= success %></div>
+    <% } %>
     <div class="overflow-x-auto">
       <table class="table-base">
         <thead class="table-head">
@@ -26,13 +46,14 @@
             <th class="px-4 py-3"><%= t('startDate') %></th>
             <th class="px-4 py-3"><%= t('monthlySalary') %></th>
             <th class="px-4 py-3"><%= t('dueSalary') %></th>
+            <th class="px-4 py-3"><%= t('status') %></th>
             <th class="px-4 py-3 text-right"><%= t('actions') %></th>
           </tr>
         </thead>
         <tbody>
           <% if (!staffs || staffs.length === 0) { %>
             <tr>
-              <td class="px-4 py-4 text-slate-500" colspan="8"><%= t('noStaffs') %></td>
+              <td class="px-4 py-4 text-slate-500" colspan="9"><%= t('noStaffs') %></td>
             </tr>
           <% } %>
           <% staffs.forEach((staff) => { %>
@@ -50,13 +71,26 @@
               <td class="px-4 py-3"><%= staff.start_date || '-' %></td>
               <td class="px-4 py-3"><%= staff.monthly_salary %></td>
               <td class="px-4 py-3"><%= staff.due_salary %></td>
+              <td class="px-4 py-3">
+                <% if (Number(staff.is_active ?? 1) === 1) { %>
+                  <span class="badge bg-emerald-100 text-emerald-700"><%= t('active') %></span>
+                <% } else { %>
+                  <span class="badge bg-slate-100 text-slate-700"><%= t('inactive') %></span>
+                <% } %>
+              </td>
               <td class="px-4 py-3 text-right">
                 <div class="flex justify-end gap-2">
                   <a class="btn-outline" href="<%= staffBase %>/<%= staff.id %>"><%= t('view') %></a>
                   <a class="btn-outline" href="<%= staffBase %>/<%= staff.id %>/edit"><%= t('edit') %></a>
-                  <form method="post" action="<%= staffBase %>/<%= staff.id %>/delete" onsubmit="return confirm('<%= t('deleteStaffConfirm') %>');">
-                    <button class="btn-danger" type="submit"><%= t('delete') %></button>
-                  </form>
+                  <% if (Number(staff.is_active ?? 1) === 1) { %>
+                    <form method="post" action="<%= staffBase %>/<%= staff.id %>/archive" onsubmit="return confirm('<%= t('archiveStaffConfirm') %>');">
+                      <button class="btn-danger" type="submit"><%= t('inactive') %></button>
+                    </form>
+                  <% } else { %>
+                    <form method="post" action="<%= staffBase %>/<%= staff.id %>/activate" onsubmit="return confirm('<%= t('activateStaffConfirm') %>');">
+                      <button class="btn-primary" type="submit"><%= t('active') %></button>
+                    </form>
+                  <% } %>
                 </div>
               </td>
             </tr>

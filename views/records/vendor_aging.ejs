@@ -1,0 +1,130 @@
+<%- include('../partials/shell-start', { title }) %>
+<section class="py-8">
+  <div class="flex flex-wrap items-center justify-between gap-3">
+    <div>
+      <h1 class="text-3xl font-semibold"><%= t('vendorAgingTitle') %></h1>
+      <p class="text-slate-600"><%= t('vendorAgingSubtitle') %></p>
+    </div>
+    <div class="flex flex-wrap gap-2">
+      <button class="btn-outline" type="button" onclick="window.print()"><%= t('print') %></button>
+      <a class="btn-outline" href="/records/vendor-aging/export?from=<%= from %>&to=<%= to %>&q=<%= encodeURIComponent(q || '') %>"><%= t('exportCsv') %></a>
+    </div>
+  </div>
+
+  <form class="mt-4 flex flex-wrap items-end gap-3" method="get" action="/records/vendor-aging">
+    <div>
+      <label class="label"><%= t('from') %></label>
+      <input class="input" type="date" name="from" value="<%= from %>" />
+    </div>
+    <div>
+      <label class="label"><%= t('to') %></label>
+      <input class="input" type="date" name="to" value="<%= to %>" />
+    </div>
+    <div class="min-w-[220px]">
+      <label class="label"><%= t('sellerName') %></label>
+      <input class="input" type="text" name="q" value="<%= q || '' %>" placeholder="<%= t('searchPlaceholder') %>" />
+    </div>
+    <button class="btn-outline" type="submit"><%= t('filter') %></button>
+  </form>
+
+  <div class="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+    <div class="card p-4">
+      <p class="text-slate-500"><%= t('vendorCount') %></p>
+      <p class="text-lg font-semibold"><%= totals.vendor_count %></p>
+    </div>
+    <div class="card p-4">
+      <p class="text-slate-500"><%= t('totalDue') %></p>
+      <p class="text-lg font-semibold"><%= totals.total_due %></p>
+    </div>
+    <div class="card p-4">
+      <p class="text-slate-500"><%= t('aging0to7') %></p>
+      <p class="text-lg font-semibold"><%= totals.bucket_0_7 %></p>
+    </div>
+    <div class="card p-4">
+      <p class="text-slate-500"><%= t('aging8to30') %></p>
+      <p class="text-lg font-semibold"><%= totals.bucket_8_30 %></p>
+    </div>
+    <div class="card p-4">
+      <p class="text-slate-500"><%= t('vendorAging30Plus') %></p>
+      <p class="text-lg font-semibold text-amber-700"><%= totals.bucket_30_plus %></p>
+    </div>
+  </div>
+
+  <div class="mt-6 card overflow-hidden">
+    <div class="overflow-x-auto">
+      <table class="table-base">
+        <thead class="table-head">
+          <tr>
+            <th class="px-4 py-3"><%= t('sellerName') %></th>
+            <th class="px-4 py-3"><%= t('totalDue') %></th>
+            <th class="px-4 py-3"><%= t('aging0to7') %></th>
+            <th class="px-4 py-3"><%= t('aging8to30') %></th>
+            <th class="px-4 py-3"><%= t('vendorAging30Plus') %></th>
+            <th class="px-4 py-3"><%= t('vendorPriority') %></th>
+            <th class="px-4 py-3"><%= t('records') %></th>
+          </tr>
+        </thead>
+        <tbody>
+          <% if (!vendorRows || vendorRows.length === 0) { %>
+            <tr>
+              <td class="px-4 py-4 text-slate-500" colspan="7"><%= t('noVendorDues') %></td>
+            </tr>
+          <% } %>
+          <% (vendorRows || []).forEach((row) => { %>
+            <% const priorityClass = row.priority === 'HIGH' ? 'bg-red-100 text-red-700' : row.priority === 'MEDIUM' ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'; %>
+            <tr class="table-row">
+              <td class="px-4 py-3"><%= row.vendor_name %></td>
+              <td class="px-4 py-3 font-semibold"><%= row.total_due %></td>
+              <td class="px-4 py-3"><%= row.bucket_0_7 %></td>
+              <td class="px-4 py-3"><%= row.bucket_8_30 %></td>
+              <td class="px-4 py-3"><%= row.bucket_30_plus %></td>
+              <td class="px-4 py-3">
+                <span class="badge <%= priorityClass %>"><%= row.priority === 'HIGH' ? t('priorityHigh') : row.priority === 'MEDIUM' ? t('priorityMedium') : t('priorityLow') %></span>
+              </td>
+              <td class="px-4 py-3"><%= row.record_count %></td>
+            </tr>
+          <% }) %>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <details class="mt-6 card p-6">
+    <summary class="flex cursor-pointer items-center justify-between text-sm font-semibold">
+      <span><%= t('details') %></span>
+      <span class="text-xs text-slate-500"><%= t('tapToExpand') %></span>
+    </summary>
+    <div class="mt-4 overflow-x-auto">
+      <table class="table-base">
+        <thead class="table-head">
+          <tr>
+            <th class="px-4 py-3"><%= t('date') %></th>
+            <th class="px-4 py-3"><%= t('sellerName') %></th>
+            <th class="px-4 py-3"><%= t('source') %></th>
+            <th class="px-4 py-3"><%= t('itemName') %></th>
+            <th class="px-4 py-3"><%= t('daysOutstanding') %></th>
+            <th class="px-4 py-3"><%= t('remainingAmount') %></th>
+          </tr>
+        </thead>
+        <tbody>
+          <% if (!detailRows || detailRows.length === 0) { %>
+            <tr>
+              <td class="px-4 py-4 text-slate-500" colspan="6"><%= t('noVendorDues') %></td>
+            </tr>
+          <% } %>
+          <% (detailRows || []).forEach((row) => { %>
+            <tr class="table-row">
+              <td class="px-4 py-3"><%= row.bill_date %></td>
+              <td class="px-4 py-3"><%= row.vendor_name %></td>
+              <td class="px-4 py-3"><%= row.source %></td>
+              <td class="px-4 py-3"><%= row.item_name %></td>
+              <td class="px-4 py-3"><%= row.days_overdue %></td>
+              <td class="px-4 py-3"><%= row.due_amount %></td>
+            </tr>
+          <% }) %>
+        </tbody>
+      </table>
+    </div>
+  </details>
+</section>
+<%- include('../partials/shell-end') %>

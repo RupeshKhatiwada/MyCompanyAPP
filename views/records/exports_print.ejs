@@ -65,7 +65,7 @@
       <div class="flex-1">
         <%- include('../partials/print-brand', { subtitle: t('exportsTitle') }) %>
         <div class="mt-2 text-sm text-slate-600">
-          <p><strong><%= t('from') %>:</strong> <%= from %> &nbsp; <strong><%= t('to') %>:</strong> <%= to %></p>
+          <p><strong><%= t('from') %>:</strong> <%= typeof formatDateDual === 'function' ? formatDateDual(from) : from %> &nbsp; <strong><%= t('to') %>:</strong> <%= typeof formatDateDual === 'function' ? formatDateDual(to) : to %></p>
           <% if (q) { %>
             <p><strong><%= t('search') %>:</strong> <%= q %></p>
           <% } %>
@@ -120,7 +120,7 @@
               <% const creditAmount = Number(record.credit_amount || 0); %>
               <% const netCollectionAmount = Math.max(0, collectionAmount - expenseAmount); %>
               <tr class="table-row">
-                <td class="px-4 py-3"><%= record.export_date %></td>
+                <td class="px-4 py-3"><%= typeof formatDateDual === 'function' ? formatDateDual(record.export_date) : record.export_date %></td>
                 <td class="px-4 py-3"><%= record.receipt_no || (`#${record.id}`) %></td>
                 <td class="px-4 py-3 font-medium"><%= `${record.owner_name} • ${record.vehicle_number}` %></td>
                 <td class="px-4 py-3"><%= record.checked_by_name || '-' %></td>

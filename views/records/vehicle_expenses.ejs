@@ -49,6 +49,115 @@
     <button class="btn-outline" type="submit"><%= t('filter') %></button>
   </form>
 
+  <div class="mt-6 card p-6" id="compliance">
+    <div class="flex flex-wrap items-center justify-between gap-3">
+      <div>
+        <h2 class="text-lg font-semibold"><%= t('vehicleComplianceTitle') %></h2>
+        <p class="text-sm text-slate-600"><%= t('vehicleComplianceSubtitle') %></p>
+      </div>
+      <% if (currentUser && currentUser.role !== 'WORKER') { %>
+        <a class="btn-outline" href="/records/leakage-guard?from=<%= from %>&to=<%= to %>"><%= t('leakageGuardTitle') %></a>
+      <% } %>
+    </div>
+
+    <div class="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div class="card p-4">
+        <p class="text-slate-500"><%= t('complianceExpired') %></p>
+        <p class="text-lg font-semibold text-red-700"><%= complianceCounts.expired || 0 %></p>
+      </div>
+      <div class="card p-4">
+        <p class="text-slate-500"><%= t('complianceDueSoon') %></p>
+        <p class="text-lg font-semibold text-amber-700"><%= complianceCounts.dueSoon || 0 %></p>
+      </div>
+      <div class="card p-4">
+        <p class="text-slate-500"><%= t('complianceNotSet') %></p>
+        <p class="text-lg font-semibold text-slate-700"><%= complianceCounts.notSet || 0 %></p>
+      </div>
+      <div class="card p-4">
+        <p class="text-slate-500"><%= t('complianceValid') %></p>
+        <p class="text-lg font-semibold text-emerald-700"><%= complianceCounts.valid || 0 %></p>
+      </div>
+    </div>
+
+    <% const selectedRow = selectedCompliance || null; %>
+    <form class="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4" method="post" action="/records/vehicle-compliance/<%= selectedRow ? selectedRow.vehicle_id : 0 %>">
+      <input type="hidden" name="from" value="<%= from %>" />
+      <input type="hidden" name="to" value="<%= to %>" />
+      <div class="sm:col-span-2">
+        <label class="label"><%= t('vehicle') %></label>
+        <select class="input" name="compliance_vehicle_select" onchange="window.location.href='/records/vehicle-expenses?from=<%= from %>&to=<%= to %>&compliance_vehicle_id=' + this.value + '#compliance';">
+          <% (complianceRows || []).forEach((row) => { %>
+            <option value="<%= row.vehicle_id %>" <%= selectedRow && selectedRow.vehicle_id === row.vehicle_id ? 'selected' : '' %>><%= `${row.vehicle_number} • ${row.owner_name}` %></option>
+          <% }) %>
+        </select>
+      </div>
+      <div>
+        <label class="label"><%= t('insuranceExpiry') %></label>
+        <input class="input" type="date" name="insurance_expiry" value="<%= selectedRow ? (selectedRow.insurance_expiry || '') : '' %>" />
+      </div>
+      <div>
+        <label class="label"><%= t('taxExpiry') %></label>
+        <input class="input" type="date" name="tax_expiry" value="<%= selectedRow ? (selectedRow.tax_expiry || '') : '' %>" />
+      </div>
+      <div>
+        <label class="label"><%= t('permitExpiry') %></label>
+        <input class="input" type="date" name="permit_expiry" value="<%= selectedRow ? (selectedRow.permit_expiry || '') : '' %>" />
+      </div>
+      <div>
+        <label class="label"><%= t('fitnessExpiry') %></label>
+        <input class="input" type="date" name="fitness_expiry" value="<%= selectedRow ? (selectedRow.fitness_expiry || '') : '' %>" />
+      </div>
+      <div>
+        <label class="label"><%= t('pollutionExpiry') %></label>
+        <input class="input" type="date" name="pollution_expiry" value="<%= selectedRow ? (selectedRow.pollution_expiry || '') : '' %>" />
+      </div>
+      <div class="sm:col-span-2 lg:col-span-4">
+        <label class="label"><%= t('note') %></label>
+        <input class="input" type="text" name="compliance_note" value="<%= selectedRow ? (selectedRow.note || '') : '' %>" />
+      </div>
+      <div class="sm:col-span-2 lg:col-span-4">
+        <button class="btn-primary" type="submit" <%= !selectedRow ? 'disabled' : '' %>><%= t('save') %></button>
+      </div>
+    </form>
+
+    <div class="mt-4 overflow-x-auto">
+      <table class="table-base">
+        <thead class="table-head">
+          <tr>
+            <th class="px-4 py-3"><%= t('vehicle') %></th>
+            <th class="px-4 py-3"><%= t('insuranceExpiry') %></th>
+            <th class="px-4 py-3"><%= t('taxExpiry') %></th>
+            <th class="px-4 py-3"><%= t('permitExpiry') %></th>
+            <th class="px-4 py-3"><%= t('fitnessExpiry') %></th>
+            <th class="px-4 py-3"><%= t('pollutionExpiry') %></th>
+            <th class="px-4 py-3"><%= t('complianceStatus') %></th>
+          </tr>
+        </thead>
+        <tbody>
+          <% if (!complianceRows || complianceRows.length === 0) { %>
+            <tr>
+              <td class="px-4 py-4 text-slate-500" colspan="7"><%= t('noVehicleExpenses') %></td>
+            </tr>
+          <% } %>
+          <% (complianceRows || []).forEach((row) => { %>
+            <% const statusCode = row.overall_status || 'NOT_SET'; %>
+            <% const statusClass = statusCode === 'EXPIRED' ? 'bg-red-100 text-red-700' : statusCode === 'DUE_SOON' ? 'bg-amber-100 text-amber-700' : statusCode === 'VALID' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-700'; %>
+            <% const statusLabel = statusCode === 'EXPIRED' ? t('complianceExpired') : statusCode === 'DUE_SOON' ? t('complianceDueSoon') : statusCode === 'VALID' ? t('complianceValid') : t('complianceNotSet'); %>
+            <tr class="table-row">
+              <td class="px-4 py-3"><%= `${row.vehicle_number} • ${row.owner_name}` %></td>
+              <td class="px-4 py-3"><%= row.insurance_expiry || '-' %></td>
+              <td class="px-4 py-3"><%= row.tax_expiry || '-' %></td>
+              <td class="px-4 py-3"><%= row.permit_expiry || '-' %></td>
+              <td class="px-4 py-3"><%= row.fitness_expiry || '-' %></td>
+              <td class="px-4 py-3"><%= row.pollution_expiry || '-' %></td>
+              <td class="px-4 py-3"><span class="badge <%= statusClass %>"><%= statusLabel %></span></td>
+            </tr>
+          <% }) %>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
   <div class="mt-6 card p-6">
     <h2 class="text-lg font-semibold"><%= t('addVehicleExpenseTitle') %></h2>
     <form class="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-6" method="post" action="/records/vehicle-expenses">
@@ -81,6 +190,22 @@
       <div>
         <label class="label"><%= t('paidAmount') %></label>
         <input class="input" type="number" min="0" step="0.01" name="paid_amount" value="0" />
+      </div>
+      <div>
+        <label class="label"><%= t('paymentMethodLabel') %></label>
+        <select class="input" name="payment_method">
+          <option value="CASH"><%= t('methodCash') %></option>
+          <option value="BANK"><%= t('methodBank') %></option>
+          <option value="E_WALLET"><%= t('methodEWallet') %></option>
+        </select>
+      </div>
+      <div>
+        <label class="label"><%= t('paymentSourceLabel') %></label>
+        <select class="input" name="payment_source">
+          <option value="DAILY_COLLECTION"><%= t('sourceDailyCollection') %></option>
+          <option value="OWNER_PERSONAL"><%= t('sourceOwnerPersonal') %></option>
+          <option value="BANK_OTHER"><%= t('sourceBankOther') %></option>
+        </select>
       </div>
       <div class="sm:col-span-2 lg:col-span-6">
         <label class="label"><%= t('note') %></label>

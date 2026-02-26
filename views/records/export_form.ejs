@@ -12,6 +12,7 @@
     <% if (error) { %>
       <div class="mb-4 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700"><%= error %></div>
     <% } %>
+    <% const duplicateWarningValue = typeof duplicateWarning !== 'undefined' ? duplicateWarning : null; %>
     <%
       const safeFormValues = typeof formValues !== 'undefined' && formValues ? formValues : {};
       const safeStaffOptions = typeof staffOptions !== 'undefined' ? staffOptions : [];
@@ -36,6 +37,38 @@
       const forceWashByValue = typeof forceWashStaffName !== 'undefined' ? forceWashStaffName : pickValue('force_wash_staff_name', '');
     %>
     <form method="post" action="<%= record ? '/records/exports/' + record.id : '/records/exports' %>" class="space-y-4">
+      <% if (duplicateWarningValue && duplicateWarningValue.type === 'export') { %>
+        <div class="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          <p class="font-semibold"><%= t('duplicateExportWarningTitle') %></p>
+          <p class="mt-1"><%= t('duplicateExportWarningText') %></p>
+          <div class="mt-3 overflow-x-auto">
+            <table class="table-base text-xs">
+              <thead class="table-head">
+                <tr>
+                  <th class="px-2 py-1"><%= t('receiptNo') %></th>
+                  <th class="px-2 py-1"><%= t('date') %></th>
+                  <th class="px-2 py-1"><%= t('vehicle') %></th>
+                  <th class="px-2 py-1"><%= t('totalAmount') %></th>
+                </tr>
+              </thead>
+              <tbody>
+                <% duplicateWarningValue.rows.forEach((row) => { %>
+                  <tr class="table-row">
+                    <td class="px-2 py-1"><%= row.receipt_no || (`#${row.id}`) %></td>
+                    <td class="px-2 py-1"><%= row.export_date %></td>
+                    <td class="px-2 py-1"><%= `${row.owner_name} • ${row.vehicle_number}` %></td>
+                    <td class="px-2 py-1"><%= row.total_amount %></td>
+                  </tr>
+                <% }) %>
+              </tbody>
+            </table>
+          </div>
+          <label class="mt-3 inline-flex items-center gap-2 text-sm">
+            <input type="checkbox" name="allow_duplicate_entry" value="1" required />
+            <span><%= t('confirmDuplicateEntry') %></span>
+          </label>
+        </div>
+      <% } %>
       <label class="inline-flex items-center gap-2 text-sm text-slate-700">
         <input type="checkbox" name="use_external_vehicle" data-use-external-vehicle <%= useExternalVehicleValue ? 'checked' : '' %> />
         <span><%= t('useExternalVehicle') %></span>
@@ -150,6 +183,15 @@
       <div id="paidWrap">
         <label class="label"><%= t('paidAmount') %></label>
         <input class="input" type="number" min="0" step="0.01" name="paid_amount" value="<%= pickValue('paid_amount', '') %>" data-paid />
+      </div>
+      <div>
+        <label class="label"><%= t('paymentMethodLabel') %></label>
+        <select class="input" name="payment_method">
+          <% const exportPaymentMethod = String(pickValue('payment_method', 'CASH') || 'CASH').toUpperCase(); %>
+          <option value="CASH" <%= exportPaymentMethod === 'CASH' ? 'selected' : '' %>><%= t('methodCash') %></option>
+          <option value="BANK" <%= exportPaymentMethod === 'BANK' ? 'selected' : '' %>><%= t('methodBank') %></option>
+          <option value="E_WALLET" <%= exportPaymentMethod === 'E_WALLET' ? 'selected' : '' %>><%= t('methodEWallet') %></option>
+        </select>
       </div>
       <div id="collectionWrap" class="hidden">
         <label class="label"><%= t('collectionAmount') %></label>

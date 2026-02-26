@@ -11,6 +11,7 @@
 </head>
 <body class="bg-white text-slate-900">
   <% const attendance = attendanceSummary || { present_days: 0, absent_days: 0, marked_days: 0 }; %>
+  <% const absentDateRows = Array.isArray(absentDates) ? absentDates : []; %>
   <div class="mx-auto max-w-5xl p-6">
     <div class="flex items-start justify-between gap-4">
       <div class="flex-1">
@@ -60,7 +61,20 @@
           <p class="text-slate-500"><%= t('attendanceDays') %></p>
           <p class="font-semibold"><%= attendance.present_days %></p>
         </div>
+        <div>
+          <p class="text-slate-500"><%= t('absentDays') %></p>
+          <p class="font-semibold"><%= attendance.absent_days %></p>
+        </div>
       </div>
+    </div>
+
+    <div class="mt-6 card p-6">
+      <h2 class="text-lg font-semibold"><%= t('absentDates') %></h2>
+      <% if (absentDateRows.length === 0) { %>
+        <p class="mt-2 text-sm text-slate-500"><%= t('noAbsentDates') %></p>
+      <% } else { %>
+        <p class="mt-2 text-sm"><%= absentDateRows.join(', ') %></p>
+      <% } %>
     </div>
 
     <div class="mt-6 card p-6">
@@ -86,8 +100,18 @@
       <% if (!document) { %>
         <p class="mt-2 text-sm text-slate-500"><%= t('noDocuments') %></p>
       <% } else { %>
+        <% const docTypeKeyMap = {
+          CITIZENSHIP: 'docCitizenship',
+          LICENSE: 'docLicense',
+          PASSPORT: 'docPassport',
+          PAN: 'docPan',
+          NATIONAL_ID: 'docNationalId',
+          VOTER_CARD: 'docVoterCard',
+          OTHERS: 'docOthers'
+        }; %>
+        <% const docTypeKey = docTypeKeyMap[document.doc_type] || 'docOthers'; %>
         <p class="mt-2 text-sm text-slate-600">
-          <%= t('documentType') %>: <%= t(document.doc_type === 'CITIZENSHIP' ? 'docCitizenship' : document.doc_type === 'LICENSE' ? 'docLicense' : 'docPassport') %>
+          <%= t('documentType') %>: <%= t(docTypeKey) %>
         </p>
         <div class="mt-3 grid gap-3 sm:grid-cols-2">
           <% if (document.front_path) { %>
@@ -109,6 +133,7 @@
               <th class="px-4 py-3"><%= t('date') %></th>
               <th class="px-4 py-3"><%= t('receiptNo') %></th>
               <th class="px-4 py-3"><%= t('paymentType') %></th>
+              <th class="px-4 py-3"><%= t('paymentSourceLabel') %></th>
               <th class="px-4 py-3"><%= t('amount') %></th>
               <th class="px-4 py-3"><%= t('note') %></th>
               <th class="px-4 py-3"><%= t('recordedBy') %></th>
@@ -117,14 +142,16 @@
           <tbody>
             <% if (!payments || payments.length === 0) { %>
               <tr>
-                <td class="px-4 py-4 text-slate-500" colspan="6"><%= t('noSalaryHistory') %></td>
+                <td class="px-4 py-4 text-slate-500" colspan="7"><%= t('noSalaryHistory') %></td>
               </tr>
             <% } %>
             <% payments.forEach((pay) => { %>
+              <% const sourceLabel = pay.payment_source === 'OWNER_PERSONAL' ? t('sourceOwnerPersonal') : pay.payment_source === 'BANK_OTHER' ? t('sourceBankOther') : t('sourceDailyCollection'); %>
               <tr class="table-row">
                 <td class="px-4 py-3"><%= pay.payment_date %></td>
                 <td class="px-4 py-3"><%= pay.receipt_no || (`#${pay.id}`) %></td>
                 <td class="px-4 py-3"><%= pay.payment_type === 'SALARY' ? t('salaryPaid') : t('advancePaid') %></td>
+                <td class="px-4 py-3"><%= sourceLabel %></td>
                 <td class="px-4 py-3"><%= pay.amount %></td>
                 <td class="px-4 py-3"><%= pay.note || '-' %></td>
                 <td class="px-4 py-3"><%= pay.recorded_by || '-' %></td>

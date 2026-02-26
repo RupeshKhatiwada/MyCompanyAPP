@@ -101,10 +101,15 @@
             <p class="pill"><%= t('menuFinance') %></p>
             <div class="mt-2 grid gap-2 sm:grid-cols-2">
               <a class="btn-outline" href="/records/jar-sales"><%= t('jarSalesTitle') %></a>
+              <a class="btn-outline" href="/records/rentals"><%= t('rentalsTitle') %></a>
+              <a class="btn-outline" href="/records/reconciliation"><%= t('reconciliationTitle') %></a>
+              <a class="btn-outline" href="/records/payment-ledger"><%= t('paymentLedgerTitle') %></a>
               <a class="btn-outline" href="/records/vehicle-expenses"><%= t('vehicleExpensesTitle') %></a>
               <a class="btn-outline" href="/records/company-purchases"><%= t('companyPurchasesTitle') %></a>
+              <a class="btn-outline" href="/records/vendor-aging"><%= t('vendorAgingTitle') %></a>
               <a class="btn-outline" href="/admin/savings"><%= t('savingsTitle') %></a>
               <a class="btn-outline" href="/admin/reports/all"><%= t('allReportsTitle') %></a>
+              <a class="btn-outline" href="/admin/reports/payroll-summary"><%= t('payrollSummaryTitle') %></a>
               <a class="btn-outline" href="/admin/backup"><%= t('backup') %></a>
             </div>
           </div>
@@ -128,6 +133,8 @@
             <div class="mt-2 grid gap-2 sm:grid-cols-2">
               <a class="btn-outline" href="/records/history"><%= t('activityLogTitle') %></a>
               <a class="btn-outline" href="/search"><%= t('search') %></a>
+              <a class="btn-outline" href="/admin/audit"><%= t('auditCenterTitle') %></a>
+              <a class="btn-outline" href="/records/leakage-guard"><%= t('leakageGuardTitle') %></a>
               <a class="btn-outline" href="/admin/import-item-types"><%= t('importItemTypesTitle') %></a>
               <a class="btn-outline" href="/admin/jar-types"><%= t('jarTypesTitle') %></a>
               <a class="btn-outline" href="/worker"><%= t('workerView') %></a>
@@ -153,8 +160,12 @@
             <p class="pill"><%= t('menuFinance') %></p>
             <div class="mt-2 grid gap-2 sm:grid-cols-2">
               <a class="btn-outline" href="/records/jar-sales"><%= t('jarSalesTitle') %></a>
+              <a class="btn-outline" href="/records/rentals"><%= t('rentalsTitle') %></a>
+              <a class="btn-outline" href="/records/reconciliation"><%= t('reconciliationTitle') %></a>
+              <a class="btn-outline" href="/records/payment-ledger"><%= t('paymentLedgerTitle') %></a>
               <a class="btn-outline" href="/records/vehicle-expenses"><%= t('vehicleExpensesTitle') %></a>
               <a class="btn-outline" href="/records/company-purchases"><%= t('companyPurchasesTitle') %></a>
+              <a class="btn-outline" href="/records/vendor-aging"><%= t('vendorAgingTitle') %></a>
               <a class="btn-outline" href="/records/savings"><%= t('savingsTitle') %></a>
             </div>
           </div>
@@ -180,6 +191,12 @@
             <div class="mt-2 flex flex-wrap gap-2">
               <a class="btn-outline <%= lang === 'en' ? 'bg-slate-100' : '' %>" href="/lang/en">EN</a>
               <a class="btn-outline <%= lang === 'ne' ? 'bg-slate-100' : '' %>" href="/lang/ne">ने</a>
+              <a class="btn-outline <%= (calendarMode || 'AD') === 'AD' ? 'bg-slate-100' : '' %>" href="/calendar/ad">AD</a>
+              <% if (canConvertBs) { %>
+                <a class="btn-outline <%= (calendarMode || 'AD') === 'BS' ? 'bg-slate-100' : '' %>" href="/calendar/bs">BS</a>
+              <% } else { %>
+                <span class="btn-outline cursor-not-allowed opacity-60" title="Install nepali-date-converter and restart app">BS</span>
+              <% } %>
               <button class="btn-outline font-size-toggle" type="button" data-font-size="sm" title="<%= t('fontSmall') %>">A-</button>
               <button class="btn-outline font-size-toggle" type="button" data-font-size="md" title="<%= t('fontMedium') %>">A</button>
               <button class="btn-outline font-size-toggle" type="button" data-font-size="lg" title="<%= t('fontLarge') %>">A+</button>

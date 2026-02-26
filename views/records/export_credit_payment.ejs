@@ -45,6 +45,15 @@
         <label class="label"><%= t('paymentAmount') %></label>
         <input class="input" type="number" min="0.01" step="0.01" max="<%= Number(remaining || 0).toFixed(2) %>" name="payment_amount" required />
       </div>
+      <div>
+        <label class="label"><%= t('paymentMethodLabel') %></label>
+        <% const selectedMethod = String(record.payment_method || 'CASH').toUpperCase(); %>
+        <select class="input" name="payment_method">
+          <option value="CASH" <%= selectedMethod === 'CASH' ? 'selected' : '' %>><%= t('methodCash') %></option>
+          <option value="BANK" <%= selectedMethod === 'BANK' ? 'selected' : '' %>><%= t('methodBank') %></option>
+          <option value="E_WALLET" <%= selectedMethod === 'E_WALLET' ? 'selected' : '' %>><%= t('methodEWallet') %></option>
+        </select>
+      </div>
       <button class="btn-primary" type="submit"><%= t('addPayment') %></button>
     </form>
   </div>

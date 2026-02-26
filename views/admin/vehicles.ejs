@@ -1,15 +1,24 @@
 <%- include('../partials/shell-start', { title }) %>
 <% const routeBase = typeof vehicleRouteBase === 'string' && vehicleRouteBase ? vehicleRouteBase : '/admin/vehicles'; %>
+<% const showInactive = Number(includeInactive || 0) === 1; %>
 <section class="py-8">
   <div class="flex flex-wrap items-center justify-between gap-3">
     <div>
       <h1 class="text-3xl font-semibold"><%= t('vehicles') %></h1>
       <p class="text-slate-600"><%= t('manageVehicles') %></p>
     </div>
-    <a class="btn-primary" href="<%= routeBase %>/new"><%= t('addVehicle') %></a>
+    <div class="flex flex-wrap gap-2">
+      <a class="btn-outline" href="<%= routeBase %>?include_inactive=<%= showInactive ? '0' : '1' %>">
+        <%= showInactive ? t('hideInactive') : t('showInactive') %>
+      </a>
+      <a class="btn-primary" href="<%= routeBase %>/new"><%= t('addVehicle') %></a>
+    </div>
   </div>
 
   <div class="mt-6 card overflow-hidden">
+    <% if (success) { %>
+      <div class="mx-4 mt-4 rounded-lg bg-emerald-50 px-4 py-3 text-sm text-emerald-700"><%= success %></div>
+    <% } %>
     <div class="overflow-x-auto">
       <table class="table-base">
         <thead class="table-head">
@@ -19,13 +28,14 @@
             <th class="px-4 py-3"><%= t('owner') %></th>
             <th class="px-4 py-3"><%= t('phone') %></th>
             <th class="px-4 py-3"><%= t('vehicleType') %></th>
+            <th class="px-4 py-3"><%= t('status') %></th>
             <th class="px-4 py-3 text-right"><%= t('actions') %></th>
           </tr>
         </thead>
         <tbody>
           <% if (vehicles.length === 0) { %>
             <tr>
-              <td class="px-4 py-4 text-slate-500" colspan="6"><%= t('noVehicles') %></td>
+              <td class="px-4 py-4 text-slate-500" colspan="7"><%= t('noVehicles') %></td>
             </tr>
           <% } %>
           <% vehicles.forEach((vehicle) => { %>
@@ -41,12 +51,25 @@
               <td class="px-4 py-3"><%= vehicle.owner_name %></td>
               <td class="px-4 py-3"><%= vehicle.phone || '-' %></td>
               <td class="px-4 py-3"><%= vehicle.is_company ? t('companyVehicle') : t('partnerVehicle') %></td>
+              <td class="px-4 py-3">
+                <% if (Number(vehicle.is_active ?? 1) === 1) { %>
+                  <span class="badge bg-emerald-100 text-emerald-700"><%= t('active') %></span>
+                <% } else { %>
+                  <span class="badge bg-slate-100 text-slate-700"><%= t('inactive') %></span>
+                <% } %>
+              </td>
               <td class="px-4 py-3 text-right">
                 <div class="flex justify-end gap-2">
                   <a class="btn-outline" href="<%= routeBase %>/<%= vehicle.id %>/edit"><%= t('edit') %></a>
-                  <form method="post" action="<%= routeBase %>/<%= vehicle.id %>/delete" onsubmit="return confirm('<%= t('deleteVehicleConfirm') %>');">
-                    <button class="btn-danger" type="submit"><%= t('delete') %></button>
-                  </form>
+                  <% if (Number(vehicle.is_active ?? 1) === 1) { %>
+                    <form method="post" action="<%= routeBase %>/<%= vehicle.id %>/archive" onsubmit="return confirm('<%= t('archiveVehicleConfirm') %>');">
+                      <button class="btn-danger" type="submit"><%= t('inactive') %></button>
+                    </form>
+                  <% } else { %>
+                    <form method="post" action="<%= routeBase %>/<%= vehicle.id %>/activate" onsubmit="return confirm('<%= t('activateVehicleConfirm') %>');">
+                      <button class="btn-primary" type="submit"><%= t('active') %></button>
+                    </form>
+                  <% } %>
                 </div>
               </td>
             </tr>

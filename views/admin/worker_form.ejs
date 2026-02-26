@@ -55,6 +55,10 @@
             <option value="CITIZENSHIP" <%= workerDocument && workerDocument.doc_type === 'CITIZENSHIP' ? 'selected' : '' %>><%= t('docCitizenship') %></option>
             <option value="LICENSE" <%= workerDocument && workerDocument.doc_type === 'LICENSE' ? 'selected' : '' %>><%= t('docLicense') %></option>
             <option value="PASSPORT" <%= workerDocument && workerDocument.doc_type === 'PASSPORT' ? 'selected' : '' %>><%= t('docPassport') %></option>
+            <option value="PAN" <%= workerDocument && workerDocument.doc_type === 'PAN' ? 'selected' : '' %>><%= t('docPan') %></option>
+            <option value="NATIONAL_ID" <%= workerDocument && workerDocument.doc_type === 'NATIONAL_ID' ? 'selected' : '' %>><%= t('docNationalId') %></option>
+            <option value="VOTER_CARD" <%= workerDocument && workerDocument.doc_type === 'VOTER_CARD' ? 'selected' : '' %>><%= t('docVoterCard') %></option>
+            <option value="OTHERS" <%= workerDocument && workerDocument.doc_type === 'OTHERS' ? 'selected' : '' %>><%= t('docOthers') %></option>
           </select>
         </div>
         <div class="mt-3 grid gap-3 sm:grid-cols-2" id="docDouble">

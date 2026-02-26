@@ -1,0 +1,206 @@
+<%- include('../partials/shell-start', { title }) %>
+<section class="py-8">
+  <div class="page-header flex flex-wrap items-center justify-between gap-6">
+    <div>
+      <h1 class="text-3xl font-semibold"><%= t('reconciliationTitle') %></h1>
+      <p class="mt-2 text-slate-600"><%= t('reconciliationSubtitle') %></p>
+    </div>
+    <a class="btn-outline" href="/worker"><%= t('dashboard') %></a>
+  </div>
+
+  <% if (error) { %>
+    <div class="mt-4 card border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"><%= error %></div>
+  <% } %>
+  <% if (success) { %>
+    <div class="mt-4 card border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700"><%= success %></div>
+  <% } %>
+
+  <div class="mt-4 card p-4">
+    <form class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4" method="get" action="/records/reconciliation">
+      <div>
+        <label class="label"><%= t('fromDate') %></label>
+        <input class="input" type="date" name="from" value="<%= from %>" />
+      </div>
+      <div>
+        <label class="label"><%= t('toDate') %></label>
+        <input class="input" type="date" name="to" value="<%= to %>" />
+      </div>
+      <div>
+        <label class="label"><%= t('reconciliationDate') %></label>
+        <input class="input" type="date" name="date" value="<%= businessDate %>" />
+      </div>
+      <div class="flex items-end">
+        <button class="btn-primary w-full" type="submit"><%= t('loadDate') %></button>
+      </div>
+    </form>
+  </div>
+
+  <% const savedRow = saved || null; %>
+  <% const savedDiff = savedRow ? Number(savedRow.difference_total || 0) : null; %>
+  <div class="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+    <div class="card p-4">
+      <p class="text-slate-500"><%= t('expectedCollection') %></p>
+      <p class="text-xl font-semibold"><%= snapshot.expected.collection %></p>
+      <p class="mt-1 text-xs text-slate-500"><%= t('methodCash') %>: <%= snapshot.inflow.expectedCash %> • <%= t('methodBank') %>: <%= snapshot.inflow.expectedBank %> • <%= t('methodEWallet') %>: <%= snapshot.inflow.expectedEwallet %></p>
+    </div>
+    <div class="card p-4">
+      <p class="text-slate-500"><%= t('deductedFromCollection') %></p>
+      <p class="text-xl font-semibold"><%= snapshot.deductions.total %></p>
+    </div>
+    <div class="card p-4">
+      <p class="text-slate-500"><%= t('expectedNetCollection') %></p>
+      <p class="text-xl font-semibold"><%= snapshot.expected.netAfterDeductions %></p>
+    </div>
+    <div class="card p-4">
+      <p class="text-slate-500"><%= t('differenceAmount') %></p>
+      <p class="text-xl font-semibold <%= savedDiff === null ? 'text-slate-900' : (savedDiff === 0 ? 'text-emerald-700' : (savedDiff > 0 ? 'text-amber-700' : 'text-red-700')) %>"><%= savedDiff === null ? '-' : savedDiff %></p>
+      <% if (savedRow) { %>
+        <p class="mt-1 text-xs text-slate-500"><%= t('recordedBy') %>: <%= savedRow.reconciled_by_name || '-' %></p>
+      <% } %>
+    </div>
+  </div>
+
+  <div class="mt-4 grid gap-4 lg:grid-cols-2">
+    <div class="card p-6">
+      <h2 class="text-lg font-semibold"><%= t('inflowBreakdown') %></h2>
+      <div class="mt-3 overflow-x-auto">
+        <table class="table-base text-sm">
+          <thead class="table-head">
+            <tr>
+              <th class="px-4 py-3"><%= t('source') %></th>
+              <th class="px-4 py-3"><%= t('methodCash') %></th>
+              <th class="px-4 py-3"><%= t('methodBank') %></th>
+              <th class="px-4 py-3"><%= t('methodEWallet') %></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr class="table-row">
+              <td class="px-4 py-3"><%= t('exportsTitle') %></td>
+              <td class="px-4 py-3"><%= snapshot.inflow.exports.cash %></td>
+              <td class="px-4 py-3"><%= snapshot.inflow.exports.bank %></td>
+              <td class="px-4 py-3"><%= snapshot.inflow.exports.eWallet %></td>
+            </tr>
+            <tr class="table-row">
+              <td class="px-4 py-3"><%= t('customerPayments') %></td>
+              <td class="px-4 py-3"><%= snapshot.inflow.customerCredits.cash %></td>
+              <td class="px-4 py-3"><%= snapshot.inflow.customerCredits.bank %></td>
+              <td class="px-4 py-3"><%= snapshot.inflow.customerCredits.eWallet %></td>
+            </tr>
+            <tr class="table-row">
+              <td class="px-4 py-3"><%= t('rentalsTitle') %></td>
+              <td class="px-4 py-3"><%= snapshot.inflow.rentIncome.cash %></td>
+              <td class="px-4 py-3"><%= snapshot.inflow.rentIncome.bank %></td>
+              <td class="px-4 py-3"><%= snapshot.inflow.rentIncome.eWallet %></td>
+            </tr>
+            <tr class="table-row">
+              <td class="px-4 py-3"><%= t('jarSalesTitle') %></td>
+              <td class="px-4 py-3"><%= snapshot.inflow.jarSalesCash %></td>
+              <td class="px-4 py-3">0</td>
+              <td class="px-4 py-3">0</td>
+            </tr>
+            <tr class="table-row">
+              <td class="px-4 py-3"><%= t('savingsDeposit') %></td>
+              <td class="px-4 py-3"><%= snapshot.inflow.savingsDepositsCash %></td>
+              <td class="px-4 py-3">0</td>
+              <td class="px-4 py-3">0</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card p-6">
+      <h2 class="text-lg font-semibold"><%= t('deductionBreakdown') %></h2>
+      <div class="mt-3 overflow-x-auto">
+        <table class="table-base text-sm">
+          <thead class="table-head">
+            <tr>
+              <th class="px-4 py-3"><%= t('source') %></th>
+              <th class="px-4 py-3"><%= t('amount') %></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr class="table-row"><td class="px-4 py-3"><%= t('importsTitle') %></td><td class="px-4 py-3"><%= snapshot.deductions.imports %></td></tr>
+            <tr class="table-row"><td class="px-4 py-3"><%= t('companyPurchasesTitle') %></td><td class="px-4 py-3"><%= snapshot.deductions.companyPurchases %></td></tr>
+            <tr class="table-row"><td class="px-4 py-3"><%= t('vehicleExpensesTitle') %></td><td class="px-4 py-3"><%= snapshot.deductions.vehicleExpenses %></td></tr>
+            <tr class="table-row"><td class="px-4 py-3"><%= t('staffsTitle') %> <%= t('salaryPaid') %></td><td class="px-4 py-3"><%= snapshot.deductions.staffSalaries %></td></tr>
+            <tr class="table-row"><td class="px-4 py-3"><%= t('workersTitle') %> <%= t('salaryPaid') %></td><td class="px-4 py-3"><%= snapshot.deductions.workerSalaries %></td></tr>
+            <tr class="table-row"><td class="px-4 py-3"><%= t('savingsWithdraw') %></td><td class="px-4 py-3"><%= snapshot.deductions.savingsWithdrawals %></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div class="mt-4 card p-6">
+    <h2 class="text-lg font-semibold"><%= t('actualCountedAmount') %></h2>
+    <form class="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-5" method="post" action="/records/reconciliation">
+      <input type="hidden" name="from" value="<%= from %>" />
+      <input type="hidden" name="to" value="<%= to %>" />
+      <div>
+        <label class="label"><%= t('reconciliationDate') %></label>
+        <input class="input" type="date" name="business_date" value="<%= businessDate %>" required />
+      </div>
+      <div>
+        <label class="label"><%= t('methodCash') %></label>
+        <input class="input" type="number" min="0" step="0.01" name="actual_cash" value="<%= savedRow ? Number(savedRow.actual_cash || 0) : 0 %>" />
+      </div>
+      <div>
+        <label class="label"><%= t('methodBank') %></label>
+        <input class="input" type="number" min="0" step="0.01" name="actual_bank" value="<%= savedRow ? Number(savedRow.actual_bank || 0) : 0 %>" />
+      </div>
+      <div>
+        <label class="label"><%= t('methodEWallet') %></label>
+        <input class="input" type="number" min="0" step="0.01" name="actual_ewallet" value="<%= savedRow ? Number(savedRow.actual_ewallet || 0) : 0 %>" />
+      </div>
+      <div class="sm:col-span-2 lg:col-span-5">
+        <label class="label"><%= t('note') %></label>
+        <input class="input" type="text" name="note" value="<%= savedRow ? (savedRow.note || '') : '' %>" />
+      </div>
+      <div class="sm:col-span-2 lg:col-span-5 flex flex-wrap gap-2">
+        <button class="btn-primary" type="submit"><%= t('save') %></button>
+        <a class="btn-outline" href="/records/exports?from=<%= businessDate %>&to=<%= businessDate %>"><%= t('viewExports') %></a>
+        <a class="btn-outline" href="/records/credits?from=<%= businessDate %>&to=<%= businessDate %>"><%= t('viewCredits') %></a>
+      </div>
+    </form>
+  </div>
+
+  <div class="mt-4 card p-6">
+    <h2 class="text-lg font-semibold"><%= t('reconciliationHistory') %></h2>
+    <div class="mt-3 overflow-x-auto">
+      <table class="table-base text-sm">
+        <thead class="table-head">
+          <tr>
+            <th class="px-4 py-3"><%= t('date') %></th>
+            <th class="px-4 py-3"><%= t('expectedNetCollection') %></th>
+            <th class="px-4 py-3"><%= t('actualCountedAmount') %></th>
+            <th class="px-4 py-3"><%= t('differenceAmount') %></th>
+            <th class="px-4 py-3"><%= t('recordedBy') %></th>
+            <th class="px-4 py-3"><%= t('details') %></th>
+          </tr>
+        </thead>
+        <tbody>
+          <% if (!rows || rows.length === 0) { %>
+            <tr>
+              <td class="px-4 py-4 text-slate-500" colspan="6"><%= t('reconciliationNoRows') %></td>
+            </tr>
+          <% } %>
+          <% (rows || []).forEach((row) => { %>
+            <% const rowDiff = Number(row.difference_total || 0); %>
+            <tr class="table-row">
+              <td class="px-4 py-3"><%= row.business_date %></td>
+              <td class="px-4 py-3"><%= row.expected_net %></td>
+              <td class="px-4 py-3"><%= row.actual_total %></td>
+              <td class="px-4 py-3 <%= rowDiff === 0 ? 'text-emerald-700' : (rowDiff > 0 ? 'text-amber-700' : 'text-red-700') %>"><%= rowDiff %></td>
+              <td class="px-4 py-3"><%= row.reconciled_by_name || '-' %></td>
+              <td class="px-4 py-3">
+                <a class="btn-outline h-8 px-3 text-xs" href="/records/reconciliation?from=<%= from %>&to=<%= to %>&date=<%= row.business_date %>"><%= t('viewDetails') %></a>
+              </td>
+            </tr>
+          <% }) %>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+<%- include('../partials/shell-end') %>

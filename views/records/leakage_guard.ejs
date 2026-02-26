@@ -1,0 +1,191 @@
+<%- include('../partials/shell-start', { title }) %>
+<section class="py-8">
+  <div class="flex flex-wrap items-center justify-between gap-3">
+    <div>
+      <h1 class="text-3xl font-semibold"><%= t('leakageGuardTitle') %></h1>
+      <p class="text-slate-600"><%= t('leakageGuardSubtitle') %></p>
+    </div>
+  </div>
+
+  <form class="mt-4 flex flex-wrap items-end gap-3" method="get" action="/records/leakage-guard">
+    <div>
+      <label class="label"><%= t('from') %></label>
+      <input class="input" type="date" name="from" value="<%= from %>" />
+    </div>
+    <div>
+      <label class="label"><%= t('to') %></label>
+      <input class="input" type="date" name="to" value="<%= to %>" />
+    </div>
+    <button class="btn-outline" type="submit"><%= t('filter') %></button>
+  </form>
+
+  <div class="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+    <div class="card p-4">
+      <p class="text-slate-500"><%= t('overpaymentAlerts') %></p>
+      <p class="text-xl font-semibold text-red-700"><%= summary.overpayments %></p>
+    </div>
+    <div class="card p-4">
+      <p class="text-slate-500"><%= t('negativeMarginAlerts') %></p>
+      <p class="text-xl font-semibold text-red-700"><%= summary.negativeMargins %></p>
+    </div>
+    <div class="card p-4">
+      <p class="text-slate-500"><%= t('quantityMismatchAlerts') %></p>
+      <p class="text-xl font-semibold text-amber-700"><%= summary.quantityIssues %></p>
+    </div>
+    <div class="card p-4">
+      <p class="text-slate-500"><%= t('repeatedEditAlerts') %></p>
+      <p class="text-xl font-semibold text-amber-700"><%= summary.repeatedEdits %></p>
+    </div>
+  </div>
+
+  <details class="mt-6 card p-6" open>
+    <summary class="flex cursor-pointer items-center justify-between text-sm font-semibold">
+      <span><%= t('overpaymentAlerts') %></span>
+      <span class="text-xs text-slate-500"><%= t('tapToExpand') %></span>
+    </summary>
+    <div class="mt-4 overflow-x-auto">
+      <table class="table-base">
+        <thead class="table-head">
+          <tr>
+            <th class="px-4 py-3"><%= t('date') %></th>
+            <th class="px-4 py-3"><%= t('source') %></th>
+            <th class="px-4 py-3"><%= t('reference') %></th>
+            <th class="px-4 py-3"><%= t('totalAmount') %></th>
+            <th class="px-4 py-3"><%= t('paidAmount') %></th>
+            <th class="px-4 py-3"><%= t('overpaidBy') %></th>
+          </tr>
+        </thead>
+        <tbody>
+          <% if (!overpayments || overpayments.length === 0) { %>
+            <tr>
+              <td class="px-4 py-4 text-slate-500" colspan="6"><%= t('noAlertsFound') %></td>
+            </tr>
+          <% } %>
+          <% (overpayments || []).forEach((row) => { %>
+            <tr class="table-row">
+              <td class="px-4 py-3"><%= row.date %></td>
+              <td class="px-4 py-3"><%= row.source %></td>
+              <td class="px-4 py-3"><%= row.reference %></td>
+              <td class="px-4 py-3"><%= row.expected_amount %></td>
+              <td class="px-4 py-3"><%= row.paid_amount %></td>
+              <td class="px-4 py-3 text-red-700 font-semibold"><%= row.overpaid_by %></td>
+            </tr>
+          <% }) %>
+        </tbody>
+      </table>
+    </div>
+  </details>
+
+  <details class="mt-6 card p-6">
+    <summary class="flex cursor-pointer items-center justify-between text-sm font-semibold">
+      <span><%= t('negativeMarginAlerts') %></span>
+      <span class="text-xs text-slate-500"><%= t('tapToExpand') %></span>
+    </summary>
+    <div class="mt-4 overflow-x-auto">
+      <table class="table-base">
+        <thead class="table-head">
+          <tr>
+            <th class="px-4 py-3"><%= t('date') %></th>
+            <th class="px-4 py-3"><%= t('vehicle') %></th>
+            <th class="px-4 py-3"><%= t('collectionAmount') %></th>
+            <th class="px-4 py-3"><%= t('expenseAmount') %></th>
+            <th class="px-4 py-3"><%= t('margin') %></th>
+          </tr>
+        </thead>
+        <tbody>
+          <% if (!negativeMarginTrips || negativeMarginTrips.length === 0) { %>
+            <tr>
+              <td class="px-4 py-4 text-slate-500" colspan="5"><%= t('noAlertsFound') %></td>
+            </tr>
+          <% } %>
+          <% (negativeMarginTrips || []).forEach((row) => { %>
+            <tr class="table-row">
+              <td class="px-4 py-3"><%= row.export_date %></td>
+              <td class="px-4 py-3"><%= `${row.vehicle_number} • ${row.owner_name}` %></td>
+              <td class="px-4 py-3"><%= row.collection_amount %></td>
+              <td class="px-4 py-3"><%= row.expense_amount %></td>
+              <td class="px-4 py-3 text-red-700 font-semibold"><%= row.margin %></td>
+            </tr>
+          <% }) %>
+        </tbody>
+      </table>
+    </div>
+  </details>
+
+  <details class="mt-6 card p-6">
+    <summary class="flex cursor-pointer items-center justify-between text-sm font-semibold">
+      <span><%= t('quantityMismatchAlerts') %></span>
+      <span class="text-xs text-slate-500"><%= t('tapToExpand') %></span>
+    </summary>
+    <div class="mt-4 overflow-x-auto">
+      <table class="table-base">
+        <thead class="table-head">
+          <tr>
+            <th class="px-4 py-3"><%= t('date') %></th>
+            <th class="px-4 py-3"><%= t('vehicle') %></th>
+            <th class="px-4 py-3"><%= t('jars') %></th>
+            <th class="px-4 py-3"><%= t('totalReturnJars') %> + <%= t('leakageJars') %></th>
+            <th class="px-4 py-3"><%= t('bottleCases') %></th>
+            <th class="px-4 py-3"><%= t('totalReturnBottleCases') %></th>
+          </tr>
+        </thead>
+        <tbody>
+          <% if (!quantityIssues || quantityIssues.length === 0) { %>
+            <tr>
+              <td class="px-4 py-4 text-slate-500" colspan="6"><%= t('noAlertsFound') %></td>
+            </tr>
+          <% } %>
+          <% (quantityIssues || []).forEach((row) => { %>
+            <tr class="table-row">
+              <td class="px-4 py-3"><%= row.export_date %></td>
+              <td class="px-4 py-3"><%= `${row.vehicle_number} • ${row.owner_name}` %></td>
+              <td class="px-4 py-3"><%= row.jar_count %></td>
+              <td class="px-4 py-3"><%= Number(row.return_jar_count || 0) + Number(row.leakage_jar_count || 0) %></td>
+              <td class="px-4 py-3"><%= row.bottle_case_count %></td>
+              <td class="px-4 py-3"><%= row.return_bottle_case_count %></td>
+            </tr>
+          <% }) %>
+        </tbody>
+      </table>
+    </div>
+  </details>
+
+  <details class="mt-6 card p-6">
+    <summary class="flex cursor-pointer items-center justify-between text-sm font-semibold">
+      <span><%= t('repeatedEditAlerts') %></span>
+      <span class="text-xs text-slate-500"><%= t('tapToExpand') %></span>
+    </summary>
+    <div class="mt-4 overflow-x-auto">
+      <table class="table-base">
+        <thead class="table-head">
+          <tr>
+            <th class="px-4 py-3"><%= t('date') %></th>
+            <th class="px-4 py-3"><%= t('entity') %></th>
+            <th class="px-4 py-3"><%= t('reference') %></th>
+            <th class="px-4 py-3"><%= t('editCount') %></th>
+            <th class="px-4 py-3"><%= t('recordedBy') %></th>
+            <th class="px-4 py-3"><%= t('lastUpdatedAt') %></th>
+          </tr>
+        </thead>
+        <tbody>
+          <% if (!repeatedEdits || repeatedEdits.length === 0) { %>
+            <tr>
+              <td class="px-4 py-4 text-slate-500" colspan="6"><%= t('noAlertsFound') %></td>
+            </tr>
+          <% } %>
+          <% (repeatedEdits || []).forEach((row) => { %>
+            <tr class="table-row">
+              <td class="px-4 py-3"><%= row.edit_date %></td>
+              <td class="px-4 py-3"><%= row.entity_type %></td>
+              <td class="px-4 py-3"><%= row.entity_id %></td>
+              <td class="px-4 py-3"><%= row.edit_count %></td>
+              <td class="px-4 py-3"><%= row.editors || '-' %></td>
+              <td class="px-4 py-3"><%= row.last_edit_at %></td>
+            </tr>
+          <% }) %>
+        </tbody>
+      </table>
+    </div>
+  </details>
+</section>
+<%- include('../partials/shell-end') %>

@@ -1,0 +1,111 @@
+<%- include('../partials/shell-start', { title }) %>
+<section class="py-8">
+  <div class="flex flex-wrap items-center justify-between gap-3">
+    <div>
+      <h1 class="text-3xl font-semibold"><%= t('payrollSummaryTitle') %></h1>
+      <p class="text-slate-600"><%= t('payrollSummarySubtitle') %></p>
+    </div>
+    <div class="flex flex-wrap gap-2">
+      <a class="btn-outline" href="/admin/reports/payroll-summary/export?month=<%= monthToken %>"><%= t('exportCsv') %></a>
+      <a class="btn-primary" href="/admin/reports/payroll-summary/print?month=<%= monthToken %>&autoprint=1" target="_blank"><%= t('oneClickPayrollPdf') %></a>
+    </div>
+  </div>
+
+  <form class="mt-4 flex flex-wrap items-end gap-3" method="get" action="/admin/reports/payroll-summary">
+    <div>
+      <label class="label"><%= t('month') %></label>
+      <input class="input" type="month" name="month" value="<%= monthToken %>" />
+    </div>
+    <button class="btn-outline" type="submit"><%= t('run') %></button>
+  </form>
+
+  <div class="mt-4 grid gap-3 text-sm sm:grid-cols-4">
+    <div class="card p-4">
+      <p class="text-slate-500"><%= t('month') %></p>
+      <p class="text-lg font-semibold"><%= monthLabel %></p>
+    </div>
+    <div class="card p-4">
+      <p class="text-slate-500"><%= t('salaryAccrued') %></p>
+      <p class="text-lg font-semibold"><%= grandTotals.monthAccrued %></p>
+    </div>
+    <div class="card p-4">
+      <p class="text-slate-500"><%= t('salaryPaid') %></p>
+      <p class="text-lg font-semibold"><%= grandTotals.salaryPaid %></p>
+    </div>
+    <div class="card p-4">
+      <p class="text-slate-500"><%= t('advancePaid') %></p>
+      <p class="text-lg font-semibold"><%= grandTotals.advancePaid %></p>
+    </div>
+  </div>
+
+  <div class="mt-6 grid gap-4 lg:grid-cols-2">
+    <div class="card p-6">
+      <div class="flex items-center justify-between">
+        <h2 class="text-lg font-semibold"><%= t('staffsTitle') %></h2>
+        <span class="pill"><%= t('total') %>: <%= staffTotals.count %></span>
+      </div>
+      <div class="mt-4 overflow-x-auto">
+        <table class="table-base text-sm">
+          <thead class="table-head">
+            <tr>
+              <th class="px-3 py-2"><%= t('staff') %></th>
+              <th class="px-3 py-2"><%= t('salaryAccrued') %></th>
+              <th class="px-3 py-2"><%= t('salaryPaid') %></th>
+              <th class="px-3 py-2"><%= t('advancePaid') %></th>
+              <th class="px-3 py-2"><%= t('closingDue') %></th>
+            </tr>
+          </thead>
+          <tbody>
+            <% if (!staffRows || staffRows.length === 0) { %>
+              <tr><td class="px-3 py-3 text-slate-500" colspan="5"><%= t('noData') %></td></tr>
+            <% } %>
+            <% (staffRows || []).forEach((row) => { %>
+              <tr class="table-row">
+                <td class="px-3 py-2"><%= row.full_name %></td>
+                <td class="px-3 py-2"><%= row.month_accrued %></td>
+                <td class="px-3 py-2"><%= row.salary_paid_month %></td>
+                <td class="px-3 py-2"><%= row.advance_paid_month %></td>
+                <td class="px-3 py-2"><%= row.closing_due %></td>
+              </tr>
+            <% }) %>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card p-6">
+      <div class="flex items-center justify-between">
+        <h2 class="text-lg font-semibold"><%= t('workersTitle') %></h2>
+        <span class="pill"><%= t('total') %>: <%= workerTotals.count %></span>
+      </div>
+      <div class="mt-4 overflow-x-auto">
+        <table class="table-base text-sm">
+          <thead class="table-head">
+            <tr>
+              <th class="px-3 py-2"><%= t('worker') %></th>
+              <th class="px-3 py-2"><%= t('salaryAccrued') %></th>
+              <th class="px-3 py-2"><%= t('salaryPaid') %></th>
+              <th class="px-3 py-2"><%= t('advancePaid') %></th>
+              <th class="px-3 py-2"><%= t('closingDue') %></th>
+            </tr>
+          </thead>
+          <tbody>
+            <% if (!workerRows || workerRows.length === 0) { %>
+              <tr><td class="px-3 py-3 text-slate-500" colspan="5"><%= t('noData') %></td></tr>
+            <% } %>
+            <% (workerRows || []).forEach((row) => { %>
+              <tr class="table-row">
+                <td class="px-3 py-2"><%= row.full_name %></td>
+                <td class="px-3 py-2"><%= row.month_accrued %></td>
+                <td class="px-3 py-2"><%= row.salary_paid_month %></td>
+                <td class="px-3 py-2"><%= row.advance_paid_month %></td>
+                <td class="px-3 py-2"><%= row.closing_due %></td>
+              </tr>
+            <% }) %>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</section>
+<%- include('../partials/shell-end') %>

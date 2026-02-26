@@ -7,7 +7,7 @@
     </div>
     <div class="flex flex-wrap gap-2">
       <% if (customer) { %>
-        <a class="btn-outline" href="/admin/reports/customer-invoice/print?from=<%= from %>&to=<%= to %>&customer=<%= encodeURIComponent(customer) %>" target="_blank"><%= t('print') %></a>
+        <a class="btn-primary" href="/admin/reports/customer-invoice/print?from=<%= from %>&to=<%= to %>&customer=<%= encodeURIComponent(customer) %>&autoprint=1" target="_blank"><%= t('oneClickInvoicePdf') %></a>
       <% } %>
     </div>
   </div>

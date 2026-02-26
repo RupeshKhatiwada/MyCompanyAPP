@@ -6,152 +6,286 @@
   <title><%= t('exportsTitle') %> | AQUA MSK</title>
   <link rel="stylesheet" href="/css/styles.css?v=<%= assetVersion %>" />
   <style>
-    @media print { .print-hidden { display: none !important; } }
+    :root { color-scheme: light; }
+    .bill-wrap {
+      max-width: 430px;
+      margin: 0 auto;
+      padding: 16px;
+    }
+    .bill-card {
+      border: 1px solid #e2e8f0;
+      border-radius: 16px;
+      background: #fff;
+      padding: 16px;
+    }
+    .meta-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px 12px;
+      margin-top: 12px;
+    }
+    .meta-label {
+      font-size: 11px;
+      color: #64748b;
+    }
+    .meta-value {
+      font-size: 13px;
+      font-weight: 600;
+      color: #0f172a;
+      word-break: break-word;
+    }
+    .divider {
+      border-top: 1px dashed #cbd5e1;
+      margin: 12px 0;
+    }
+    .line-item {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto auto;
+      gap: 8px;
+      align-items: start;
+      padding: 8px 0;
+      border-bottom: 1px dashed #e2e8f0;
+    }
+    .line-item:last-child {
+      border-bottom: none;
+    }
+    .line-item-head {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto auto;
+      gap: 8px;
+      padding: 6px 0;
+      font-size: 11px;
+      color: #64748b;
+      border-bottom: 1px solid #e2e8f0;
+    }
+    .line-item-head span {
+      text-align: right;
+      white-space: nowrap;
+    }
+    .line-item-head span:first-child {
+      text-align: left;
+    }
+    .line-item-name {
+      font-size: 13px;
+      font-weight: 600;
+      color: #0f172a;
+      line-height: 1.25;
+    }
+    .line-item-sub {
+      margin-top: 2px;
+      font-size: 11px;
+      color: #64748b;
+      line-height: 1.3;
+    }
+    .line-item-value {
+      font-size: 13px;
+      color: #0f172a;
+      text-align: right;
+      white-space: nowrap;
+    }
+    .totals .row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      font-size: 13px;
+      color: #0f172a;
+      padding: 4px 0;
+    }
+    .totals .final {
+      border-top: 1px solid #cbd5e1;
+      margin-top: 8px;
+      padding-top: 8px;
+      font-size: 15px;
+      font-weight: 700;
+    }
+    .print-actions {
+      display: flex;
+      justify-content: flex-end;
+      margin-bottom: 10px;
+    }
+    @page {
+      size: 80mm auto;
+      margin: 8mm;
+    }
+    @media print {
+      body {
+        background: #fff !important;
+      }
+      .print-hidden {
+        display: none !important;
+      }
+      .bill-wrap {
+        max-width: none;
+        margin: 0;
+        padding: 0;
+      }
+      .bill-card {
+        border: none;
+        border-radius: 0;
+        padding: 0;
+      }
+    }
   </style>
 </head>
-<body class="bg-white text-slate-900">
-  <div class="mx-auto max-w-3xl p-6">
-    <div class="flex items-center justify-between gap-4">
-      <div class="flex-1">
-        <%- include('../partials/print-brand', { subtitle: t('exportsTitle') }) %>
-      </div>
-      <button class="btn-primary print-hidden" onclick="window.print()"><%= t('print') %></button>
+<body class="bg-slate-100 text-slate-900">
+  <% const toNumber = (value) => Number(value || 0); %>
+  <% const paidAmount = toNumber(record.paid_amount); %>
+  <% const creditAmount = toNumber(record.credit_amount); %>
+  <% const totalExportAmount = toNumber(record.total_amount); %>
+  <% const jarCount = toNumber(record.jar_count); %>
+  <% const returnJarCount = toNumber(record.return_jar_count); %>
+  <% const leakageJarCount = toNumber(record.leakage_jar_count); %>
+  <% const netJars = Math.max(0, jarCount - returnJarCount - leakageJarCount); %>
+  <% const bottleCaseCount = toNumber(record.bottle_case_count); %>
+  <% const returnBottleCaseCount = toNumber(record.return_bottle_case_count); %>
+  <% const netBottleCases = Math.max(0, bottleCaseCount - returnBottleCaseCount); %>
+  <% const dispenserCount = toNumber(record.dispenser_count); %>
+  <% const soldJarCount = toNumber(record.sold_jar_count); %>
+  <% const soldJarPrice = toNumber(record.sold_jar_price); %>
+  <% const soldJarAmount = toNumber(record.sold_jar_amount) || (soldJarCount * soldJarPrice); %>
+  <% const jarUnitPrice = toNumber(record.jar_unit_price); %>
+  <% const bottleCaseUnitPrice = toNumber(record.bottle_case_unit_price); %>
+  <% const dispenserUnitPrice = toNumber(record.dispenser_unit_price); %>
+  <% const collectionAmount = toNumber(record.collection_amount); %>
+  <% const expenseAmount = toNumber(record.expense_amount); %>
+  <% const netCollectionAmount = Math.max(0, collectionAmount - expenseAmount); %>
+  <% const itemLines = []; %>
+  <% if (netJars > 0) { %>
+    <% itemLines.push({ label: t('jars'), qty: netJars, unitPrice: jarUnitPrice, amount: netJars * jarUnitPrice, detail: `${t('returnJars')}: ${returnJarCount}, ${t('leakageJars')}: ${leakageJarCount}` }); %>
+  <% } %>
+  <% if (netBottleCases > 0) { %>
+    <% itemLines.push({ label: t('bottleCases'), qty: netBottleCases, unitPrice: bottleCaseUnitPrice, amount: netBottleCases * bottleCaseUnitPrice, detail: `${t('returnBottleCases')}: ${returnBottleCaseCount}` }); %>
+  <% } %>
+  <% if (dispenserCount > 0) { %>
+    <% itemLines.push({ label: t('dispensers'), qty: dispenserCount, unitPrice: dispenserUnitPrice, amount: dispenserCount * dispenserUnitPrice }); %>
+  <% } %>
+  <% if (soldJarCount > 0 || soldJarAmount > 0) { %>
+    <% itemLines.push({ label: t('soldJars'), qty: soldJarCount, unitPrice: soldJarPrice, amount: soldJarAmount }); %>
+  <% } %>
+
+  <div class="bill-wrap">
+    <div class="print-actions print-hidden">
+      <button class="btn-primary" onclick="window.print()"><%= t('print') %></button>
     </div>
 
-    <div class="mt-6 card p-6">
-      <% const paidAmount = Number(record.paid_amount || 0); %>
-      <% const creditAmount = Number(record.credit_amount || 0); %>
-      <% const totalExportAmount = Number(record.total_amount || 0); %>
-      <div class="grid gap-4 sm:grid-cols-2 text-sm">
+    <div class="bill-card">
+      <%- include('../partials/print-brand', { subtitle: t('exportsTitle') }) %>
+
+      <div class="meta-grid">
         <div>
-          <p class="text-slate-500"><%= t('vehicleNumber') %></p>
-          <p class="font-semibold"><%= record.vehicle_number %></p>
+          <p class="meta-label"><%= t('receiptNo') %></p>
+          <p class="meta-value"><%= record.receipt_no || (`#${record.id}`) %></p>
         </div>
         <div>
-          <p class="text-slate-500"><%= t('receiptNo') %></p>
-          <p class="font-semibold"><%= record.receipt_no || (`#${record.id}`) %></p>
+          <p class="meta-label"><%= t('date') %></p>
+          <p class="meta-value"><%= typeof formatDateDual === 'function' ? formatDateDual(record.export_date) : record.export_date %></p>
         </div>
         <div>
-          <p class="text-slate-500"><%= t('ownerName') %></p>
-          <p class="font-semibold"><%= record.owner_name %></p>
+          <p class="meta-label"><%= t('vehicleNumber') %></p>
+          <p class="meta-value"><%= record.vehicle_number %></p>
         </div>
         <div>
-          <p class="text-slate-500"><%= t('phone') %></p>
-          <p class="font-semibold"><%= record.phone || '-' %></p>
+          <p class="meta-label"><%= t('ownerName') %></p>
+          <p class="meta-value"><%= record.owner_name %></p>
         </div>
-        <div>
-          <p class="text-slate-500"><%= t('date') %></p>
-          <p class="font-semibold"><%= record.export_date %></p>
+        <% if (record.phone) { %>
+          <div>
+            <p class="meta-label"><%= t('phone') %></p>
+            <p class="meta-value"><%= record.phone %></p>
+          </div>
+        <% } %>
+        <% if (record.route) { %>
+          <div>
+            <p class="meta-label"><%= t('route') %></p>
+            <p class="meta-value"><%= record.route %></p>
+          </div>
+        <% } %>
+        <% if (record.checked_by_name) { %>
+          <div>
+            <p class="meta-label"><%= t('checkedByStaff') %></p>
+            <p class="meta-value"><%= record.checked_by_name %></p>
+          </div>
+        <% } %>
+        <% if (record.force_wash_staff_name) { %>
+          <div>
+            <p class="meta-label"><%= t('forceWashBy') %></p>
+            <p class="meta-value"><%= record.force_wash_staff_name %></p>
+          </div>
+        <% } %>
+      </div>
+
+      <div class="divider"></div>
+
+      <p class="text-xs font-semibold uppercase tracking-wide text-slate-500"><%= t('allItems') %></p>
+      <% if (itemLines.length === 0) { %>
+        <p class="mt-2 text-xs text-slate-500"><%= t('noData') %></p>
+      <% } else { %>
+        <div class="mt-1">
+          <div class="line-item-head">
+            <span><%= t('allItems') %></span>
+            <span><%= t('quantity') %></span>
+            <span><%= t('amount') %></span>
+          </div>
+          <% itemLines.forEach((item) => { %>
+            <div class="line-item">
+              <div>
+                <p class="line-item-name"><%= item.label %></p>
+                <% if (item.detail) { %>
+                  <p class="line-item-sub"><%= item.detail %></p>
+                <% } %>
+                <% if (item.unitPrice > 0) { %>
+                  <p class="line-item-sub"><%= t('unit') %>: <%= item.unitPrice %></p>
+                <% } %>
+              </div>
+              <p class="line-item-value"><%= item.qty %></p>
+              <p class="line-item-value"><%= item.amount > 0 ? item.amount : '-' %></p>
+            </div>
+          <% }) %>
         </div>
-        <div>
-          <p class="text-slate-500"><%= t('route') %></p>
-          <p class="font-semibold"><%= record.route || '-' %></p>
+      <% } %>
+
+      <div class="divider"></div>
+
+      <div class="totals">
+        <div class="row">
+          <span><%= t('totalExportAmount') %></span>
+          <strong><%= totalExportAmount %></strong>
         </div>
-        <div>
-          <p class="text-slate-500"><%= t('checkedByStaff') %></p>
-          <p class="font-semibold"><%= record.checked_by_name || '-' %></p>
+        <div class="row">
+          <span><%= t('paidAmount') %></span>
+          <strong><%= paidAmount %></strong>
         </div>
-        <div>
-          <p class="text-slate-500"><%= t('forceWash') %></p>
-          <p class="font-semibold"><%= Number(record.force_wash_required || 0) === 1 ? t('yes') : t('no') %></p>
+        <div class="row">
+          <span><%= t('creditAmount') %></span>
+          <strong><%= creditAmount %></strong>
         </div>
-        <div>
-          <p class="text-slate-500"><%= t('forceWashBy') %></p>
-          <p class="font-semibold"><%= record.force_wash_staff_name || '-' %></p>
-        </div>
-        <div>
-          <p class="text-slate-500"><%= t('soldJarPrice') %></p>
-          <p class="font-semibold"><%= record.sold_jar_price || 0 %></p>
-        </div>
-        <div>
-          <p class="text-slate-500"><%= t('pricePerJar') %></p>
-          <p class="font-semibold"><%= record.jar_unit_price || 0 %></p>
-        </div>
-        <div>
-          <p class="text-slate-500"><%= t('pricePerBottleCase') %></p>
-          <p class="font-semibold"><%= record.bottle_case_unit_price || 0 %></p>
-        </div>
-        <div>
-          <p class="text-slate-500"><%= t('pricePerDispenser') %></p>
-          <p class="font-semibold"><%= record.dispenser_unit_price || 0 %></p>
-        </div>
-        <div>
-          <p class="text-slate-500"><%= t('expenseAmount') %></p>
-          <p class="font-semibold"><%= record.expense_amount || 0 %></p>
-        </div>
-        <div>
-          <p class="text-slate-500"><%= t('expenseNote') %></p>
-          <p class="font-semibold"><%= record.expense_note || '-' %></p>
+        <% if (collectionAmount > 0 || expenseAmount > 0) { %>
+          <div class="row">
+            <span><%= t('collectionAmount') %></span>
+            <strong><%= collectionAmount %></strong>
+          </div>
+          <div class="row">
+            <span><%= t('expenseAmount') %></span>
+            <strong><%= expenseAmount %></strong>
+          </div>
+          <div class="row">
+            <span><%= t('netCollectionAmount') %></span>
+            <strong><%= netCollectionAmount %></strong>
+          </div>
+        <% } %>
+        <div class="row final">
+          <span><%= t('remainingAmount') %></span>
+          <strong><%= Math.max(0, totalExportAmount - paidAmount) %></strong>
         </div>
       </div>
 
-      <div class="mt-4 grid gap-3 sm:grid-cols-3">
-        <div class="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
-          <p class="text-xs text-slate-500"><%= t('totalExportAmount') %></p>
-          <p class="text-lg font-semibold"><%= totalExportAmount %></p>
-        </div>
-        <div class="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
-          <p class="text-xs text-slate-500"><%= t('paidAmount') %></p>
-          <p class="text-lg font-semibold text-emerald-700"><%= paidAmount %></p>
-        </div>
-        <div class="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
-          <p class="text-xs text-slate-500"><%= t('creditAmount') %></p>
-          <p class="text-lg font-semibold <%= creditAmount > 0 ? 'text-amber-700' : 'text-emerald-700' %>"><%= creditAmount %></p>
-        </div>
-      </div>
-
-      <div class="mt-6 overflow-hidden rounded-2xl border border-slate-200">
-        <table class="table-base">
-          <thead class="table-head">
-            <tr>
-              <th class="px-4 py-3"><%= t('jars') %></th>
-              <th class="px-4 py-3"><%= t('returnJars') %></th>
-              <th class="px-4 py-3"><%= t('leakageJars') %></th>
-              <th class="px-4 py-3"><%= t('netJars') %></th>
-              <th class="px-4 py-3"><%= t('soldJars') %></th>
-              <th class="px-4 py-3"><%= t('soldJarAmount') %></th>
-              <th class="px-4 py-3"><%= t('bottleCases') %></th>
-              <th class="px-4 py-3"><%= t('dispensers') %></th>
-              <th class="px-4 py-3"><%= t('returnBottleCases') %></th>
-              <th class="px-4 py-3"><%= t('netBottles') %></th>
-              <th class="px-4 py-3"><%= t('totalExportAmount') %></th>
-              <th class="px-4 py-3"><%= t('collectionAmount') %></th>
-              <th class="px-4 py-3"><%= t('expenseAmount') %></th>
-              <th class="px-4 py-3"><%= t('netCollectionAmount') %></th>
-              <th class="px-4 py-3"><%= t('paidAmount') %></th>
-              <th class="px-4 py-3"><%= t('creditAmount') %></th>
-            </tr>
-          </thead>
-          <tbody>
-            <% const netJars = Math.max(0, (record.jar_count || 0) - (record.return_jar_count || 0) - (record.leakage_jar_count || 0)); %>
-            <% const netBottles = Math.max(0, (record.bottle_case_count || 0) - (record.return_bottle_case_count || 0)); %>
-            <% const collectionAmount = Number(record.collection_amount || 0); %>
-            <% const expenseAmount = Number(record.expense_amount || 0); %>
-            <% const netCollectionAmount = Math.max(0, collectionAmount - expenseAmount); %>
-            <tr class="table-row">
-              <td class="px-4 py-3"><%= record.jar_count %></td>
-              <td class="px-4 py-3"><%= record.return_jar_count %></td>
-              <td class="px-4 py-3"><%= record.leakage_jar_count %></td>
-              <td class="px-4 py-3"><%= netJars %></td>
-              <td class="px-4 py-3"><%= record.sold_jar_count || 0 %></td>
-              <td class="px-4 py-3"><%= record.sold_jar_amount || 0 %></td>
-              <td class="px-4 py-3"><%= record.bottle_case_count %></td>
-              <td class="px-4 py-3"><%= record.dispenser_count || 0 %></td>
-              <td class="px-4 py-3"><%= record.return_bottle_case_count %></td>
-              <td class="px-4 py-3"><%= netBottles %></td>
-              <td class="px-4 py-3"><%= totalExportAmount %></td>
-              <td class="px-4 py-3"><%= collectionAmount %></td>
-              <td class="px-4 py-3"><%= expenseAmount %></td>
-              <td class="px-4 py-3"><%= netCollectionAmount %></td>
-              <td class="px-4 py-3"><%= paidAmount %></td>
-              <td class="px-4 py-3"><%= creditAmount %></td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-
+      <% if (record.expense_note) { %>
+        <div class="divider"></div>
+        <p class="text-xs text-slate-600"><strong><%= t('expenseNote') %>:</strong> <%= record.expense_note %></p>
+      <% } %>
       <% if (record.note) { %>
-        <p class="mt-4 text-sm text-slate-600"><strong><%= t('note') %>:</strong> <%= record.note %></p>
+        <p class="mt-2 text-xs text-slate-600"><strong><%= t('note') %>:</strong> <%= record.note %></p>
       <% } %>
     </div>
   </div>

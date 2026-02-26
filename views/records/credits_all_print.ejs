@@ -6,24 +6,67 @@
   <title><%= t('allCreditsTitle') %> | AQUA MSK</title>
   <link rel="stylesheet" href="/css/styles.css?v=<%= assetVersion %>" />
   <style>
-    @media print { .print-hidden { display: none !important; } }
+    .print-report-header {
+      border-bottom: 1px solid #cbd5e1;
+      padding-bottom: 10px;
+    }
+    @media print {
+      @page {
+        size: A4 portrait;
+        margin: 10mm;
+      }
+      .print-hidden { display: none !important; }
+      .print-sheet {
+        max-width: none !important;
+        width: 100% !important;
+        margin: 0 !important;
+        padding: 0 !important;
+      }
+      .print-report-header {
+        break-inside: avoid;
+        page-break-inside: avoid;
+      }
+      .print-table-wrap {
+        overflow: visible !important;
+      }
+      .print-table {
+        width: 100% !important;
+        font-size: 10px !important;
+      }
+      .print-table thead {
+        display: table-header-group !important;
+      }
+      .print-table th,
+      .print-table td {
+        padding: 4px 6px !important;
+        vertical-align: top;
+        white-space: normal !important;
+        word-break: break-word;
+      }
+      .print-table tr {
+        break-inside: avoid;
+        page-break-inside: avoid;
+      }
+    }
   </style>
 </head>
 <body class="bg-white text-slate-900">
-  <div class="mx-auto max-w-5xl p-6">
-    <div class="flex flex-wrap items-start justify-between gap-4">
+  <div class="print-sheet mx-auto max-w-5xl p-6">
+    <div class="print-report-header flex flex-wrap items-start justify-between gap-4">
       <div class="flex-1">
         <%- include('../partials/print-brand', { subtitle: t('allCreditsTitle') }) %>
         <p class="mt-2 text-sm text-slate-600">
-          <%= t('from') %>: <%= from %> | <%= t('to') %>: <%= to %>
+          <%= t('from') %>: <%= typeof formatDateDual === 'function' ? formatDateDual(from) : from %> | <%= t('to') %>: <%= typeof formatDateDual === 'function' ? formatDateDual(to) : to %>
         </p>
-        <p class="text-xs text-slate-500"><%= t('printedOn') %>: <%= printedAt %></p>
+        <% if (q) { %>
+          <p class="text-xs text-slate-500"><%= t('search') %>: <%= q %></p>
+        <% } %>
       </div>
       <button class="btn-primary print-hidden" onclick="window.print()"><%= t('print') %></button>
     </div>
 
-    <div class="mt-6 overflow-hidden rounded-2xl border border-slate-200">
-      <table class="table-base">
+    <div class="mt-6 overflow-hidden rounded-2xl border border-slate-200 print-table-wrap">
+      <table class="table-base print-table">
         <thead class="table-head">
           <tr>
             <th class="px-4 py-3"><%= t('date') %></th>
@@ -44,7 +87,7 @@
           <% rows.forEach((row) => { %>
             <% const isExport = row.source === 'export'; %>
             <tr class="table-row">
-              <td class="px-4 py-3"><%= row.credit_date %></td>
+              <td class="px-4 py-3"><%= typeof formatDateDual === 'function' ? formatDateDual(row.credit_date) : row.credit_date %></td>
               <td class="px-4 py-3"><%= isExport ? t('sourceExport') : t('sourceCustomer') %></td>
               <td class="px-4 py-3"><%= `${row.owner_name} • ${row.vehicle_number}` %></td>
               <td class="px-4 py-3"><%= row.customer_name || '-' %></td>
@@ -61,6 +104,10 @@
       <div class="card p-4">
         <p class="text-slate-500"><%= t('totalAmount') %></p>
         <p class="text-lg font-semibold"><%= totals.total %></p>
+      </div>
+      <div class="card p-4">
+        <p class="text-slate-500"><%= t('totalPaidAmount') %></p>
+        <p class="text-lg font-semibold"><%= totals.paid || 0 %></p>
       </div>
       <div class="card p-4">
         <p class="text-slate-500"><%= t('totalRemaining') %></p>

@@ -29,6 +29,7 @@
             <th class="px-4 py-3"><%= t('date') %></th>
             <th class="px-4 py-3"><%= t('vehicle') %></th>
             <th class="px-4 py-3"><%= t('savingsType') %></th>
+            <th class="px-4 py-3"><%= t('paymentSourceLabel') %></th>
             <th class="px-4 py-3"><%= t('amount') %></th>
             <th class="px-4 py-3"><%= t('note') %></th>
           </tr>
@@ -36,16 +37,18 @@
         <tbody>
           <% if (entries.length === 0) { %>
             <tr>
-              <td class="px-4 py-4 text-slate-500" colspan="5"><%= t('noSavings') %></td>
+              <td class="px-4 py-4 text-slate-500" colspan="6"><%= t('noSavings') %></td>
             </tr>
           <% } %>
           <% entries.forEach((row) => { %>
             <% const label = `${row.owner_name} • ${row.vehicle_number}`; %>
             <% const entryType = row.amount < 0 ? 'withdraw' : 'deposit'; %>
+            <% const sourceLabel = row.payment_source === 'OWNER_PERSONAL' ? t('sourceOwnerPersonal') : row.payment_source === 'BANK_OTHER' ? t('sourceBankOther') : t('sourceDailyCollection'); %>
             <tr class="table-row">
               <td class="px-4 py-3"><%= row.entry_date %></td>
               <td class="px-4 py-3"><%= label %></td>
               <td class="px-4 py-3"><%= entryType === 'withdraw' ? t('savingsWithdraw') : t('savingsDeposit') %></td>
+              <td class="px-4 py-3"><%= sourceLabel %></td>
               <td class="px-4 py-3"><%= Math.abs(row.amount) %></td>
               <td class="px-4 py-3"><%= row.note || '-' %></td>
             </tr>

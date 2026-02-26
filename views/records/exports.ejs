@@ -120,6 +120,7 @@
             <% const netJars = Math.max(0, (record.jar_count || 0) - (record.return_jar_count || 0) - (record.leakage_jar_count || 0)); %>
             <% const collectionAmount = Number(record.collection_amount || 0); %>
             <% const remainingCredit = Math.max(0, Number(record.total_amount || 0) - Number(record.paid_amount || 0)); %>
+            <% const methodLabel = record.payment_method === 'BANK' ? t('methodBank') : record.payment_method === 'E_WALLET' ? t('methodEWallet') : t('methodCash'); %>
             <tr class="table-row">
               <td class="px-4 py-3"><%= record.export_date %></td>
               <td class="px-4 py-3"><%= record.vehicle_number %></td>
@@ -129,8 +130,10 @@
               <td class="px-4 py-3">
                 <% if (Number(record.is_company) === 1) { %>
                   <div><%= t('collectionAmount') %>: <%= collectionAmount %></div>
+                  <div class="text-xs text-slate-500"><%= methodLabel %></div>
                 <% } else { %>
                   <div><%= t('paidAmount') %>: <%= record.paid_amount %></div>
+                  <div class="text-xs text-slate-500"><%= methodLabel %></div>
                 <% } %>
               </td>
               <td class="px-4 py-3">
@@ -206,6 +209,11 @@
                     placeholder="<%= t('paymentAmount') %>"
                     required
                   />
+                  <select class="input h-9 w-32" name="payment_method">
+                    <option value="CASH"><%= t('methodCash') %></option>
+                    <option value="BANK"><%= t('methodBank') %></option>
+                    <option value="E_WALLET"><%= t('methodEWallet') %></option>
+                  </select>
                   <button class="btn-outline" type="submit"><%= t('addPayment') %></button>
                 </form>
                 <a class="btn-outline" href="/records/exports/payment-history?from=<%= from %>&to=<%= to %>&vehicle_id=<%= group.vehicle_id %>"><%= t('paymentHistory') %></a>
@@ -310,6 +318,11 @@
                     placeholder="<%= t('paymentAmount') %>"
                     required
                   />
+                  <select class="input h-9 w-32" name="payment_method">
+                    <option value="CASH"><%= t('methodCash') %></option>
+                    <option value="BANK"><%= t('methodBank') %></option>
+                    <option value="E_WALLET"><%= t('methodEWallet') %></option>
+                  </select>
                   <button class="btn-outline" type="submit"><%= t('addPayment') %></button>
                 </form>
               <% } %>
@@ -391,6 +404,7 @@
         <div class="card p-4">
           <p class="text-slate-500"><%= t('totalPaidAmount') %></p>
           <p class="text-lg font-semibold"><%= todayTotals.total_paid %></p>
+          <p class="text-xs text-slate-500"><%= t('methodCash') %>: <%= Number(todayPaidByMethod?.cash_paid || 0) %> • <%= t('methodBank') %>: <%= Number(todayPaidByMethod?.bank_paid || 0) %> • <%= t('methodEWallet') %>: <%= Number(todayPaidByMethod?.ewallet_paid || 0) %></p>
         </div>
         <div class="card p-4">
           <p class="text-slate-500"><%= t('totalCreditAmount') %></p>
@@ -468,6 +482,7 @@
         <div class="card p-4">
           <p class="text-slate-500"><%= t('totalPaidAmount') %></p>
           <p class="text-lg font-semibold"><%= exportTotals.total_paid %></p>
+          <p class="text-xs text-slate-500"><%= t('methodCash') %>: <%= Number(rangePaidByMethod?.cash_paid || 0) %> • <%= t('methodBank') %>: <%= Number(rangePaidByMethod?.bank_paid || 0) %> • <%= t('methodEWallet') %>: <%= Number(rangePaidByMethod?.ewallet_paid || 0) %></p>
         </div>
         <div class="card p-4">
           <p class="text-slate-500"><%= t('totalCreditAmount') %></p>

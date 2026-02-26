@@ -34,9 +34,29 @@ CREATE TABLE IF NOT EXISTS vehicles (
   phone TEXT,
   is_company INTEGER NOT NULL DEFAULT 0,
   profile_pic_path TEXT,
+  is_active INTEGER NOT NULL DEFAULT 1,
+  deactivated_at TEXT,
+  deactivated_by INTEGER,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  FOREIGN KEY (deactivated_by) REFERENCES users(id) ON DELETE SET NULL
 );
+
+CREATE TABLE IF NOT EXISTS vehicle_compliance (
+  vehicle_id INTEGER PRIMARY KEY,
+  insurance_expiry TEXT,
+  tax_expiry TEXT,
+  permit_expiry TEXT,
+  fitness_expiry TEXT,
+  pollution_expiry TEXT,
+  note TEXT,
+  updated_by INTEGER,
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  FOREIGN KEY (vehicle_id) REFERENCES vehicles(id) ON DELETE CASCADE,
+  FOREIGN KEY (updated_by) REFERENCES users(id) ON DELETE SET NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_vehicle_compliance_updated_at ON vehicle_compliance(updated_at);
 
 CREATE TABLE IF NOT EXISTS daily_sales (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -70,6 +90,7 @@ CREATE TABLE IF NOT EXISTS exports (
   expense_note TEXT,
   total_amount REAL NOT NULL DEFAULT 0,
   paid_amount REAL NOT NULL DEFAULT 0,
+  payment_method TEXT NOT NULL DEFAULT 'CASH',
   credit_amount REAL NOT NULL DEFAULT 0,
   receipt_no TEXT,
   checked_by_staff_id INTEGER,
@@ -91,6 +112,7 @@ CREATE TABLE IF NOT EXISTS credits (
   customer_name TEXT NOT NULL,
   amount REAL NOT NULL DEFAULT 0,
   paid_amount REAL NOT NULL DEFAULT 0,
+  payment_method TEXT NOT NULL DEFAULT 'CASH',
   credit_jars INTEGER NOT NULL DEFAULT 0,
   credit_bottle_cases INTEGER NOT NULL DEFAULT 0,
   credit_dispensers INTEGER NOT NULL DEFAULT 0,
@@ -121,6 +143,7 @@ CREATE TABLE IF NOT EXISTS credit_payments (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   credit_id INTEGER NOT NULL,
   amount REAL NOT NULL DEFAULT 0,
+  payment_method TEXT NOT NULL DEFAULT 'CASH',
   note TEXT,
   created_by INTEGER,
   paid_at TEXT NOT NULL DEFAULT (datetime('now')),
@@ -296,6 +319,8 @@ CREATE TABLE IF NOT EXISTS import_payments (
   import_entry_id INTEGER NOT NULL,
   payment_date TEXT NOT NULL,
   amount REAL NOT NULL DEFAULT 0,
+  payment_method TEXT NOT NULL DEFAULT 'CASH',
+  payment_source TEXT NOT NULL DEFAULT 'DAILY_COLLECTION',
   note TEXT,
   created_by INTEGER,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
@@ -335,6 +360,8 @@ CREATE TABLE IF NOT EXISTS company_purchase_payments (
   company_purchase_id INTEGER NOT NULL,
   payment_date TEXT NOT NULL,
   amount REAL NOT NULL DEFAULT 0,
+  payment_method TEXT NOT NULL DEFAULT 'CASH',
+  payment_source TEXT NOT NULL DEFAULT 'DAILY_COLLECTION',
   note TEXT,
   created_by INTEGER,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
@@ -370,6 +397,8 @@ CREATE TABLE IF NOT EXISTS vehicle_expense_payments (
   vehicle_expense_id INTEGER NOT NULL,
   payment_date TEXT NOT NULL,
   amount REAL NOT NULL DEFAULT 0,
+  payment_method TEXT NOT NULL DEFAULT 'CASH',
+  payment_source TEXT NOT NULL DEFAULT 'DAILY_COLLECTION',
   note TEXT,
   created_by INTEGER,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
@@ -379,6 +408,24 @@ CREATE TABLE IF NOT EXISTS vehicle_expense_payments (
 
 CREATE INDEX IF NOT EXISTS idx_vehicle_expense_payments_entry ON vehicle_expense_payments(vehicle_expense_id);
 CREATE INDEX IF NOT EXISTS idx_vehicle_expense_payments_date ON vehicle_expense_payments(payment_date);
+
+CREATE TABLE IF NOT EXISTS rent_entries (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  rent_date TEXT NOT NULL,
+  renter_name TEXT NOT NULL,
+  item_name TEXT NOT NULL,
+  amount REAL NOT NULL DEFAULT 0,
+  payment_method TEXT NOT NULL DEFAULT 'CASH',
+  add_to_collection INTEGER NOT NULL DEFAULT 1,
+  note TEXT,
+  created_by INTEGER,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  FOREIGN KEY (created_by) REFERENCES users(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_rent_entries_date ON rent_entries(rent_date);
+CREATE INDEX IF NOT EXISTS idx_rent_entries_renter ON rent_entries(renter_name);
 
 CREATE TABLE IF NOT EXISTS water_test_reports (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -404,6 +451,7 @@ CREATE TABLE IF NOT EXISTS vehicle_savings (
   vehicle_id INTEGER NOT NULL,
   entry_date TEXT NOT NULL,
   amount REAL NOT NULL DEFAULT 0,
+  payment_source TEXT NOT NULL DEFAULT 'DAILY_COLLECTION',
   note TEXT,
   created_by INTEGER,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
@@ -423,8 +471,12 @@ CREATE TABLE IF NOT EXISTS staff (
   photo_path TEXT,
   start_date TEXT,
   monthly_salary REAL NOT NULL DEFAULT 0,
+  is_active INTEGER NOT NULL DEFAULT 1,
+  deactivated_at TEXT,
+  deactivated_by INTEGER,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  FOREIGN KEY (deactivated_by) REFERENCES users(id) ON DELETE SET NULL
 );
 
 CREATE TABLE IF NOT EXISTS staff_roles (
@@ -442,7 +494,7 @@ CREATE INDEX IF NOT EXISTS idx_staff_roles_active ON staff_roles(is_active);
 CREATE TABLE IF NOT EXISTS staff_documents (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   staff_id INTEGER NOT NULL,
-  doc_type TEXT NOT NULL CHECK (doc_type IN ('CITIZENSHIP','LICENSE','PASSPORT')),
+  doc_type TEXT NOT NULL CHECK (doc_type IN ('CITIZENSHIP','LICENSE','PASSPORT','PAN','NATIONAL_ID','VOTER_CARD','OTHERS')),
   front_path TEXT,
   back_path TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
@@ -506,6 +558,7 @@ CREATE TABLE IF NOT EXISTS staff_salary_payments (
   payment_date TEXT NOT NULL,
   amount REAL NOT NULL DEFAULT 0,
   payment_type TEXT NOT NULL CHECK (payment_type IN ('SALARY','ADVANCE')),
+  payment_source TEXT NOT NULL DEFAULT 'DAILY_COLLECTION' CHECK (payment_source IN ('DAILY_COLLECTION','OWNER_PERSONAL','BANK_OTHER')),
   receipt_no TEXT,
   note TEXT,
   created_by INTEGER,
@@ -523,6 +576,7 @@ CREATE TABLE IF NOT EXISTS worker_salary_payments (
   payment_date TEXT NOT NULL,
   amount REAL NOT NULL DEFAULT 0,
   payment_type TEXT NOT NULL CHECK (payment_type IN ('SALARY','ADVANCE')),
+  payment_source TEXT NOT NULL DEFAULT 'DAILY_COLLECTION' CHECK (payment_source IN ('DAILY_COLLECTION','OWNER_PERSONAL','BANK_OTHER')),
   receipt_no TEXT,
   note TEXT,
   created_by INTEGER,
@@ -537,7 +591,7 @@ CREATE INDEX IF NOT EXISTS idx_worker_salary_worker ON worker_salary_payments(wo
 CREATE TABLE IF NOT EXISTS worker_documents (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   worker_id INTEGER NOT NULL UNIQUE,
-  doc_type TEXT CHECK (doc_type IN ('CITIZENSHIP','LICENSE','PASSPORT')),
+  doc_type TEXT CHECK (doc_type IN ('CITIZENSHIP','LICENSE','PASSPORT','PAN','NATIONAL_ID','VOTER_CARD','OTHERS')),
   photo_path TEXT,
   front_path TEXT,
   back_path TEXT,
@@ -561,7 +615,122 @@ CREATE TABLE IF NOT EXISTS day_closures (
 );
 
 CREATE INDEX IF NOT EXISTS idx_day_closures_status ON day_closures(is_closed, closure_date);
+
+CREATE TABLE IF NOT EXISTS day_reconciliations (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  business_date TEXT NOT NULL UNIQUE,
+  expected_cash REAL NOT NULL DEFAULT 0,
+  expected_bank REAL NOT NULL DEFAULT 0,
+  expected_ewallet REAL NOT NULL DEFAULT 0,
+  expected_total REAL NOT NULL DEFAULT 0,
+  deducted_from_collection REAL NOT NULL DEFAULT 0,
+  expected_net REAL NOT NULL DEFAULT 0,
+  actual_cash REAL NOT NULL DEFAULT 0,
+  actual_bank REAL NOT NULL DEFAULT 0,
+  actual_ewallet REAL NOT NULL DEFAULT 0,
+  actual_total REAL NOT NULL DEFAULT 0,
+  difference_total REAL NOT NULL DEFAULT 0,
+  note TEXT,
+  reconciled_by INTEGER,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  FOREIGN KEY (reconciled_by) REFERENCES users(id) ON DELETE SET NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_day_reconciliations_date ON day_reconciliations(business_date);
+
+CREATE TABLE IF NOT EXISTS doc_number_sequences (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  doc_type TEXT NOT NULL,
+  fiscal_year TEXT NOT NULL,
+  next_value INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE(doc_type, fiscal_year)
+);
+
+CREATE INDEX IF NOT EXISTS idx_doc_number_sequences_type_year ON doc_number_sequences(doc_type, fiscal_year);
+
+CREATE TABLE IF NOT EXISTS archived_records (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  source_table TEXT NOT NULL,
+  source_id TEXT,
+  source_date TEXT,
+  payload TEXT NOT NULL,
+  archived_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_archived_records_source ON archived_records(source_table);
+CREATE INDEX IF NOT EXISTS idx_archived_records_source_date ON archived_records(source_table, source_date);
+CREATE INDEX IF NOT EXISTS idx_archived_records_archived_at ON archived_records(archived_at);
+
+CREATE TABLE IF NOT EXISTS archive_runs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  run_at TEXT NOT NULL DEFAULT (datetime('now')),
+  retention_days INTEGER NOT NULL DEFAULT 365,
+  archived_count INTEGER NOT NULL DEFAULT 0,
+  details TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_archive_runs_run_at ON archive_runs(run_at);
 `);
+
+const documentTypeListSql = "'CITIZENSHIP','LICENSE','PASSPORT','PAN','NATIONAL_ID','VOTER_CARD','OTHERS'";
+
+const staffDocumentsTableDef = db.prepare(
+  "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'staff_documents'"
+).get();
+if (staffDocumentsTableDef && staffDocumentsTableDef.sql && !staffDocumentsTableDef.sql.includes("'PAN'")) {
+  db.exec("PRAGMA foreign_keys = OFF;");
+  db.exec(`
+    BEGIN;
+    ALTER TABLE staff_documents RENAME TO staff_documents_old;
+    CREATE TABLE staff_documents (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      staff_id INTEGER NOT NULL,
+      doc_type TEXT NOT NULL CHECK (doc_type IN (${documentTypeListSql})),
+      front_path TEXT,
+      back_path TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (staff_id) REFERENCES staff(id) ON DELETE CASCADE
+    );
+    INSERT INTO staff_documents (id, staff_id, doc_type, front_path, back_path, created_at)
+    SELECT id, staff_id, doc_type, front_path, back_path, created_at
+    FROM staff_documents_old;
+    DROP TABLE staff_documents_old;
+    COMMIT;
+  `);
+  db.exec("PRAGMA foreign_keys = ON;");
+}
+
+const workerDocumentsTableDef = db.prepare(
+  "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'worker_documents'"
+).get();
+if (workerDocumentsTableDef && workerDocumentsTableDef.sql && !workerDocumentsTableDef.sql.includes("'PAN'")) {
+  db.exec("PRAGMA foreign_keys = OFF;");
+  db.exec(`
+    BEGIN;
+    ALTER TABLE worker_documents RENAME TO worker_documents_old;
+    CREATE TABLE worker_documents (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      worker_id INTEGER NOT NULL UNIQUE,
+      doc_type TEXT CHECK (doc_type IN (${documentTypeListSql})),
+      photo_path TEXT,
+      front_path TEXT,
+      back_path TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (worker_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+    INSERT INTO worker_documents (id, worker_id, doc_type, photo_path, front_path, back_path, created_at, updated_at)
+    SELECT id, worker_id, doc_type, photo_path, front_path, back_path, created_at, COALESCE(updated_at, created_at, datetime('now'))
+    FROM worker_documents_old;
+    DROP TABLE worker_documents_old;
+    COMMIT;
+  `);
+  db.exec("PRAGMA foreign_keys = ON;");
+}
+db.exec("CREATE INDEX IF NOT EXISTS idx_worker_documents_worker ON worker_documents(worker_id);");
 
 const userColumns = new Set(
   db.prepare("PRAGMA table_info(users)").all().map((col) => col.name)
@@ -596,6 +765,9 @@ if (!creditColumns.has("paid_amount")) {
   db.exec("ALTER TABLE credits ADD COLUMN paid_amount REAL NOT NULL DEFAULT 0;");
   db.exec("UPDATE credits SET paid_amount = amount WHERE paid = 1;");
 }
+if (!creditColumns.has("payment_method")) {
+  db.exec("ALTER TABLE credits ADD COLUMN payment_method TEXT NOT NULL DEFAULT 'CASH';");
+}
 if (!creditColumns.has("receipt_no")) {
   db.exec("ALTER TABLE credits ADD COLUMN receipt_no TEXT;");
 }
@@ -629,10 +801,39 @@ if (!creditColumns.has("dispenser_price")) {
 if (!creditColumns.has("jar_container_price")) {
   db.exec("ALTER TABLE credits ADD COLUMN jar_container_price REAL NOT NULL DEFAULT 0;");
 }
+db.exec("UPDATE credits SET payment_method = 'CASH' WHERE payment_method IS NULL OR TRIM(payment_method) = '';");
+db.exec("UPDATE credits SET payment_method = 'CASH' WHERE payment_method NOT IN ('CASH','BANK','E_WALLET');");
+db.exec("CREATE INDEX IF NOT EXISTS idx_credits_payment_method ON credits(payment_method);");
 
 const importColumns = new Set(
   db.prepare("PRAGMA table_info(import_entries)").all().map((col) => col.name)
 );
+
+const creditPaymentColumns = new Set(
+  db.prepare("PRAGMA table_info(credit_payments)").all().map((col) => col.name)
+);
+if (creditPaymentColumns.size > 0 && !creditPaymentColumns.has("payment_method")) {
+  db.exec("ALTER TABLE credit_payments ADD COLUMN payment_method TEXT NOT NULL DEFAULT 'CASH';");
+}
+db.exec("UPDATE credit_payments SET payment_method = 'CASH' WHERE payment_method IS NULL OR TRIM(payment_method) = '';");
+db.exec("UPDATE credit_payments SET payment_method = 'CASH' WHERE payment_method NOT IN ('CASH','BANK','E_WALLET');");
+db.exec("CREATE INDEX IF NOT EXISTS idx_credit_payments_method ON credit_payments(payment_method);");
+
+const importPaymentColumns = new Set(
+  db.prepare("PRAGMA table_info(import_payments)").all().map((col) => col.name)
+);
+if (importPaymentColumns.size > 0 && !importPaymentColumns.has("payment_method")) {
+  db.exec("ALTER TABLE import_payments ADD COLUMN payment_method TEXT NOT NULL DEFAULT 'CASH';");
+}
+if (importPaymentColumns.size > 0 && !importPaymentColumns.has("payment_source")) {
+  db.exec("ALTER TABLE import_payments ADD COLUMN payment_source TEXT NOT NULL DEFAULT 'DAILY_COLLECTION';");
+}
+db.exec("UPDATE import_payments SET payment_method = 'CASH' WHERE payment_method IS NULL OR TRIM(payment_method) = '';");
+db.exec("UPDATE import_payments SET payment_method = 'CASH' WHERE payment_method NOT IN ('CASH','BANK','E_WALLET');");
+db.exec("UPDATE import_payments SET payment_source = 'DAILY_COLLECTION' WHERE payment_source IS NULL OR TRIM(payment_source) = '';");
+db.exec("UPDATE import_payments SET payment_source = 'DAILY_COLLECTION' WHERE payment_source NOT IN ('DAILY_COLLECTION','OWNER_PERSONAL','BANK_OTHER');");
+db.exec("CREATE INDEX IF NOT EXISTS idx_import_payments_method ON import_payments(payment_method);");
+db.exec("CREATE INDEX IF NOT EXISTS idx_import_payments_source ON import_payments(payment_source);");
 if (!importColumns.has("direction")) {
   db.exec("ALTER TABLE import_entries ADD COLUMN direction TEXT NOT NULL DEFAULT 'IN';");
   db.exec("UPDATE import_entries SET direction = 'IN' WHERE direction IS NULL;");
@@ -663,6 +864,8 @@ db.exec(
     import_entry_id INTEGER NOT NULL,
     payment_date TEXT NOT NULL,
     amount REAL NOT NULL DEFAULT 0,
+    payment_method TEXT NOT NULL DEFAULT 'CASH',
+    payment_source TEXT NOT NULL DEFAULT 'DAILY_COLLECTION',
     note TEXT,
     created_by INTEGER,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
@@ -694,6 +897,8 @@ db.exec(
     company_purchase_id INTEGER NOT NULL,
     payment_date TEXT NOT NULL,
     amount REAL NOT NULL DEFAULT 0,
+    payment_method TEXT NOT NULL DEFAULT 'CASH',
+    payment_source TEXT NOT NULL DEFAULT 'DAILY_COLLECTION',
     note TEXT,
     created_by INTEGER,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
@@ -703,6 +908,21 @@ db.exec(
 );
 db.exec("CREATE INDEX IF NOT EXISTS idx_company_purchase_payments_purchase ON company_purchase_payments(company_purchase_id);");
 db.exec("CREATE INDEX IF NOT EXISTS idx_company_purchase_payments_date ON company_purchase_payments(payment_date);");
+const companyPurchasePaymentColumns = new Set(
+  db.prepare("PRAGMA table_info(company_purchase_payments)").all().map((col) => col.name)
+);
+if (companyPurchasePaymentColumns.size > 0 && !companyPurchasePaymentColumns.has("payment_method")) {
+  db.exec("ALTER TABLE company_purchase_payments ADD COLUMN payment_method TEXT NOT NULL DEFAULT 'CASH';");
+}
+if (companyPurchasePaymentColumns.size > 0 && !companyPurchasePaymentColumns.has("payment_source")) {
+  db.exec("ALTER TABLE company_purchase_payments ADD COLUMN payment_source TEXT NOT NULL DEFAULT 'DAILY_COLLECTION';");
+}
+db.exec("UPDATE company_purchase_payments SET payment_method = 'CASH' WHERE payment_method IS NULL OR TRIM(payment_method) = '';");
+db.exec("UPDATE company_purchase_payments SET payment_method = 'CASH' WHERE payment_method NOT IN ('CASH','BANK','E_WALLET');");
+db.exec("UPDATE company_purchase_payments SET payment_source = 'DAILY_COLLECTION' WHERE payment_source IS NULL OR TRIM(payment_source) = '';");
+db.exec("UPDATE company_purchase_payments SET payment_source = 'DAILY_COLLECTION' WHERE payment_source NOT IN ('DAILY_COLLECTION','OWNER_PERSONAL','BANK_OTHER');");
+db.exec("CREATE INDEX IF NOT EXISTS idx_company_purchase_payments_method ON company_purchase_payments(payment_method);");
+db.exec("CREATE INDEX IF NOT EXISTS idx_company_purchase_payments_source ON company_purchase_payments(payment_source);");
 
 const vehicleExpenseTable = db.prepare(
   "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'vehicle_expenses'"
@@ -756,6 +976,8 @@ db.exec(
     vehicle_expense_id INTEGER NOT NULL,
     payment_date TEXT NOT NULL,
     amount REAL NOT NULL DEFAULT 0,
+    payment_method TEXT NOT NULL DEFAULT 'CASH',
+    payment_source TEXT NOT NULL DEFAULT 'DAILY_COLLECTION',
     note TEXT,
     created_by INTEGER,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
@@ -765,6 +987,21 @@ db.exec(
 );
 db.exec("CREATE INDEX IF NOT EXISTS idx_vehicle_expense_payments_entry ON vehicle_expense_payments(vehicle_expense_id);");
 db.exec("CREATE INDEX IF NOT EXISTS idx_vehicle_expense_payments_date ON vehicle_expense_payments(payment_date);");
+const vehicleExpensePaymentColumns = new Set(
+  db.prepare("PRAGMA table_info(vehicle_expense_payments)").all().map((col) => col.name)
+);
+if (vehicleExpensePaymentColumns.size > 0 && !vehicleExpensePaymentColumns.has("payment_method")) {
+  db.exec("ALTER TABLE vehicle_expense_payments ADD COLUMN payment_method TEXT NOT NULL DEFAULT 'CASH';");
+}
+if (vehicleExpensePaymentColumns.size > 0 && !vehicleExpensePaymentColumns.has("payment_source")) {
+  db.exec("ALTER TABLE vehicle_expense_payments ADD COLUMN payment_source TEXT NOT NULL DEFAULT 'DAILY_COLLECTION';");
+}
+db.exec("UPDATE vehicle_expense_payments SET payment_method = 'CASH' WHERE payment_method IS NULL OR TRIM(payment_method) = '';");
+db.exec("UPDATE vehicle_expense_payments SET payment_method = 'CASH' WHERE payment_method NOT IN ('CASH','BANK','E_WALLET');");
+db.exec("UPDATE vehicle_expense_payments SET payment_source = 'DAILY_COLLECTION' WHERE payment_source IS NULL OR TRIM(payment_source) = '';");
+db.exec("UPDATE vehicle_expense_payments SET payment_source = 'DAILY_COLLECTION' WHERE payment_source NOT IN ('DAILY_COLLECTION','OWNER_PERSONAL','BANK_OTHER');");
+db.exec("CREATE INDEX IF NOT EXISTS idx_vehicle_expense_payments_method ON vehicle_expense_payments(payment_method);");
+db.exec("CREATE INDEX IF NOT EXISTS idx_vehicle_expense_payments_source ON vehicle_expense_payments(payment_source);");
 
 const jarTypeColumns = new Set(
   db.prepare("PRAGMA table_info(jar_types)").all().map((col) => col.name)
@@ -789,7 +1026,17 @@ if (staffColumns.size > 0 && !staffColumns.has("staff_role")) {
 if (staffColumns.size > 0 && !staffColumns.has("fingerprint_id")) {
   db.exec("ALTER TABLE staff ADD COLUMN fingerprint_id TEXT;");
 }
+if (staffColumns.size > 0 && !staffColumns.has("is_active")) {
+  db.exec("ALTER TABLE staff ADD COLUMN is_active INTEGER NOT NULL DEFAULT 1;");
+}
+if (staffColumns.size > 0 && !staffColumns.has("deactivated_at")) {
+  db.exec("ALTER TABLE staff ADD COLUMN deactivated_at TEXT;");
+}
+if (staffColumns.size > 0 && !staffColumns.has("deactivated_by")) {
+  db.exec("ALTER TABLE staff ADD COLUMN deactivated_by INTEGER;");
+}
 db.exec("CREATE INDEX IF NOT EXISTS idx_staff_fingerprint ON staff(fingerprint_id);");
+db.exec("CREATE INDEX IF NOT EXISTS idx_staff_active ON staff(is_active);");
 
 const staffRoleColumns = new Set(
   db.prepare("PRAGMA table_info(staff_roles)").all().map((col) => col.name)
@@ -806,6 +1053,9 @@ if (!exportColumns.has("total_amount")) {
 }
 if (!exportColumns.has("paid_amount")) {
   db.exec("ALTER TABLE exports ADD COLUMN paid_amount REAL NOT NULL DEFAULT 0;");
+}
+if (!exportColumns.has("payment_method")) {
+  db.exec("ALTER TABLE exports ADD COLUMN payment_method TEXT NOT NULL DEFAULT 'CASH';");
 }
 if (!exportColumns.has("credit_amount")) {
   db.exec("ALTER TABLE exports ADD COLUMN credit_amount REAL NOT NULL DEFAULT 0;");
@@ -871,6 +1121,9 @@ db.exec("CREATE INDEX IF NOT EXISTS idx_credits_export_id ON credits(export_id);
 db.exec("CREATE INDEX IF NOT EXISTS idx_credits_checked_staff ON credits(checked_by_staff_id);");
 db.exec("CREATE INDEX IF NOT EXISTS idx_exports_checked_staff ON exports(checked_by_staff_id);");
 db.exec("CREATE INDEX IF NOT EXISTS idx_staff_roles_show_in_exports ON staff_roles(show_in_exports);");
+db.exec("UPDATE exports SET payment_method = 'CASH' WHERE payment_method IS NULL OR TRIM(payment_method) = '';");
+db.exec("UPDATE exports SET payment_method = 'CASH' WHERE payment_method NOT IN ('CASH','BANK','E_WALLET');");
+db.exec("CREATE INDEX IF NOT EXISTS idx_exports_payment_method ON exports(payment_method);");
 
 const staffSalaryColumns = new Set(
   db.prepare("PRAGMA table_info(staff_salary_payments)").all().map((col) => col.name)
@@ -878,6 +1131,16 @@ const staffSalaryColumns = new Set(
 if (staffSalaryColumns.size > 0 && !staffSalaryColumns.has("receipt_no")) {
   db.exec("ALTER TABLE staff_salary_payments ADD COLUMN receipt_no TEXT;");
 }
+if (staffSalaryColumns.size > 0 && !staffSalaryColumns.has("payment_source")) {
+  db.exec("ALTER TABLE staff_salary_payments ADD COLUMN payment_source TEXT NOT NULL DEFAULT 'DAILY_COLLECTION';");
+}
+db.exec(
+  "UPDATE staff_salary_payments SET payment_source = 'DAILY_COLLECTION' WHERE payment_source IS NULL OR TRIM(payment_source) = '';"
+);
+db.exec(
+  "UPDATE staff_salary_payments SET payment_source = 'DAILY_COLLECTION' WHERE payment_source NOT IN ('DAILY_COLLECTION','OWNER_PERSONAL','BANK_OTHER');"
+);
+db.exec("CREATE INDEX IF NOT EXISTS idx_staff_salary_source ON staff_salary_payments(payment_source);");
 
 const workerSalaryColumns = new Set(
   db.prepare("PRAGMA table_info(worker_salary_payments)").all().map((col) => col.name)
@@ -885,6 +1148,36 @@ const workerSalaryColumns = new Set(
 if (workerSalaryColumns.size > 0 && !workerSalaryColumns.has("receipt_no")) {
   db.exec("ALTER TABLE worker_salary_payments ADD COLUMN receipt_no TEXT;");
 }
+if (workerSalaryColumns.size > 0 && !workerSalaryColumns.has("payment_source")) {
+  db.exec("ALTER TABLE worker_salary_payments ADD COLUMN payment_source TEXT NOT NULL DEFAULT 'DAILY_COLLECTION';");
+}
+db.exec(
+  "UPDATE worker_salary_payments SET payment_source = 'DAILY_COLLECTION' WHERE payment_source IS NULL OR TRIM(payment_source) = '';"
+);
+db.exec(
+  "UPDATE worker_salary_payments SET payment_source = 'DAILY_COLLECTION' WHERE payment_source NOT IN ('DAILY_COLLECTION','OWNER_PERSONAL','BANK_OTHER');"
+);
+db.exec("CREATE INDEX IF NOT EXISTS idx_worker_salary_source ON worker_salary_payments(payment_source);");
+
+const vehicleSavingsColumns = new Set(
+  db.prepare("PRAGMA table_info(vehicle_savings)").all().map((col) => col.name)
+);
+if (vehicleSavingsColumns.size > 0 && !vehicleSavingsColumns.has("payment_source")) {
+  db.exec("ALTER TABLE vehicle_savings ADD COLUMN payment_source TEXT NOT NULL DEFAULT 'DAILY_COLLECTION';");
+}
+db.exec(
+  "UPDATE vehicle_savings SET payment_source = 'DAILY_COLLECTION' WHERE payment_source IS NULL OR TRIM(payment_source) = '';"
+);
+db.exec(
+  "UPDATE vehicle_savings SET payment_source = 'DAILY_COLLECTION' WHERE payment_source NOT IN ('DAILY_COLLECTION','OWNER_PERSONAL','BANK_OTHER');"
+);
+db.exec(
+  "UPDATE vehicle_savings SET payment_source = 'DAILY_COLLECTION' WHERE amount >= 0;"
+);
+db.exec("CREATE INDEX IF NOT EXISTS idx_vehicle_savings_source ON vehicle_savings(payment_source);");
+db.exec("UPDATE rent_entries SET payment_method = 'CASH' WHERE payment_method IS NULL OR TRIM(payment_method) = '';");
+db.exec("UPDATE rent_entries SET payment_method = 'CASH' WHERE payment_method NOT IN ('CASH','BANK','E_WALLET');");
+db.exec("UPDATE rent_entries SET add_to_collection = CASE WHEN add_to_collection = 0 THEN 0 ELSE 1 END;");
 
 const vehicleColumns = new Set(
   db.prepare("PRAGMA table_info(vehicles)").all().map((col) => col.name)
@@ -892,6 +1185,16 @@ const vehicleColumns = new Set(
 if (vehicleColumns.size > 0 && !vehicleColumns.has("is_company")) {
   db.exec("ALTER TABLE vehicles ADD COLUMN is_company INTEGER NOT NULL DEFAULT 0;");
 }
+if (vehicleColumns.size > 0 && !vehicleColumns.has("is_active")) {
+  db.exec("ALTER TABLE vehicles ADD COLUMN is_active INTEGER NOT NULL DEFAULT 1;");
+}
+if (vehicleColumns.size > 0 && !vehicleColumns.has("deactivated_at")) {
+  db.exec("ALTER TABLE vehicles ADD COLUMN deactivated_at TEXT;");
+}
+if (vehicleColumns.size > 0 && !vehicleColumns.has("deactivated_by")) {
+  db.exec("ALTER TABLE vehicles ADD COLUMN deactivated_by INTEGER;");
+}
+db.exec("CREATE INDEX IF NOT EXISTS idx_vehicles_active ON vehicles(is_active);");
 
 const jarSalesColumns = new Set(
   db.prepare("PRAGMA table_info(jar_sales)").all().map((col) => col.name)

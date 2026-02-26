@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="<%= lang %>">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title><%= t('payrollSummaryTitle') %> | AQUA MSK</title>
+  <link rel="stylesheet" href="/css/styles.css?v=<%= assetVersion %>" />
+  <style>
+    @media print {
+      @page {
+        size: A4 portrait;
+        margin: 10mm;
+      }
+      .print-hidden { display: none !important; }
+    }
+  </style>
+</head>
+<body class="bg-white text-slate-900">
+  <div class="mx-auto max-w-5xl p-6">
+    <div class="flex items-center justify-between gap-4">
+      <div>
+        <%- include('../partials/print-brand', { subtitle: t('payrollSummaryTitle') }) %>
+        <p class="mt-2 text-sm text-slate-500"><%= monthLabel %> • <%= from %> - <%= to %></p>
+      </div>
+      <div class="flex gap-2 print-hidden">
+        <a class="btn-outline" href="/admin/reports/payroll-summary?month=<%= monthToken %>"><%= t('back') %></a>
+        <button class="btn-primary" onclick="window.print()"><%= t('print') %></button>
+      </div>
+    </div>
+
+    <div class="mt-5 grid gap-3 text-sm sm:grid-cols-4">
+      <div class="card p-4">
+        <p class="text-slate-500"><%= t('salaryAccrued') %></p>
+        <p class="text-lg font-semibold"><%= grandTotals.monthAccrued %></p>
+      </div>
+      <div class="card p-4">
+        <p class="text-slate-500"><%= t('salaryPaid') %></p>
+        <p class="text-lg font-semibold"><%= grandTotals.salaryPaid %></p>
+      </div>
+      <div class="card p-4">
+        <p class="text-slate-500"><%= t('advancePaid') %></p>
+        <p class="text-lg font-semibold"><%= grandTotals.advancePaid %></p>
+      </div>
+      <div class="card p-4">
+        <p class="text-slate-500"><%= t('closingDue') %></p>
+        <p class="text-lg font-semibold"><%= grandTotals.closingDue %></p>
+      </div>
+    </div>
+
+    <div class="mt-6 overflow-hidden rounded-2xl border border-slate-200">
+      <table class="table-base text-sm">
+        <thead class="table-head">
+          <tr>
+            <th class="px-3 py-2"><%= t('type') %></th>
+            <th class="px-3 py-2"><%= t('fullName') %></th>
+            <th class="px-3 py-2"><%= t('monthlySalary') %></th>
+            <th class="px-3 py-2"><%= t('openingDue') %></th>
+            <th class="px-3 py-2"><%= t('salaryAccrued') %></th>
+            <th class="px-3 py-2"><%= t('salaryPaid') %></th>
+            <th class="px-3 py-2"><%= t('advancePaid') %></th>
+            <th class="px-3 py-2"><%= t('closingDue') %></th>
+            <th class="px-3 py-2"><%= t('present') %></th>
+            <th class="px-3 py-2"><%= t('absent') %></th>
+          </tr>
+        </thead>
+        <tbody>
+          <% const allRows = [];
+             (staffRows || []).forEach((row) => allRows.push({ ...row, type_label: t('staff') }));
+             (workerRows || []).forEach((row) => allRows.push({ ...row, type_label: t('worker') }));
+          %>
+          <% if (allRows.length === 0) { %>
+            <tr><td class="px-3 py-3 text-slate-500" colspan="10"><%= t('noData') %></td></tr>
+          <% } %>
+          <% allRows.forEach((row) => { %>
+            <tr class="table-row">
+              <td class="px-3 py-2"><%= row.type_label %></td>
+              <td class="px-3 py-2"><%= row.full_name %></td>
+              <td class="px-3 py-2"><%= row.monthly_salary %></td>
+              <td class="px-3 py-2"><%= row.opening_due %></td>
+              <td class="px-3 py-2"><%= row.month_accrued %></td>
+              <td class="px-3 py-2"><%= row.salary_paid_month %></td>
+              <td class="px-3 py-2"><%= row.advance_paid_month %></td>
+              <td class="px-3 py-2"><%= row.closing_due %></td>
+              <td class="px-3 py-2"><%= row.present_days %></td>
+              <td class="px-3 py-2"><%= row.absent_days %></td>
+            </tr>
+          <% }) %>
+        </tbody>
+      </table>
+    </div>
+  </div>
+  <% if (autoPrint) { %>
+    <script>
+      window.addEventListener('load', function () {
+        window.print();
+      });
+    </script>
+  <% } %>
+</body>
+</html>

@@ -8,7 +8,7 @@ const crypto = require("crypto");
 const { db, dbPath } = require("../db");
 const { requireRole } = require("../middleware/auth");
 const { formatActivityRows } = require("../utils/activity");
-const { buildReceiptNo } = require("../utils/receipt");
+const { createReceiptNo, createInvoiceNo, getNumberingConfig } = require("../utils/numbering");
 const {
   createRecycleEntry,
   listRecycleEntries,
@@ -29,10 +29,16 @@ const {
   normalizeSiteId,
   syncLocalToPostgres
 } = require("../utils/hybridSync");
+const {
+  getRetentionConfig,
+  getRetentionStatus,
+  listArchiveRuns,
+  runRetentionArchive
+} = require("../utils/retention");
 
 const router = express.Router();
 const defaultStaffRoleCodes = ["CLEANER", "MACHINE_MANAGER", "VEHICLE_CONDUCTOR", "KITCHEN_COOK"];
-const documentTypeOptions = ["CITIZENSHIP", "LICENSE", "PASSPORT"];
+const documentTypeOptions = ["CITIZENSHIP", "LICENSE", "PASSPORT", "PAN", "NATIONAL_ID", "VOTER_CARD", "OTHERS"];
 const alertItemThresholdPrefix = "alert_item_threshold_";
 const importLabelKeyByCode = {
   JAR_CONTAINER: "importItemJarContainer",
@@ -61,6 +67,13 @@ const clearWorkerReferenceStatements = [
   "UPDATE staff_attendance SET recorded_by = NULL WHERE recorded_by = ?",
   "UPDATE user_attendance SET recorded_by = NULL WHERE recorded_by = ?"
 ].map((sql) => db.prepare(sql));
+
+const normalizeSalaryPaymentSource = (value) => {
+  const safe = String(value || "").trim().toUpperCase();
+  if (safe === "OWNER_PERSONAL") return "OWNER_PERSONAL";
+  if (safe === "BANK_OTHER") return "BANK_OTHER";
+  return "DAILY_COLLECTION";
+};
 
 const getSetting = (key, fallback = "") => {
   const row = db.prepare("SELECT value FROM settings WHERE key = ?").get(key);
@@ -192,6 +205,7 @@ const getAlertSnapshot = () => {
             COALESCE(SUM(staff_salary_payments.amount), 0) as paid_total
      FROM staff
      LEFT JOIN staff_salary_payments ON staff_salary_payments.staff_id = staff.id
+     WHERE COALESCE(staff.is_active, 1) = 1
      GROUP BY staff.id
      ORDER BY staff.full_name ASC`
   ).all();
@@ -255,11 +269,39 @@ const getRecentDayClosures = () => db.prepare(
    LIMIT 20`
 ).all();
 
+const normalizeIsoDate = (value) => {
+  const safe = String(value || "").trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(safe)) return null;
+  const parsed = dayjs(safe);
+  if (!parsed.isValid()) return null;
+  return parsed.format("YYYY-MM-DD") === safe ? safe : null;
+};
+
+const listClosureDatesInRange = (fromDate, toDate, maxDays = 366) => {
+  const start = dayjs(fromDate);
+  const end = dayjs(toDate);
+  if (!start.isValid() || !end.isValid()) return { ok: false, reason: "INVALID_DATE" };
+  if (end.isBefore(start)) return { ok: false, reason: "INVALID_RANGE" };
+  const totalDays = end.diff(start, "day") + 1;
+  if (totalDays > maxDays) return { ok: false, reason: "TOO_LARGE" };
+  const dates = [];
+  let cursor = start;
+  while (!cursor.isAfter(end)) {
+    dates.push(cursor.format("YYYY-MM-DD"));
+    cursor = cursor.add(1, "day");
+  }
+  return { ok: true, dates };
+};
+
 const renderSettingsPage = (req, res, overrides = {}) => {
   const { lastBackupAt, backupDays, backupOverdue } = getBackupStatus();
   const backupReminderText = !lastBackupAt || backupDays === null ? req.t("backupNever") : `${backupDays} ${req.t("daysAgo")}`;
   const logoPath = getSetting("logo_path", "");
   const backupConfig = getBackupConfig();
+  const numberingConfig = getNumberingConfig(db);
+  const retentionConfig = getRetentionConfig(db);
+  const retentionStatus = getRetentionStatus(db);
+  const archiveRuns = listArchiveRuns(db, 12);
   const hybridSync = getHybridSyncStatus(db);
   const iotAttendanceEnabled = String(getSetting("iot_attendance_enabled", "0")) === "1";
   const iotAttendanceTokenRow = db.prepare("SELECT value FROM settings WHERE key = ?").get("iot_attendance_token");
@@ -288,6 +330,10 @@ const renderSettingsPage = (req, res, overrides = {}) => {
     autoBackupEnabled: backupConfig.enabled,
     autoBackupHour: backupConfig.hour,
     autoBackupKeep: backupConfig.keepCount,
+    numberingConfig,
+    retentionConfig,
+    retentionStatus,
+    archiveRuns,
     hybridSync,
     iotAttendanceEnabled,
     iotAttendanceToken,
@@ -350,6 +396,28 @@ const findFingerprintConflict = ({ fingerprintId, skipStaffId = null, skipWorker
   ).get(safe, skipWorkerId, skipWorkerId);
   if (worker) return { type: "WORKER", id: worker.id, name: worker.full_name };
   return null;
+};
+
+const setVehicleActiveStatus = (vehicleId, isActive, userId) => {
+  if (isActive) {
+    return db.prepare(
+      "UPDATE vehicles SET is_active = 1, deactivated_at = NULL, deactivated_by = NULL, updated_at = datetime('now') WHERE id = ?"
+    ).run(vehicleId);
+  }
+  return db.prepare(
+    "UPDATE vehicles SET is_active = 0, deactivated_at = datetime('now'), deactivated_by = ?, updated_at = datetime('now') WHERE id = ?"
+  ).run(userId || null, vehicleId);
+};
+
+const setStaffActiveStatus = (staffId, isActive, userId) => {
+  if (isActive) {
+    return db.prepare(
+      "UPDATE staff SET is_active = 1, deactivated_at = NULL, deactivated_by = NULL, updated_at = datetime('now') WHERE id = ?"
+    ).run(staffId);
+  }
+  return db.prepare(
+    "UPDATE staff SET is_active = 0, deactivated_at = datetime('now'), deactivated_by = ?, updated_at = datetime('now') WHERE id = ?"
+  ).run(userId || null, staffId);
 };
 
 const normalizeAnswer = (value) => String(value || "").trim().toLowerCase();
@@ -460,10 +528,27 @@ router.use(requireRole(["SUPER_ADMIN", "ADMIN"]));
 
 router.get("/", (req, res) => {
   const today = dayjs().format("YYYY-MM-DD");
+  const weekStart = dayjs().startOf("week").format("YYYY-MM-DD");
   const monthStart = dayjs().startOf("month").format("YYYY-MM-DD");
+  const yearStart = dayjs().startOf("year").format("YYYY-MM-DD");
+  const allTimeStart = db.prepare(
+    `SELECT MIN(dt) as min_date
+     FROM (
+       SELECT MIN(export_date) as dt FROM exports
+       UNION ALL SELECT MIN(credit_date) as dt FROM credits
+       UNION ALL SELECT MIN(entry_date) as dt FROM import_entries
+       UNION ALL SELECT MIN(purchase_date) as dt FROM company_purchases
+       UNION ALL SELECT MIN(expense_date) as dt FROM vehicle_expenses
+       UNION ALL SELECT MIN(payment_date) as dt FROM staff_salary_payments
+       UNION ALL SELECT MIN(payment_date) as dt FROM worker_salary_payments
+       UNION ALL SELECT MIN(entry_date) as dt FROM vehicle_savings
+       UNION ALL SELECT MIN(rent_date) as dt FROM rent_entries
+       UNION ALL SELECT MIN(business_date) as dt FROM day_reconciliations
+     )`
+  ).get()?.min_date || today;
   const vehicleCount = db.prepare("SELECT COUNT(*) as count FROM vehicles").get().count;
   const workerCount = db.prepare("SELECT COUNT(*) as count FROM users WHERE role = 'WORKER' AND is_active = 1").get().count;
-  const staffCount = db.prepare("SELECT COUNT(*) as count FROM staff").get().count;
+  const staffCount = db.prepare("SELECT COUNT(*) as count FROM staff WHERE COALESCE(is_active, 1) = 1").get().count;
   const todaySales = db.prepare("SELECT COALESCE(SUM(total_amount), 0) as total FROM exports WHERE export_date = ?")
     .get(today).total || 0;
   const monthSales = db.prepare("SELECT COALESCE(SUM(total_amount), 0) as total FROM exports WHERE export_date BETWEEN ? AND ?")
@@ -496,10 +581,31 @@ router.get("/", (req, res) => {
      FROM credit_payments
      WHERE date(paid_at) BETWEEN ? AND ?`
   ).get(monthStart, today);
+  const monthExportMethod = db.prepare(
+    `SELECT
+        COALESCE(SUM(CASE WHEN payment_method = 'CASH' THEN paid_amount ELSE 0 END), 0) as cash_paid,
+        COALESCE(SUM(CASE WHEN payment_method = 'BANK' THEN paid_amount ELSE 0 END), 0) as bank_paid,
+        COALESCE(SUM(CASE WHEN payment_method = 'E_WALLET' THEN paid_amount ELSE 0 END), 0) as ewallet_paid
+     FROM exports
+     WHERE export_date BETWEEN ? AND ?`
+  ).get(monthStart, today);
+  const monthCustomerMethod = db.prepare(
+    `SELECT
+        COALESCE(SUM(CASE WHEN payment_method = 'CASH' THEN amount ELSE 0 END), 0) as cash_paid,
+        COALESCE(SUM(CASE WHEN payment_method = 'BANK' THEN amount ELSE 0 END), 0) as bank_paid,
+        COALESCE(SUM(CASE WHEN payment_method = 'E_WALLET' THEN amount ELSE 0 END), 0) as ewallet_paid
+     FROM credit_payments
+     WHERE date(paid_at) BETWEEN ? AND ?`
+  ).get(monthStart, today);
   const monthCustomer = {
     total: Number(monthCustomerCredit.total || 0),
     paid: Number(monthCustomerPaid.paid || 0),
     credit: Number(monthCustomerCredit.credit || 0)
+  };
+  const monthPaidByMethod = {
+    cash: Number(monthExportMethod.cash_paid || 0) + Number(monthCustomerMethod.cash_paid || 0),
+    bank: Number(monthExportMethod.bank_paid || 0) + Number(monthCustomerMethod.bank_paid || 0),
+    eWallet: Number(monthExportMethod.ewallet_paid || 0) + Number(monthCustomerMethod.ewallet_paid || 0)
   };
   const monthCombined = {
     paid: Number(monthExport.paid || 0) + monthCustomer.paid,
@@ -542,6 +648,13 @@ router.get("/", (req, res) => {
     title: req.t("adminDashboard"),
     topCredits,
     recentActivity: recentActivityRows,
+    snapshotRanges: {
+      daily: { from: today, to: today, date: today },
+      weekly: { from: weekStart, to: today, date: today },
+      monthly: { from: monthStart, to: today, date: today },
+      yearly: { from: yearStart, to: today, date: today },
+      all: { from: allTimeStart, to: today, date: today }
+    },
     stats: {
       vehicleCount,
       workerCount,
@@ -551,6 +664,7 @@ router.get("/", (req, res) => {
       todayExport,
       monthExport,
       monthCustomer,
+      monthPaidByMethod,
       monthCombined,
       outstandingCustomerCredit: Number(outstandingTotals.customer_credit || 0),
       outstandingVehicleCredit: Number(vehicleOutstanding.vehicle_credit || 0),
@@ -567,6 +681,355 @@ router.get("/alerts", (req, res) => {
   res.render("admin/alerts", {
     title: req.t("alertCenterTitle"),
     ...alertData
+  });
+});
+
+router.get("/audit", (req, res) => {
+  const today = dayjs().format("YYYY-MM-DD");
+  const from = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.from || ""))
+    ? String(req.query.from)
+    : dayjs().startOf("month").format("YYYY-MM-DD");
+  const to = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.to || ""))
+    ? String(req.query.to)
+    : today;
+
+  const roleSummary = {
+    superAdmins: Number(
+      db.prepare("SELECT COUNT(*) as count FROM users WHERE role = 'SUPER_ADMIN' AND is_active = 1").get().count || 0
+    ),
+    admins: Number(
+      db.prepare("SELECT COUNT(*) as count FROM users WHERE role = 'ADMIN' AND is_active = 1").get().count || 0
+    ),
+    workers: Number(
+      db.prepare("SELECT COUNT(*) as count FROM users WHERE role = 'WORKER' AND is_active = 1").get().count || 0
+    ),
+    activeStaff: Number(
+      db.prepare("SELECT COUNT(*) as count FROM staff WHERE COALESCE(is_active, 1) = 1").get().count || 0
+    )
+  };
+
+  const permissionChecks = [
+    { label: req.t("adminDashboard"), route: "/admin", allowed: "SUPER_ADMIN, ADMIN", status: "OK" },
+    { label: req.t("workerDashboardTitle"), route: "/worker", allowed: "WORKER", status: "OK" },
+    { label: req.t("leakageGuardTitle"), route: "/records/leakage-guard", allowed: "SUPER_ADMIN, ADMIN", status: "OK" },
+    { label: req.t("settingsTitle"), route: "/admin/settings", allowed: "SUPER_ADMIN, ADMIN", status: "OK" },
+    { label: req.t("backup"), route: "/admin/backup", allowed: "SUPER_ADMIN, ADMIN", status: "OK" },
+    { label: req.t("staffRolesTitle"), route: "/admin/staff-roles", allowed: "SUPER_ADMIN, ADMIN", status: "OK" }
+  ];
+
+  const overpaymentChecks = [
+    {
+      key: "exports",
+      label: req.t("exportsTitle"),
+      count: Number(
+        db.prepare(
+          "SELECT COUNT(*) as count FROM exports WHERE export_date BETWEEN ? AND ? AND paid_amount > total_amount"
+        ).get(from, to).count || 0
+      )
+    },
+    {
+      key: "credits",
+      label: req.t("creditsTitle"),
+      count: Number(
+        db.prepare(
+          "SELECT COUNT(*) as count FROM credits WHERE credit_date BETWEEN ? AND ? AND paid_amount > amount"
+        ).get(from, to).count || 0
+      )
+    },
+    {
+      key: "jar_sales",
+      label: req.t("jarSalesTitle"),
+      count: Number(
+        db.prepare(
+          "SELECT COUNT(*) as count FROM jar_sales WHERE sale_date BETWEEN ? AND ? AND paid_amount > total_amount"
+        ).get(from, to).count || 0
+      )
+    },
+    {
+      key: "imports",
+      label: req.t("importsTitle"),
+      count: Number(
+        db.prepare(
+          "SELECT COUNT(*) as count FROM import_entries WHERE entry_date BETWEEN ? AND ? AND paid_amount > total_amount"
+        ).get(from, to).count || 0
+      )
+    },
+    {
+      key: "purchases",
+      label: req.t("companyPurchasesTitle"),
+      count: Number(
+        db.prepare(
+          "SELECT COUNT(*) as count FROM company_purchases WHERE purchase_date BETWEEN ? AND ? AND paid_amount > amount"
+        ).get(from, to).count || 0
+      )
+    },
+    {
+      key: "vehicle_expenses",
+      label: req.t("vehicleExpensesTitle"),
+      count: Number(
+        db.prepare(
+          "SELECT COUNT(*) as count FROM vehicle_expenses WHERE expense_date BETWEEN ? AND ? AND paid_amount > amount"
+        ).get(from, to).count || 0
+      )
+    }
+  ];
+
+  const overpaymentDetails = db.prepare(
+    `SELECT 'EXPORT' as source,
+            exports.id as record_id,
+            exports.export_date as entry_date,
+            exports.total_amount as expected_amount,
+            exports.paid_amount as paid_amount,
+            vehicles.vehicle_number,
+            vehicles.owner_name,
+            NULL as customer_name,
+            (exports.paid_amount - exports.total_amount) as difference
+     FROM exports
+     JOIN vehicles ON vehicles.id = exports.vehicle_id
+     WHERE exports.export_date BETWEEN ? AND ?
+       AND exports.paid_amount > exports.total_amount
+     UNION ALL
+     SELECT 'CREDIT' as source,
+            credits.id as record_id,
+            credits.credit_date as entry_date,
+            credits.amount as expected_amount,
+            credits.paid_amount as paid_amount,
+            vehicles.vehicle_number,
+            vehicles.owner_name,
+            credits.customer_name,
+            (credits.paid_amount - credits.amount) as difference
+     FROM credits
+     JOIN vehicles ON vehicles.id = credits.vehicle_id
+     WHERE credits.credit_date BETWEEN ? AND ?
+       AND credits.paid_amount > credits.amount
+     UNION ALL
+     SELECT 'JAR_SALE' as source,
+            jar_sales.id as record_id,
+            jar_sales.sale_date as entry_date,
+            jar_sales.total_amount as expected_amount,
+            jar_sales.paid_amount as paid_amount,
+            COALESCE(jar_sales.vehicle_number, vehicles.vehicle_number) as vehicle_number,
+            vehicles.owner_name,
+            jar_sales.customer_name,
+            (jar_sales.paid_amount - jar_sales.total_amount) as difference
+     FROM jar_sales
+     LEFT JOIN vehicles ON vehicles.id = jar_sales.vehicle_id
+     WHERE jar_sales.sale_date BETWEEN ? AND ?
+       AND jar_sales.paid_amount > jar_sales.total_amount
+     ORDER BY difference DESC, entry_date DESC
+     LIMIT 30`
+  ).all(from, to, from, to, from, to).map((row) => ({
+    ...row,
+    difference: Number(row.difference || 0)
+  }));
+
+  const exportMismatchRows = db.prepare(
+    `SELECT exports.id, exports.export_date, vehicles.vehicle_number, vehicles.owner_name,
+            exports.total_amount, exports.paid_amount, exports.credit_amount,
+            ABS((exports.paid_amount + exports.credit_amount) - exports.total_amount) as delta
+     FROM exports
+     JOIN vehicles ON vehicles.id = exports.vehicle_id
+     WHERE exports.export_date BETWEEN ? AND ?
+       AND vehicles.is_company = 0
+       AND ABS((exports.paid_amount + exports.credit_amount) - exports.total_amount) > 0.5
+     ORDER BY delta DESC, exports.export_date DESC
+     LIMIT 30`
+  ).all(from, to);
+
+  const creditFormulaMismatchRows = db.prepare(
+    `SELECT credits.id, credits.credit_date, credits.customer_name, vehicles.vehicle_number, vehicles.owner_name,
+            credits.amount,
+            (
+              COALESCE(credits.credit_jars, 0) * COALESCE(credits.jar_price, 0) +
+              COALESCE(credits.credit_bottle_cases, 0) * COALESCE(credits.bottle_case_price, 0) +
+              COALESCE(credits.credit_dispensers, 0) * COALESCE(credits.dispenser_price, 0) +
+              COALESCE(credits.credit_jar_containers, 0) * COALESCE(credits.jar_container_price, 0)
+            ) as computed_amount
+     FROM credits
+     JOIN vehicles ON vehicles.id = credits.vehicle_id
+     WHERE credits.credit_date BETWEEN ? AND ?
+       AND ABS(credits.amount - (
+              COALESCE(credits.credit_jars, 0) * COALESCE(credits.jar_price, 0) +
+              COALESCE(credits.credit_bottle_cases, 0) * COALESCE(credits.bottle_case_price, 0) +
+              COALESCE(credits.credit_dispensers, 0) * COALESCE(credits.dispenser_price, 0) +
+              COALESCE(credits.credit_jar_containers, 0) * COALESCE(credits.jar_container_price, 0)
+            )) > 0.5
+     ORDER BY credits.credit_date DESC, credits.id DESC
+     LIMIT 30`
+  ).all(from, to).map((row) => ({
+    ...row,
+    delta: Number(row.amount || 0) - Number(row.computed_amount || 0)
+  }));
+
+  const companyVehicleCreditRows = db.prepare(
+    `SELECT exports.id, exports.export_date, vehicles.vehicle_number, vehicles.owner_name, exports.credit_amount
+     FROM exports
+     JOIN vehicles ON vehicles.id = exports.vehicle_id
+     WHERE exports.export_date BETWEEN ? AND ?
+       AND vehicles.is_company = 1
+       AND exports.credit_amount > 0
+     ORDER BY exports.export_date DESC, exports.id DESC
+     LIMIT 30`
+  ).all(from, to);
+
+  const nonCompanyExpenseRows = db.prepare(
+    `SELECT vehicle_expenses.id, vehicle_expenses.expense_date, vehicles.vehicle_number, vehicles.owner_name,
+            vehicle_expenses.expense_type, vehicle_expenses.amount, vehicle_expenses.paid_amount
+     FROM vehicle_expenses
+     JOIN vehicles ON vehicles.id = vehicle_expenses.vehicle_id
+     WHERE vehicle_expenses.expense_date BETWEEN ? AND ?
+       AND vehicles.is_company = 0
+     ORDER BY vehicle_expenses.expense_date DESC, vehicle_expenses.id DESC
+     LIMIT 30`
+  ).all(from, to);
+
+  const paymentDriftRows = [];
+  db.prepare(
+    `SELECT credits.id, credits.credit_date as entry_date,
+            credits.paid_amount as parent_paid,
+            COALESCE(SUM(credit_payments.amount), 0) as payment_rows_total
+     FROM credits
+     LEFT JOIN credit_payments ON credit_payments.credit_id = credits.id
+     WHERE credits.credit_date BETWEEN ? AND ?
+     GROUP BY credits.id
+     HAVING COALESCE(SUM(credit_payments.amount), 0) > credits.paid_amount + 0.01
+     ORDER BY (COALESCE(SUM(credit_payments.amount), 0) - credits.paid_amount) DESC
+     LIMIT 20`
+  ).all(from, to).forEach((row) => {
+    paymentDriftRows.push({
+      source: "CREDIT",
+      record_id: row.id,
+      entry_date: row.entry_date,
+      parent_paid: Number(row.parent_paid || 0),
+      payment_rows_total: Number(row.payment_rows_total || 0),
+      drift: Number(row.payment_rows_total || 0) - Number(row.parent_paid || 0)
+    });
+  });
+  db.prepare(
+    `SELECT import_entries.id, import_entries.entry_date as entry_date,
+            import_entries.paid_amount as parent_paid,
+            COALESCE(SUM(import_payments.amount), 0) as payment_rows_total
+     FROM import_entries
+     LEFT JOIN import_payments ON import_payments.import_entry_id = import_entries.id
+     WHERE import_entries.entry_date BETWEEN ? AND ?
+     GROUP BY import_entries.id
+     HAVING COALESCE(SUM(import_payments.amount), 0) > import_entries.paid_amount + 0.01
+     ORDER BY (COALESCE(SUM(import_payments.amount), 0) - import_entries.paid_amount) DESC
+     LIMIT 20`
+  ).all(from, to).forEach((row) => {
+    paymentDriftRows.push({
+      source: "IMPORT",
+      record_id: row.id,
+      entry_date: row.entry_date,
+      parent_paid: Number(row.parent_paid || 0),
+      payment_rows_total: Number(row.payment_rows_total || 0),
+      drift: Number(row.payment_rows_total || 0) - Number(row.parent_paid || 0)
+    });
+  });
+  db.prepare(
+    `SELECT company_purchases.id, company_purchases.purchase_date as entry_date,
+            company_purchases.paid_amount as parent_paid,
+            COALESCE(SUM(company_purchase_payments.amount), 0) as payment_rows_total
+     FROM company_purchases
+     LEFT JOIN company_purchase_payments ON company_purchase_payments.company_purchase_id = company_purchases.id
+     WHERE company_purchases.purchase_date BETWEEN ? AND ?
+     GROUP BY company_purchases.id
+     HAVING COALESCE(SUM(company_purchase_payments.amount), 0) > company_purchases.paid_amount + 0.01
+     ORDER BY (COALESCE(SUM(company_purchase_payments.amount), 0) - company_purchases.paid_amount) DESC
+     LIMIT 20`
+  ).all(from, to).forEach((row) => {
+    paymentDriftRows.push({
+      source: "PURCHASE",
+      record_id: row.id,
+      entry_date: row.entry_date,
+      parent_paid: Number(row.parent_paid || 0),
+      payment_rows_total: Number(row.payment_rows_total || 0),
+      drift: Number(row.payment_rows_total || 0) - Number(row.parent_paid || 0)
+    });
+  });
+  db.prepare(
+    `SELECT vehicle_expenses.id, vehicle_expenses.expense_date as entry_date,
+            vehicle_expenses.paid_amount as parent_paid,
+            COALESCE(SUM(vehicle_expense_payments.amount), 0) as payment_rows_total
+     FROM vehicle_expenses
+     LEFT JOIN vehicle_expense_payments ON vehicle_expense_payments.vehicle_expense_id = vehicle_expenses.id
+     WHERE vehicle_expenses.expense_date BETWEEN ? AND ?
+     GROUP BY vehicle_expenses.id
+     HAVING COALESCE(SUM(vehicle_expense_payments.amount), 0) > vehicle_expenses.paid_amount + 0.01
+     ORDER BY (COALESCE(SUM(vehicle_expense_payments.amount), 0) - vehicle_expenses.paid_amount) DESC
+     LIMIT 20`
+  ).all(from, to).forEach((row) => {
+    paymentDriftRows.push({
+      source: "VEHICLE_EXPENSE",
+      record_id: row.id,
+      entry_date: row.entry_date,
+      parent_paid: Number(row.parent_paid || 0),
+      payment_rows_total: Number(row.payment_rows_total || 0),
+      drift: Number(row.payment_rows_total || 0) - Number(row.parent_paid || 0)
+    });
+  });
+  paymentDriftRows.sort((a, b) => b.drift - a.drift || String(b.entry_date).localeCompare(String(a.entry_date)));
+
+  const reconciliationColumns = new Set(
+    db.prepare("PRAGMA table_info(day_reconciliations)").all().map((col) => col.name)
+  );
+  const reconciliationDeductionsCol = reconciliationColumns.has("total_deductions")
+    ? "total_deductions"
+    : "deducted_from_collection";
+  const reconciliationNetCol = reconciliationColumns.has("net_expected")
+    ? "net_expected"
+    : "expected_net";
+
+  const reconciliationDriftRows = db.prepare(
+    `SELECT id, business_date, expected_cash, expected_bank, expected_ewallet,
+            expected_total,
+            ${reconciliationDeductionsCol} as total_deductions,
+            ${reconciliationNetCol} as net_expected,
+            actual_total,
+            difference_total
+     FROM day_reconciliations
+     WHERE business_date BETWEEN ? AND ?
+       AND (
+         ABS(expected_total - (expected_cash + expected_bank + expected_ewallet)) > 0.5
+         OR ABS(${reconciliationNetCol} - (expected_total - ${reconciliationDeductionsCol})) > 0.5
+         OR ABS(difference_total - (actual_total - ${reconciliationNetCol})) > 0.5
+       )
+     ORDER BY business_date DESC, id DESC
+     LIMIT 30`
+  ).all(from, to).map((row) => ({
+    ...row,
+    inflow_delta: Number(row.expected_total || 0) - (Number(row.expected_cash || 0) + Number(row.expected_bank || 0) + Number(row.expected_ewallet || 0)),
+    net_delta: Number(row.net_expected || 0) - (Number(row.expected_total || 0) - Number(row.total_deductions || 0)),
+    diff_delta: Number(row.difference_total || 0) - (Number(row.actual_total || 0) - Number(row.net_expected || 0))
+  }));
+
+  const summary = {
+    totalOverpayments: overpaymentChecks.reduce((acc, row) => acc + Number(row.count || 0), 0),
+    exportMismatch: exportMismatchRows.length,
+    creditFormulaMismatch: creditFormulaMismatchRows.length,
+    companyVehicleCredits: companyVehicleCreditRows.length,
+    nonCompanyVehicleExpenses: nonCompanyExpenseRows.length,
+    paymentDrift: paymentDriftRows.length,
+    reconciliationDrift: reconciliationDriftRows.length
+  };
+  const totalIssues = Object.values(summary).reduce((acc, value) => acc + Number(value || 0), 0);
+
+  return res.render("admin/audit_center", {
+    title: req.t("auditCenterTitle"),
+    from,
+    to,
+    roleSummary,
+    permissionChecks,
+    overpaymentChecks,
+    overpaymentDetails,
+    exportMismatchRows,
+    creditFormulaMismatchRows,
+    companyVehicleCreditRows,
+    nonCompanyExpenseRows,
+    paymentDriftRows: paymentDriftRows.slice(0, 30),
+    reconciliationDriftRows,
+    summary,
+    totalIssues
   });
 });
 
@@ -663,8 +1126,25 @@ router.post("/windows-kit/generate", (req, res) => {
 });
 
 router.get("/vehicles", (req, res) => {
-  const vehicles = db.prepare("SELECT * FROM vehicles ORDER BY created_at DESC").all();
-  res.render("admin/vehicles", { title: req.t("vehicles"), vehicles });
+  const includeInactive = String(req.query.include_inactive || "1") === "1";
+  const where = includeInactive ? "" : "WHERE COALESCE(is_active, 1) = 1";
+  const vehicles = db.prepare(
+    `SELECT *
+     FROM vehicles
+     ${where}
+     ORDER BY COALESCE(is_active, 1) DESC, created_at DESC`
+  ).all();
+  const success = req.query.archived
+    ? req.t("vehicleArchived")
+    : req.query.unarchived || req.query.activated
+      ? req.t("vehicleActivated")
+      : null;
+  res.render("admin/vehicles", {
+    title: req.t("vehicles"),
+    vehicles,
+    includeInactive,
+    success
+  });
 });
 
 router.get("/savings", (req, res) => {
@@ -720,7 +1200,7 @@ router.get("/savings", (req, res) => {
 });
 
 router.post("/savings", (req, res) => {
-  const { vehicle_id, entry_date, amount, entry_type, note } = req.body;
+  const { vehicle_id, entry_date, amount, entry_type, payment_source, note } = req.body;
   if (!vehicle_id || !entry_date) {
     return res.redirect("/admin/savings");
   }
@@ -730,17 +1210,18 @@ router.post("/savings", (req, res) => {
   }
   const type = entry_type === "withdraw" ? "withdraw" : "deposit";
   if (type === "withdraw") amt = -Math.abs(amt);
+  const source = type === "withdraw" ? normalizeSalaryPaymentSource(payment_source) : "DAILY_COLLECTION";
 
   db.prepare(
-    "INSERT INTO vehicle_savings (vehicle_id, entry_date, amount, note, created_by) VALUES (?, ?, ?, ?, ?)"
-  ).run(vehicle_id, entry_date, amt, note || null, req.session.userId);
+    "INSERT INTO vehicle_savings (vehicle_id, entry_date, amount, payment_source, note, created_by) VALUES (?, ?, ?, ?, ?, ?)"
+  ).run(vehicle_id, entry_date, amt, source, note || null, req.session.userId);
 
   logActivity({
     userId: req.session.userId,
     action: "create",
     entityType: "vehicle_savings",
     entityId: `${vehicle_id}_${entry_date}`,
-    details: `type=${type}, amount=${amt}`
+    details: `type=${type}, source=${source}, amount=${amt}`
   });
 
   res.redirect(`/admin/savings?from=${entry_date}&to=${entry_date}&vehicle_id=${vehicle_id}`);
@@ -757,6 +1238,194 @@ const computeSalaryDue = (staffRow, paidTotal, asOf) => {
   const accrued = months * salary;
   const paid = Number(paidTotal || 0);
   return Math.max(0, accrued - paid);
+};
+
+const parseMonthToken = (value) => {
+  const safe = String(value || "").trim();
+  return /^\d{4}-(0[1-9]|1[0-2])$/.test(safe) ? safe : dayjs().format("YYYY-MM");
+};
+
+const roundMoney = (value) => {
+  const num = Number(value || 0);
+  if (Number.isNaN(num)) return 0;
+  return Math.round(num * 100) / 100;
+};
+
+const accruedUntilMonth = (startDate, monthlySalary, monthStart) => {
+  const salary = roundMoney(monthlySalary);
+  if (!startDate || salary <= 0) return 0;
+  const startMonth = dayjs(startDate).startOf("month");
+  if (!startMonth.isValid() || monthStart.isBefore(startMonth)) return 0;
+  const months = monthStart.diff(startMonth, "month") + 1;
+  return roundMoney(months * salary);
+};
+
+const buildPayrollRows = (rows, attendanceMap, monthStart, prevMonthStart, personType) => rows.map((row) => {
+  const monthlySalary = roundMoney(row.monthly_salary || 0);
+  const accruedBefore = accruedUntilMonth(row.start_date, monthlySalary, prevMonthStart);
+  const accruedNow = accruedUntilMonth(row.start_date, monthlySalary, monthStart);
+  const monthAccrued = Math.max(0, roundMoney(accruedNow - accruedBefore));
+  const paidBefore = roundMoney(row.paid_before || 0);
+  const salaryPaid = roundMoney(row.salary_paid_month || 0);
+  const advancePaid = roundMoney(row.advance_paid_month || 0);
+  const monthPaid = roundMoney(salaryPaid + advancePaid);
+  const openingNet = roundMoney(accruedBefore - paidBefore);
+  const openingDue = Math.max(0, openingNet);
+  const openingAdvance = Math.max(0, roundMoney(-openingNet));
+  const closingNet = roundMoney(openingNet + monthAccrued - monthPaid);
+  const closingDue = Math.max(0, closingNet);
+  const closingAdvance = Math.max(0, roundMoney(-closingNet));
+  const attendance = attendanceMap.get(Number(row.id)) || { present: 0, absent: 0 };
+  return {
+    ...row,
+    person_type: personType,
+    monthly_salary: monthlySalary,
+    paid_before: paidBefore,
+    salary_paid_month: salaryPaid,
+    advance_paid_month: advancePaid,
+    month_paid: monthPaid,
+    month_accrued: monthAccrued,
+    opening_due: openingDue,
+    opening_advance: openingAdvance,
+    closing_due: closingDue,
+    closing_advance: closingAdvance,
+    present_days: Number(attendance.present || 0),
+    absent_days: Number(attendance.absent || 0)
+  };
+});
+
+const summarizePayrollRows = (rows) => rows.reduce((acc, row) => {
+  acc.count += 1;
+  acc.monthAccrued += roundMoney(row.month_accrued || 0);
+  acc.salaryPaid += roundMoney(row.salary_paid_month || 0);
+  acc.advancePaid += roundMoney(row.advance_paid_month || 0);
+  acc.monthPaid += roundMoney(row.month_paid || 0);
+  acc.openingDue += roundMoney(row.opening_due || 0);
+  acc.closingDue += roundMoney(row.closing_due || 0);
+  acc.openingAdvance += roundMoney(row.opening_advance || 0);
+  acc.closingAdvance += roundMoney(row.closing_advance || 0);
+  acc.presentDays += Number(row.present_days || 0);
+  acc.absentDays += Number(row.absent_days || 0);
+  return acc;
+}, {
+  count: 0,
+  monthAccrued: 0,
+  salaryPaid: 0,
+  advancePaid: 0,
+  monthPaid: 0,
+  openingDue: 0,
+  closingDue: 0,
+  openingAdvance: 0,
+  closingAdvance: 0,
+  presentDays: 0,
+  absentDays: 0
+});
+
+const getPayrollSummaryPayload = (monthToken) => {
+  const safeMonth = parseMonthToken(monthToken);
+  const monthStart = dayjs(`${safeMonth}-01`).startOf("month");
+  const monthEnd = monthStart.endOf("month");
+  const prevMonthStart = monthStart.subtract(1, "month");
+  const from = monthStart.format("YYYY-MM-DD");
+  const to = monthEnd.format("YYYY-MM-DD");
+
+  const staffRowsRaw = db.prepare(
+    `SELECT staff.id, staff.full_name, staff.start_date, staff.monthly_salary, staff.staff_role,
+            COALESCE(SUM(CASE WHEN staff_salary_payments.payment_date < ? THEN staff_salary_payments.amount ELSE 0 END), 0) as paid_before,
+            COALESCE(SUM(CASE WHEN staff_salary_payments.payment_date BETWEEN ? AND ? AND staff_salary_payments.payment_type = 'SALARY' THEN staff_salary_payments.amount ELSE 0 END), 0) as salary_paid_month,
+            COALESCE(SUM(CASE WHEN staff_salary_payments.payment_date BETWEEN ? AND ? AND staff_salary_payments.payment_type = 'ADVANCE' THEN staff_salary_payments.amount ELSE 0 END), 0) as advance_paid_month
+     FROM staff
+     LEFT JOIN staff_salary_payments ON staff_salary_payments.staff_id = staff.id
+     WHERE COALESCE(staff.is_active, 1) = 1
+        OR EXISTS (
+          SELECT 1
+          FROM staff_salary_payments paid_in_month
+          WHERE paid_in_month.staff_id = staff.id
+            AND paid_in_month.payment_date BETWEEN ? AND ?
+        )
+     GROUP BY staff.id
+     ORDER BY staff.full_name ASC`
+  ).all(from, from, to, from, to, from, to);
+
+  const workerRowsRaw = db.prepare(
+    `SELECT users.id, users.full_name, users.start_date, users.monthly_salary,
+            COALESCE(SUM(CASE WHEN worker_salary_payments.payment_date < ? THEN worker_salary_payments.amount ELSE 0 END), 0) as paid_before,
+            COALESCE(SUM(CASE WHEN worker_salary_payments.payment_date BETWEEN ? AND ? AND worker_salary_payments.payment_type = 'SALARY' THEN worker_salary_payments.amount ELSE 0 END), 0) as salary_paid_month,
+            COALESCE(SUM(CASE WHEN worker_salary_payments.payment_date BETWEEN ? AND ? AND worker_salary_payments.payment_type = 'ADVANCE' THEN worker_salary_payments.amount ELSE 0 END), 0) as advance_paid_month
+     FROM users
+     LEFT JOIN worker_salary_payments ON worker_salary_payments.worker_id = users.id
+     WHERE users.role = 'WORKER'
+       AND (
+         users.is_active = 1
+         OR EXISTS (
+           SELECT 1
+           FROM worker_salary_payments paid_in_month
+           WHERE paid_in_month.worker_id = users.id
+             AND paid_in_month.payment_date BETWEEN ? AND ?
+         )
+       )
+     GROUP BY users.id
+     ORDER BY users.full_name ASC`
+  ).all(from, from, to, from, to, from, to);
+
+  const staffAttendanceMap = new Map();
+  db.prepare(
+    `SELECT staff_id,
+            SUM(CASE WHEN status = 'PRESENT' THEN 1 ELSE 0 END) as present_days,
+            SUM(CASE WHEN status = 'ABSENT' THEN 1 ELSE 0 END) as absent_days
+     FROM staff_attendance
+     WHERE attendance_date BETWEEN ? AND ?
+     GROUP BY staff_id`
+  ).all(from, to).forEach((row) => {
+    staffAttendanceMap.set(Number(row.staff_id), {
+      present: Number(row.present_days || 0),
+      absent: Number(row.absent_days || 0)
+    });
+  });
+
+  const workerAttendanceMap = new Map();
+  db.prepare(
+    `SELECT user_id,
+            SUM(CASE WHEN status = 'PRESENT' THEN 1 ELSE 0 END) as present_days,
+            SUM(CASE WHEN status = 'ABSENT' THEN 1 ELSE 0 END) as absent_days
+     FROM user_attendance
+     WHERE attendance_date BETWEEN ? AND ?
+     GROUP BY user_id`
+  ).all(from, to).forEach((row) => {
+    workerAttendanceMap.set(Number(row.user_id), {
+      present: Number(row.present_days || 0),
+      absent: Number(row.absent_days || 0)
+    });
+  });
+
+  const staffRows = buildPayrollRows(staffRowsRaw, staffAttendanceMap, monthStart, prevMonthStart, "STAFF");
+  const workerRows = buildPayrollRows(workerRowsRaw, workerAttendanceMap, monthStart, prevMonthStart, "WORKER");
+  const staffTotals = summarizePayrollRows(staffRows);
+  const workerTotals = summarizePayrollRows(workerRows);
+  const grandTotals = {
+    count: staffTotals.count + workerTotals.count,
+    monthAccrued: roundMoney(staffTotals.monthAccrued + workerTotals.monthAccrued),
+    salaryPaid: roundMoney(staffTotals.salaryPaid + workerTotals.salaryPaid),
+    advancePaid: roundMoney(staffTotals.advancePaid + workerTotals.advancePaid),
+    monthPaid: roundMoney(staffTotals.monthPaid + workerTotals.monthPaid),
+    openingDue: roundMoney(staffTotals.openingDue + workerTotals.openingDue),
+    closingDue: roundMoney(staffTotals.closingDue + workerTotals.closingDue),
+    openingAdvance: roundMoney(staffTotals.openingAdvance + workerTotals.openingAdvance),
+    closingAdvance: roundMoney(staffTotals.closingAdvance + workerTotals.closingAdvance),
+    presentDays: staffTotals.presentDays + workerTotals.presentDays,
+    absentDays: staffTotals.absentDays + workerTotals.absentDays
+  };
+
+  return {
+    monthToken: safeMonth,
+    from,
+    to,
+    staffRows,
+    workerRows,
+    staffTotals,
+    workerTotals,
+    grandTotals
+  };
 };
 
 const humanizeRoleCode = (code) => String(code || "")
@@ -956,14 +1625,27 @@ router.post("/staff-roles/:id/delete", (req, res) => {
 });
 
 router.get("/staffs", (req, res) => {
+  const includeInactive = String(req.query.include_inactive || "1") === "1";
+  const q = String(req.query.q || "").trim();
+  const whereParts = [];
+  const params = [];
+  if (!includeInactive) {
+    whereParts.push("COALESCE(staff.is_active, 1) = 1");
+  }
+  if (q) {
+    whereParts.push("(staff.full_name LIKE ? OR COALESCE(staff.phone, '') LIKE ? OR COALESCE(staff.staff_role, '') LIKE ?)");
+    params.push(`%${q}%`, `%${q}%`, `%${q}%`);
+  }
+  const whereClause = whereParts.length > 0 ? `WHERE ${whereParts.join(" AND ")}` : "";
   const rows = db.prepare(
     `SELECT staff.*, staff_roles.name as role_name, COALESCE(SUM(staff_salary_payments.amount), 0) AS paid_total
      FROM staff
      LEFT JOIN staff_roles ON staff_roles.code = staff.staff_role
      LEFT JOIN staff_salary_payments ON staff_salary_payments.staff_id = staff.id
+     ${whereClause}
      GROUP BY staff.id
-     ORDER BY staff.created_at DESC`
-  ).all();
+     ORDER BY COALESCE(staff.is_active, 1) DESC, staff.created_at DESC`
+  ).all(...params);
 
   const today = dayjs().format("YYYY-MM-DD");
   const staffs = rows.map((row) => ({
@@ -972,7 +1654,20 @@ router.get("/staffs", (req, res) => {
     due_salary: computeSalaryDue(row, row.paid_total, today)
   }));
 
-  res.render("admin/staffs", { title: req.t("staffsTitle"), staffs, basePath: "/admin/staffs" });
+  const success = req.query.archived
+    ? req.t("staffArchived")
+    : req.query.unarchived || req.query.activated
+      ? req.t("staffActivated")
+      : null;
+
+  res.render("admin/staffs", {
+    title: req.t("staffsTitle"),
+    staffs,
+    basePath: "/admin/staffs",
+    includeInactive,
+    q,
+    success
+  });
 });
 
 router.get("/staffs/new", (req, res) => {
@@ -1041,6 +1736,7 @@ router.post("/staffs", (req, res) => {
       });
     }
     const staffRole = normalizeStaffRole(staff_role);
+    const safeDocType = normalizeDocumentType(doc_type);
 
     const photoFile = req.files && req.files.photo ? req.files.photo[0] : null;
     const photoPath = photoFile ? `/uploads/${photoFile.filename}` : null;
@@ -1049,10 +1745,10 @@ router.post("/staffs", (req, res) => {
       "INSERT INTO staff (full_name, staff_role, phone, fingerprint_id, photo_path, start_date, monthly_salary) VALUES (?, ?, ?, ?, ?, ?, ?)"
     ).run(full_name.trim(), staffRole, phone || null, fingerprintId, photoPath, start_date || null, salary).lastInsertRowid;
 
-    if (doc_type) {
+    if (safeDocType) {
       let frontPath = null;
       let backPath = null;
-      if (doc_type === "CITIZENSHIP") {
+      if (safeDocType === "CITIZENSHIP") {
         const front = req.files && req.files.doc_front ? req.files.doc_front[0] : null;
         const back = req.files && req.files.doc_back ? req.files.doc_back[0] : null;
         if (front) frontPath = `/uploads/${front.filename}`;
@@ -1064,7 +1760,7 @@ router.post("/staffs", (req, res) => {
       if (frontPath || backPath) {
         db.prepare(
           "INSERT INTO staff_documents (staff_id, doc_type, front_path, back_path) VALUES (?, ?, ?, ?)"
-        ).run(staffId, doc_type, frontPath, backPath);
+        ).run(staffId, safeDocType, frontPath, backPath);
       }
     }
 
@@ -1110,6 +1806,7 @@ router.get("/staffs/:id", (req, res) => {
     { total: 0, salary: 0, advance: 0 }
   );
   const dueSalary = computeSalaryDue(staff, totals.total, dayjs().format("YYYY-MM-DD"));
+  const todayDate = dayjs().format("YYYY-MM-DD");
   const attendanceSummary = db.prepare(
     `SELECT
       COALESCE(SUM(CASE WHEN status = 'PRESENT' THEN 1 ELSE 0 END), 0) AS present_days,
@@ -1118,6 +1815,13 @@ router.get("/staffs/:id", (req, res) => {
      FROM staff_attendance
      WHERE staff_id = ?`
   ).get(req.params.id);
+  const absentDates = db.prepare(
+    `SELECT attendance_date
+     FROM staff_attendance
+     WHERE staff_id = ?
+       AND status = 'ABSENT'
+     ORDER BY attendance_date DESC`
+  ).all(req.params.id).map((row) => row.attendance_date);
 
   res.render("admin/staff_detail", {
     title: req.t("staffDetailTitle"),
@@ -1126,7 +1830,9 @@ router.get("/staffs/:id", (req, res) => {
     payments,
     totals,
     dueSalary,
+    todayDate,
     attendanceSummary,
+    absentDates,
     basePath: "/admin/staffs"
   });
 });
@@ -1169,6 +1875,13 @@ router.get("/staffs/:id/print", (req, res) => {
      FROM staff_attendance
      WHERE staff_id = ?`
   ).get(req.params.id);
+  const absentDates = db.prepare(
+    `SELECT attendance_date
+     FROM staff_attendance
+     WHERE staff_id = ?
+       AND status = 'ABSENT'
+     ORDER BY attendance_date DESC`
+  ).all(req.params.id).map((row) => row.attendance_date);
 
   res.render("admin/staff_detail_print", {
     title: req.t("staffDetailPrintTitle"),
@@ -1177,7 +1890,8 @@ router.get("/staffs/:id/print", (req, res) => {
     payments,
     totals,
     dueSalary,
-    attendanceSummary
+    attendanceSummary,
+    absentDates
   });
 });
 
@@ -1253,6 +1967,7 @@ router.post("/staffs/:id", (req, res) => {
       });
     }
     const staffRole = normalizeStaffRole(staff_role, { allowInactive: true });
+    const safeDocType = normalizeDocumentType(doc_type);
 
     let photoPath = staff.photo_path;
     const photoFile = req.files && req.files.photo ? req.files.photo[0] : null;
@@ -1262,10 +1977,10 @@ router.post("/staffs/:id", (req, res) => {
       "UPDATE staff SET full_name = ?, staff_role = ?, phone = ?, fingerprint_id = ?, photo_path = ?, start_date = ?, monthly_salary = ?, updated_at = datetime('now') WHERE id = ?"
     ).run(full_name.trim(), staffRole, phone || null, fingerprintId, photoPath, start_date || null, salary, req.params.id);
 
-    if (doc_type) {
+    if (safeDocType) {
       let frontPath = document ? document.front_path : null;
       let backPath = document ? document.back_path : null;
-      if (doc_type === "CITIZENSHIP") {
+      if (safeDocType === "CITIZENSHIP") {
         const front = req.files && req.files.doc_front ? req.files.doc_front[0] : null;
         const back = req.files && req.files.doc_back ? req.files.doc_back[0] : null;
         if (front) frontPath = `/uploads/${front.filename}`;
@@ -1281,11 +1996,11 @@ router.post("/staffs/:id", (req, res) => {
       if (document) {
         db.prepare(
           "UPDATE staff_documents SET doc_type = ?, front_path = ?, back_path = ? WHERE staff_id = ?"
-        ).run(doc_type, frontPath, backPath, req.params.id);
+        ).run(safeDocType, frontPath, backPath, req.params.id);
       } else if (frontPath || backPath) {
         db.prepare(
           "INSERT INTO staff_documents (staff_id, doc_type, front_path, back_path) VALUES (?, ?, ?, ?)"
-        ).run(req.params.id, doc_type, frontPath, backPath);
+        ).run(req.params.id, safeDocType, frontPath, backPath);
       }
     }
 
@@ -1301,45 +2016,54 @@ router.post("/staffs/:id", (req, res) => {
   });
 });
 
-router.post("/staffs/:id/delete", (req, res) => {
-  const staff = db.prepare("SELECT * FROM staff WHERE id = ?").get(req.params.id);
+router.post("/staffs/:id/archive", (req, res) => {
+  const staff = db.prepare("SELECT id, full_name, is_active FROM staff WHERE id = ?").get(req.params.id);
   if (!staff) return res.redirect("/admin/staffs");
-  const documents = db.prepare("SELECT * FROM staff_documents WHERE staff_id = ?").all(req.params.id);
-  const payments = db.prepare("SELECT * FROM staff_salary_payments WHERE staff_id = ?").all(req.params.id);
-  const attendance = db.prepare("SELECT * FROM staff_attendance WHERE staff_id = ?").all(req.params.id);
-  const recycleId = createRecycleEntry({
-    entityType: "staff",
-    entityId: req.params.id,
-    payload: { staff, documents, payments, attendance },
-    deletedBy: req.session.userId,
-    note: `name=${staff.full_name || ""}`
-  });
+  setStaffActiveStatus(req.params.id, false, req.session.userId);
   logActivity({
     userId: req.session.userId,
-    action: "delete",
+    action: "update",
     entityType: "staff",
     entityId: req.params.id,
-    details: `recycle_id=${recycleId}`
+    details: `status=archived, name=${staff.full_name || ""}`
   });
-  db.prepare("DELETE FROM staff WHERE id = ?").run(req.params.id);
-  res.redirect("/admin/staffs");
+  res.redirect("/admin/staffs?archived=1&include_inactive=1");
+});
+
+router.post("/staffs/:id/activate", (req, res) => {
+  const staff = db.prepare("SELECT id, full_name FROM staff WHERE id = ?").get(req.params.id);
+  if (!staff) return res.redirect("/admin/staffs");
+  setStaffActiveStatus(req.params.id, true, req.session.userId);
+  logActivity({
+    userId: req.session.userId,
+    action: "update",
+    entityType: "staff",
+    entityId: req.params.id,
+    details: `status=active, name=${staff.full_name || ""}`
+  });
+  res.redirect("/admin/staffs?activated=1&include_inactive=1");
+});
+
+router.post("/staffs/:id/delete", (req, res) => {
+  res.redirect(307, `/admin/staffs/${req.params.id}/archive`);
 });
 
 router.post("/staffs/:id/payments", (req, res) => {
   const staff = db.prepare("SELECT * FROM staff WHERE id = ?").get(req.params.id);
   if (!staff) return res.redirect("/admin/staffs");
-  const { payment_date, amount, payment_type, note, print } = req.body;
+  const { payment_date, amount, payment_type, payment_source, note, print } = req.body;
   const amt = Number(amount || 0);
   if (!payment_date || Number.isNaN(amt) || amt <= 0) {
     return res.redirect(`/admin/staffs/${req.params.id}`);
   }
   const type = payment_type === "ADVANCE" ? "ADVANCE" : "SALARY";
+  const source = normalizeSalaryPaymentSource(payment_source);
 
   const paymentResult = db.prepare(
-    "INSERT INTO staff_salary_payments (staff_id, payment_date, amount, payment_type, note, created_by) VALUES (?, ?, ?, ?, ?, ?)"
-  ).run(req.params.id, payment_date, amt, type, note || null, req.session.userId);
+    "INSERT INTO staff_salary_payments (staff_id, payment_date, amount, payment_type, payment_source, note, created_by) VALUES (?, ?, ?, ?, ?, ?, ?)"
+  ).run(req.params.id, payment_date, amt, type, source, note || null, req.session.userId);
   const paymentId = Number(paymentResult.lastInsertRowid);
-  const receiptNo = buildReceiptNo("STF", payment_date, paymentId);
+  const receiptNo = createReceiptNo(db, "STF", payment_date || dayjs().format("YYYY-MM-DD"));
   db.prepare("UPDATE staff_salary_payments SET receipt_no = ? WHERE id = ?").run(receiptNo, paymentId);
 
   logActivity({
@@ -1347,7 +2071,7 @@ router.post("/staffs/:id/payments", (req, res) => {
     action: "payment",
     entityType: "staff_salary",
     entityId: paymentId,
-    details: `receipt=${receiptNo}, type=${type}, amount=${amt}`
+    details: `receipt=${receiptNo}, type=${type}, source=${source}, amount=${amt}`
   });
 
   if (print) {
@@ -1375,16 +2099,17 @@ router.get("/staffs/payments/:id/edit", (req, res) => {
 router.post("/staffs/payments/:id", (req, res) => {
   const payment = db.prepare("SELECT * FROM staff_salary_payments WHERE id = ?").get(req.params.id);
   if (!payment) return res.redirect("/admin/staffs");
-  const { payment_date, amount, payment_type, note, print } = req.body;
+  const { payment_date, amount, payment_type, payment_source, note, print } = req.body;
   const amt = Number(amount || 0);
   if (!payment_date || Number.isNaN(amt) || amt <= 0) {
     return res.redirect(`/admin/staffs/payments/${req.params.id}/edit`);
   }
   const type = payment_type === "ADVANCE" ? "ADVANCE" : "SALARY";
+  const source = normalizeSalaryPaymentSource(payment_source);
 
   db.prepare(
-    "UPDATE staff_salary_payments SET payment_date = ?, amount = ?, payment_type = ?, note = ? WHERE id = ?"
-  ).run(payment_date, amt, type, note || null, req.params.id);
+    "UPDATE staff_salary_payments SET payment_date = ?, amount = ?, payment_type = ?, payment_source = ?, note = ? WHERE id = ?"
+  ).run(payment_date, amt, type, source, note || null, req.params.id);
 
   logActivity({
     userId: req.session.userId,
@@ -1397,9 +2122,10 @@ router.post("/staffs/payments/:id", (req, res) => {
         payment_date,
         amount: amt,
         payment_type: type,
+        payment_source: source,
         note: note || null
       },
-      ["payment_date", "amount", "payment_type", "note"]
+      ["payment_date", "amount", "payment_type", "payment_source", "note"]
     )
   });
 
@@ -1758,15 +2484,36 @@ router.post("/vehicles/:id", upload.single("profile_pic"), (req, res) => {
   }
 });
 
-router.post("/vehicles/:id/delete", (req, res) => {
+router.post("/vehicles/:id/archive", (req, res) => {
+  const vehicle = db.prepare("SELECT id, vehicle_number, is_active FROM vehicles WHERE id = ?").get(req.params.id);
+  if (!vehicle) return res.redirect("/admin/vehicles");
+  setVehicleActiveStatus(req.params.id, false, req.session.userId);
   logActivity({
     userId: req.session.userId,
-    action: "delete",
+    action: "update",
     entityType: "vehicle",
-    entityId: req.params.id
+    entityId: req.params.id,
+    details: `status=archived, vehicle_number=${vehicle.vehicle_number || ""}`
   });
-  db.prepare("DELETE FROM vehicles WHERE id = ?").run(req.params.id);
-  res.redirect("/admin/vehicles");
+  res.redirect("/admin/vehicles?archived=1&include_inactive=1");
+});
+
+router.post("/vehicles/:id/activate", (req, res) => {
+  const vehicle = db.prepare("SELECT id, vehicle_number FROM vehicles WHERE id = ?").get(req.params.id);
+  if (!vehicle) return res.redirect("/admin/vehicles");
+  setVehicleActiveStatus(req.params.id, true, req.session.userId);
+  logActivity({
+    userId: req.session.userId,
+    action: "update",
+    entityType: "vehicle",
+    entityId: req.params.id,
+    details: `status=active, vehicle_number=${vehicle.vehicle_number || ""}`
+  });
+  res.redirect("/admin/vehicles?activated=1&include_inactive=1");
+});
+
+router.post("/vehicles/:id/delete", (req, res) => {
+  res.redirect(307, `/admin/vehicles/${req.params.id}/archive`);
 });
 
 router.get("/sales", (req, res) => {
@@ -2047,6 +2794,7 @@ router.get("/reports/customer-invoice", (req, res) => {
 router.get("/reports/customer-invoice/print", (req, res) => {
   const from = req.query.from || dayjs().startOf("month").format("YYYY-MM-DD");
   const to = req.query.to || dayjs().format("YYYY-MM-DD");
+  const autoPrint = req.query.autoprint === "1";
   const customer = (req.query.customer || "").trim();
   if (!customer) {
     return res.redirect("/admin/reports/customer-invoice");
@@ -2074,14 +2822,102 @@ router.get("/reports/customer-invoice/print", (req, res) => {
     { total_amount: 0, total_paid: 0, total_remaining: 0 }
   );
 
+  let invoiceNo = String(req.query.invoice_no || "").trim();
+  if (!invoiceNo) {
+    invoiceNo = createInvoiceNo(db, to);
+    logActivity({
+      userId: req.session.userId,
+      action: "create",
+      entityType: "invoice",
+      entityId: customer,
+      details: `invoice=${invoiceNo}, from=${from}, to=${to}`
+    });
+  }
+
   res.render("admin/report_customer_invoice_print", {
     title: req.t("customerInvoiceTitle"),
     from,
     to,
     customer,
+    invoiceNo,
+    autoPrint,
     rows,
     totals
   });
+});
+
+router.get("/reports/payroll-summary", (req, res) => {
+  const monthToken = parseMonthToken(req.query.month);
+  const summary = getPayrollSummaryPayload(monthToken);
+  const monthLabel = dayjs(`${summary.monthToken}-01`).format("MMMM YYYY");
+  res.render("admin/report_payroll_summary", {
+    title: req.t("payrollSummaryTitle"),
+    monthToken: summary.monthToken,
+    monthLabel,
+    ...summary
+  });
+});
+
+router.get("/reports/payroll-summary/print", (req, res) => {
+  const monthToken = parseMonthToken(req.query.month);
+  const summary = getPayrollSummaryPayload(monthToken);
+  const monthLabel = dayjs(`${summary.monthToken}-01`).format("MMMM YYYY");
+  const autoPrint = req.query.autoprint === "1";
+  res.render("admin/report_payroll_summary_print", {
+    title: req.t("payrollSummaryTitle"),
+    monthToken: summary.monthToken,
+    monthLabel,
+    autoPrint,
+    ...summary
+  });
+});
+
+router.get("/reports/payroll-summary/export", (req, res) => {
+  const monthToken = parseMonthToken(req.query.month);
+  const summary = getPayrollSummaryPayload(monthToken);
+  const escapeCsv = (value) => `\"${String(value ?? "").replace(/\"/g, "\"\"")}\"`;
+  const lines = [
+    "TYPE,Name,Role,Monthly Salary,Opening Due,Opening Advance,Month Accrued,Salary Paid,Advance Paid,Month Paid,Closing Due,Closing Advance,Present Days,Absent Days"
+  ];
+  summary.staffRows.forEach((row) => {
+    lines.push([
+      "STAFF",
+      row.full_name,
+      resolveStaffRoleLabel(row.staff_role, null, req.t),
+      row.monthly_salary,
+      row.opening_due,
+      row.opening_advance,
+      row.month_accrued,
+      row.salary_paid_month,
+      row.advance_paid_month,
+      row.month_paid,
+      row.closing_due,
+      row.closing_advance,
+      row.present_days,
+      row.absent_days
+    ].map(escapeCsv).join(","));
+  });
+  summary.workerRows.forEach((row) => {
+    lines.push([
+      "WORKER",
+      row.full_name,
+      req.t("workersTitle"),
+      row.monthly_salary,
+      row.opening_due,
+      row.opening_advance,
+      row.month_accrued,
+      row.salary_paid_month,
+      row.advance_paid_month,
+      row.month_paid,
+      row.closing_due,
+      row.closing_advance,
+      row.present_days,
+      row.absent_days
+    ].map(escapeCsv).join(","));
+  });
+  res.setHeader("Content-Type", "text/csv");
+  res.setHeader("Content-Disposition", `attachment; filename=\"payroll_summary_${summary.monthToken}.csv\"`);
+  res.send(lines.join("\n"));
 });
 
 router.get("/reports/returns", (req, res) => {
@@ -3064,7 +3900,7 @@ router.get("/reports/all/export", (req, res) => {
   ).all(from, to);
 
   const savingsRows = db.prepare(
-    `SELECT entry_date, vehicles.vehicle_number, vehicles.owner_name, amount, note
+    `SELECT entry_date, vehicles.vehicle_number, vehicles.owner_name, amount, payment_source, note
      FROM vehicle_savings
      JOIN vehicles ON vehicle_savings.vehicle_id = vehicles.id
      WHERE entry_date BETWEEN ? AND ?
@@ -3142,13 +3978,16 @@ router.get("/reports/all/export", (req, res) => {
 
   sections.push("");
   sections.push("SAVINGS");
-  sections.push("Date,Vehicle Number,Owner,Amount,Note");
+  sections.push("Date,Vehicle Number,Owner,Type,Source,Amount,Note");
   savingsRows.forEach((row) => {
+    const entryType = Number(row.amount || 0) < 0 ? "withdraw" : "deposit";
     sections.push([
       row.entry_date,
       row.vehicle_number,
       row.owner_name,
-      row.amount,
+      entryType,
+      row.payment_source || "DAILY_COLLECTION",
+      Math.abs(Number(row.amount || 0)),
       row.note || ""
     ].map((val) => `"${String(val ?? "").replace(/\"/g, "\"\"")}"`).join(","));
   });
@@ -3701,24 +4540,40 @@ router.get("/export/sales", (req, res) => {
 });
 
 router.get("/workers", (req, res) => {
+  const includeInactive = String(req.query.include_inactive || "1") === "1";
+  const q = String(req.query.q || "").trim();
+  const whereParts = ["users.role = 'WORKER'"];
+  const params = [];
+  if (!includeInactive) {
+    whereParts.push("users.is_active = 1");
+  }
+  if (q) {
+    whereParts.push("(users.full_name LIKE ? OR users.username LIKE ? OR COALESCE(users.phone, '') LIKE ?)");
+    params.push(`%${q}%`, `%${q}%`, `%${q}%`);
+  }
+  const whereClause = whereParts.join(" AND ");
   const rows = db.prepare(
     `SELECT users.id, users.full_name, users.username, users.phone, users.start_date, users.monthly_salary,
             users.is_active, users.deactivated_at,
             COALESCE(SUM(worker_salary_payments.amount), 0) AS paid_total
      FROM users
      LEFT JOIN worker_salary_payments ON worker_salary_payments.worker_id = users.id
-     WHERE users.role = 'WORKER'
+     WHERE ${whereClause}
      GROUP BY users.id
-     ORDER BY users.created_at DESC`
-  ).all();
+     ORDER BY users.is_active DESC, users.created_at DESC`
+  ).all(...params);
   const today = dayjs().format("YYYY-MM-DD");
   const workers = rows.map((row) => ({
     ...row,
     due_salary: computeSalaryDue(row, row.paid_total, today)
   }));
-  const success = req.query.deleted ? req.t("workerDeactivated") : req.query.activated ? req.t("workerActivated") : null;
+  const success = req.query.archived || req.query.deleted
+    ? req.t("workerDeactivated")
+    : req.query.unarchived || req.query.activated
+      ? req.t("workerActivated")
+      : null;
   const error = req.query.error === "workerDeleteBlocked" ? req.t("workerDeleteBlocked") : null;
-  res.render("admin/workers", { title: req.t("workersTitle"), workers, success, error });
+  res.render("admin/workers", { title: req.t("workersTitle"), workers, includeInactive, q, success, error });
 });
 
 router.get("/workers/new", (req, res) => {
@@ -3835,6 +4690,22 @@ router.get("/workers/:id", (req, res) => {
     { total: 0, salary: 0, advance: 0 }
   );
   const dueSalary = computeSalaryDue(worker, totals.total, dayjs().format("YYYY-MM-DD"));
+  const todayDate = dayjs().format("YYYY-MM-DD");
+  const attendanceSummary = db.prepare(
+    `SELECT
+      COALESCE(SUM(CASE WHEN status = 'PRESENT' THEN 1 ELSE 0 END), 0) AS present_days,
+      COALESCE(SUM(CASE WHEN status = 'ABSENT' THEN 1 ELSE 0 END), 0) AS absent_days,
+      COUNT(*) AS marked_days
+     FROM user_attendance
+     WHERE user_id = ?`
+  ).get(req.params.id);
+  const absentDates = db.prepare(
+    `SELECT attendance_date
+     FROM user_attendance
+     WHERE user_id = ?
+       AND status = 'ABSENT'
+     ORDER BY attendance_date DESC`
+  ).all(req.params.id).map((row) => row.attendance_date);
 
   res.render("admin/worker_detail", {
     title: req.t("workerDetailTitle"),
@@ -3842,7 +4713,10 @@ router.get("/workers/:id", (req, res) => {
     document,
     payments,
     totals,
-    dueSalary
+    dueSalary,
+    todayDate,
+    attendanceSummary,
+    absentDates
   });
 });
 
@@ -3871,6 +4745,21 @@ router.get("/workers/:id/print", (req, res) => {
     { total: 0, salary: 0, advance: 0 }
   );
   const dueSalary = computeSalaryDue(worker, totals.total, dayjs().format("YYYY-MM-DD"));
+  const attendanceSummary = db.prepare(
+    `SELECT
+      COALESCE(SUM(CASE WHEN status = 'PRESENT' THEN 1 ELSE 0 END), 0) AS present_days,
+      COALESCE(SUM(CASE WHEN status = 'ABSENT' THEN 1 ELSE 0 END), 0) AS absent_days,
+      COUNT(*) AS marked_days
+     FROM user_attendance
+     WHERE user_id = ?`
+  ).get(req.params.id);
+  const absentDates = db.prepare(
+    `SELECT attendance_date
+     FROM user_attendance
+     WHERE user_id = ?
+       AND status = 'ABSENT'
+     ORDER BY attendance_date DESC`
+  ).all(req.params.id).map((row) => row.attendance_date);
 
   res.render("admin/worker_detail_print", {
     title: req.t("workerDetailPrintTitle"),
@@ -3878,7 +4767,9 @@ router.get("/workers/:id/print", (req, res) => {
     document,
     payments,
     totals,
-    dueSalary
+    dueSalary,
+    attendanceSummary,
+    absentDates
   });
 });
 
@@ -3998,9 +4889,9 @@ router.post("/workers/:id/delete", (req, res) => {
     action: "update",
     entityType: "worker",
     entityId: req.params.id,
-    details: "status=deactivated"
+    details: "status=archived"
   });
-  res.redirect("/admin/workers?deleted=1");
+  res.redirect("/admin/workers?archived=1&include_inactive=1");
 });
 
 router.post("/workers/:id/activate", (req, res) => {
@@ -4016,24 +4907,25 @@ router.post("/workers/:id/activate", (req, res) => {
     entityId: req.params.id,
     details: "status=active"
   });
-  res.redirect("/admin/workers?activated=1");
+  res.redirect("/admin/workers?activated=1&include_inactive=1");
 });
 
 router.post("/workers/:id/payments", (req, res) => {
   const worker = db.prepare("SELECT id FROM users WHERE id = ? AND role = 'WORKER'").get(req.params.id);
   if (!worker) return res.redirect("/admin/workers");
-  const { payment_date, amount, payment_type, note, print } = req.body;
+  const { payment_date, amount, payment_type, payment_source, note, print } = req.body;
   const amt = Number(amount || 0);
   if (!payment_date || Number.isNaN(amt) || amt <= 0) {
     return res.redirect(`/admin/workers/${req.params.id}`);
   }
   const type = payment_type === "ADVANCE" ? "ADVANCE" : "SALARY";
+  const source = normalizeSalaryPaymentSource(payment_source);
 
   const paymentResult = db.prepare(
-    "INSERT INTO worker_salary_payments (worker_id, payment_date, amount, payment_type, note, created_by) VALUES (?, ?, ?, ?, ?, ?)"
-  ).run(req.params.id, payment_date, amt, type, note || null, req.session.userId);
+    "INSERT INTO worker_salary_payments (worker_id, payment_date, amount, payment_type, payment_source, note, created_by) VALUES (?, ?, ?, ?, ?, ?, ?)"
+  ).run(req.params.id, payment_date, amt, type, source, note || null, req.session.userId);
   const paymentId = Number(paymentResult.lastInsertRowid);
-  const receiptNo = buildReceiptNo("WRK", payment_date, paymentId);
+  const receiptNo = createReceiptNo(db, "WRK", payment_date || dayjs().format("YYYY-MM-DD"));
   db.prepare("UPDATE worker_salary_payments SET receipt_no = ? WHERE id = ?").run(receiptNo, paymentId);
 
   logActivity({
@@ -4041,7 +4933,7 @@ router.post("/workers/:id/payments", (req, res) => {
     action: "payment",
     entityType: "worker_salary",
     entityId: paymentId,
-    details: `receipt=${receiptNo}, type=${type}, amount=${amt}`
+    details: `receipt=${receiptNo}, type=${type}, source=${source}, amount=${amt}`
   });
 
   if (print) {
@@ -4069,16 +4961,17 @@ router.get("/workers/payments/:id/edit", (req, res) => {
 router.post("/workers/payments/:id", (req, res) => {
   const payment = db.prepare("SELECT * FROM worker_salary_payments WHERE id = ?").get(req.params.id);
   if (!payment) return res.redirect("/admin/workers");
-  const { payment_date, amount, payment_type, note, print } = req.body;
+  const { payment_date, amount, payment_type, payment_source, note, print } = req.body;
   const amt = Number(amount || 0);
   if (!payment_date || Number.isNaN(amt) || amt <= 0) {
     return res.redirect(`/admin/workers/payments/${req.params.id}/edit`);
   }
   const type = payment_type === "ADVANCE" ? "ADVANCE" : "SALARY";
+  const source = normalizeSalaryPaymentSource(payment_source);
 
   db.prepare(
-    "UPDATE worker_salary_payments SET payment_date = ?, amount = ?, payment_type = ?, note = ? WHERE id = ?"
-  ).run(payment_date, amt, type, note || null, req.params.id);
+    "UPDATE worker_salary_payments SET payment_date = ?, amount = ?, payment_type = ?, payment_source = ?, note = ? WHERE id = ?"
+  ).run(payment_date, amt, type, source, note || null, req.params.id);
 
   logActivity({
     userId: req.session.userId,
@@ -4091,9 +4984,10 @@ router.post("/workers/payments/:id", (req, res) => {
         payment_date,
         amount: amt,
         payment_type: type,
+        payment_source: source,
         note: note || null
       },
-      ["payment_date", "amount", "payment_type", "note"]
+      ["payment_date", "amount", "payment_type", "payment_source", "note"]
     )
   });
 
@@ -4272,6 +5166,11 @@ router.post("/settings", (req, res) => {
   const autoBackupEnabled = req.body.auto_backup_enabled === "on";
   const autoBackupHour = Number(req.body.auto_backup_hour || 18);
   const autoBackupKeep = Number(req.body.auto_backup_keep || 30);
+  const retentionEnabled = req.body.retention_enabled === "on";
+  const retentionDays = Number(req.body.retention_days || 365);
+  const retentionBatchSize = Number(req.body.retention_batch_size || 500);
+  const numberingFiscalStartMonth = Number(req.body.numbering_fiscal_start_month || 7);
+  const numberingSequencePad = Number(req.body.numbering_sequence_pad || 5);
   const jarLowThreshold = Number(req.body.alert_low_stock_jars || 20);
   const itemLowThreshold = Number(req.body.alert_low_stock_items || 10);
   const overdueCreditDays = Number(req.body.alert_overdue_credit_days || 7);
@@ -4290,6 +5189,26 @@ router.post("/settings", (req, res) => {
   if (Number.isNaN(autoBackupKeep) || autoBackupKeep < 3 || autoBackupKeep > 180) {
     return renderSettingsPage(req, res, {
       error: req.t("backupKeepInvalid")
+    });
+  }
+  if (Number.isNaN(retentionDays) || retentionDays < 30 || retentionDays > 3650) {
+    return renderSettingsPage(req, res, {
+      error: req.t("retentionDaysInvalid")
+    });
+  }
+  if (Number.isNaN(retentionBatchSize) || retentionBatchSize < 50 || retentionBatchSize > 5000) {
+    return renderSettingsPage(req, res, {
+      error: req.t("retentionBatchInvalid")
+    });
+  }
+  if (Number.isNaN(numberingFiscalStartMonth) || numberingFiscalStartMonth < 1 || numberingFiscalStartMonth > 12) {
+    return renderSettingsPage(req, res, {
+      error: req.t("numberingFiscalMonthInvalid")
+    });
+  }
+  if (Number.isNaN(numberingSequencePad) || numberingSequencePad < 3 || numberingSequencePad > 8) {
+    return renderSettingsPage(req, res, {
+      error: req.t("numberingSequencePadInvalid")
     });
   }
   if (Number.isNaN(jarLowThreshold) || jarLowThreshold < 0 || jarLowThreshold > 1000000) {
@@ -4350,6 +5269,11 @@ router.post("/settings", (req, res) => {
   setSetting("auto_backup_enabled", autoBackupEnabled ? 1 : 0);
   setSetting("auto_backup_hour", Math.floor(autoBackupHour));
   setSetting("auto_backup_keep", Math.floor(autoBackupKeep));
+  setSetting("retention_enabled", retentionEnabled ? 1 : 0);
+  setSetting("retention_days", Math.floor(retentionDays));
+  setSetting("retention_batch_size", Math.floor(retentionBatchSize));
+  setSetting("numbering_fiscal_start_month", Math.floor(numberingFiscalStartMonth));
+  setSetting("numbering_sequence_pad", Math.floor(numberingSequencePad));
   setSetting("alert_low_stock_jars", Math.floor(jarLowThreshold));
   setSetting("alert_low_stock_items", Math.floor(itemLowThreshold));
   setSetting("alert_overdue_credit_days", Math.floor(overdueCreditDays));
@@ -4369,12 +5293,32 @@ router.post("/settings", (req, res) => {
     action: "update",
     entityType: "settings",
     entityId: "backup",
-    details: `auto_backup=${autoBackupEnabled ? 1 : 0}, backup_hour=${Math.floor(autoBackupHour)}, keep=${Math.floor(autoBackupKeep)}, jar_alert=${Math.floor(jarLowThreshold)}, item_alert=${Math.floor(itemLowThreshold)}, overdue_days=${Math.floor(overdueCreditDays)}, hybrid_sync=${hybridSyncEnabled ? 1 : 0}, hybrid_interval=${Math.floor(hybridSyncIntervalMin)}, iot_attendance=${iotAttendanceEnabled ? 1 : 0}`
+    details: `auto_backup=${autoBackupEnabled ? 1 : 0}, backup_hour=${Math.floor(autoBackupHour)}, keep=${Math.floor(autoBackupKeep)}, retention=${retentionEnabled ? 1 : 0}, retention_days=${Math.floor(retentionDays)}, retention_batch=${Math.floor(retentionBatchSize)}, fiscal_start_month=${Math.floor(numberingFiscalStartMonth)}, sequence_pad=${Math.floor(numberingSequencePad)}, jar_alert=${Math.floor(jarLowThreshold)}, item_alert=${Math.floor(itemLowThreshold)}, overdue_days=${Math.floor(overdueCreditDays)}, hybrid_sync=${hybridSyncEnabled ? 1 : 0}, hybrid_interval=${Math.floor(hybridSyncIntervalMin)}, iot_attendance=${iotAttendanceEnabled ? 1 : 0}`
   });
 
   return renderSettingsPage(req, res, {
     success: req.t("settingsSaved")
   });
+});
+
+router.post("/retention/run", (req, res) => {
+  try {
+    const result = runRetentionArchive(db, { force: true });
+    logActivity({
+      userId: req.session.userId,
+      action: "archive",
+      entityType: "retention",
+      entityId: "manual_run",
+      details: `archived=${result.archivedCount || 0}, cutoff=${result.cutoffDateText || ""}`
+    });
+    return renderSettingsPage(req, res, {
+      success: req.t("retentionRunSuccess", { count: result.archivedCount || 0 })
+    });
+  } catch (err) {
+    return renderSettingsPage(req, res, {
+      error: req.t("retentionRunFailed", { message: err.message || "archive_failed" })
+    });
+  }
 });
 
 router.post("/hybrid-sync/run", async (req, res) => {
