@@ -34,8 +34,12 @@ CREATE TABLE IF NOT EXISTS vehicles (
   phone TEXT,
   is_company INTEGER NOT NULL DEFAULT 0,
   profile_pic_path TEXT,
+  is_active INTEGER NOT NULL DEFAULT 1,
+  deactivated_at TEXT,
+  deactivated_by INTEGER,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  FOREIGN KEY (deactivated_by) REFERENCES users(id) ON DELETE SET NULL
 );
 
 CREATE TABLE IF NOT EXISTS daily_sales (
@@ -423,8 +427,12 @@ CREATE TABLE IF NOT EXISTS staff (
   photo_path TEXT,
   start_date TEXT,
   monthly_salary REAL NOT NULL DEFAULT 0,
+  is_active INTEGER NOT NULL DEFAULT 1,
+  deactivated_at TEXT,
+  deactivated_by INTEGER,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  FOREIGN KEY (deactivated_by) REFERENCES users(id) ON DELETE SET NULL
 );
 
 CREATE TABLE IF NOT EXISTS staff_roles (
@@ -789,7 +797,17 @@ if (staffColumns.size > 0 && !staffColumns.has("staff_role")) {
 if (staffColumns.size > 0 && !staffColumns.has("fingerprint_id")) {
   db.exec("ALTER TABLE staff ADD COLUMN fingerprint_id TEXT;");
 }
+if (staffColumns.size > 0 && !staffColumns.has("is_active")) {
+  db.exec("ALTER TABLE staff ADD COLUMN is_active INTEGER NOT NULL DEFAULT 1;");
+}
+if (staffColumns.size > 0 && !staffColumns.has("deactivated_at")) {
+  db.exec("ALTER TABLE staff ADD COLUMN deactivated_at TEXT;");
+}
+if (staffColumns.size > 0 && !staffColumns.has("deactivated_by")) {
+  db.exec("ALTER TABLE staff ADD COLUMN deactivated_by INTEGER;");
+}
 db.exec("CREATE INDEX IF NOT EXISTS idx_staff_fingerprint ON staff(fingerprint_id);");
+db.exec("CREATE INDEX IF NOT EXISTS idx_staff_active ON staff(is_active);");
 
 const staffRoleColumns = new Set(
   db.prepare("PRAGMA table_info(staff_roles)").all().map((col) => col.name)
@@ -892,6 +910,16 @@ const vehicleColumns = new Set(
 if (vehicleColumns.size > 0 && !vehicleColumns.has("is_company")) {
   db.exec("ALTER TABLE vehicles ADD COLUMN is_company INTEGER NOT NULL DEFAULT 0;");
 }
+if (vehicleColumns.size > 0 && !vehicleColumns.has("is_active")) {
+  db.exec("ALTER TABLE vehicles ADD COLUMN is_active INTEGER NOT NULL DEFAULT 1;");
+}
+if (vehicleColumns.size > 0 && !vehicleColumns.has("deactivated_at")) {
+  db.exec("ALTER TABLE vehicles ADD COLUMN deactivated_at TEXT;");
+}
+if (vehicleColumns.size > 0 && !vehicleColumns.has("deactivated_by")) {
+  db.exec("ALTER TABLE vehicles ADD COLUMN deactivated_by INTEGER;");
+}
+db.exec("CREATE INDEX IF NOT EXISTS idx_vehicles_active ON vehicles(is_active);");
 
 const jarSalesColumns = new Set(
   db.prepare("PRAGMA table_info(jar_sales)").all().map((col) => col.name)

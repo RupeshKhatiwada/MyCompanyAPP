@@ -351,6 +351,28 @@ const findFingerprintConflict = ({ fingerprintId, skipStaffId = null, skipWorker
   return null;
 };
 
+const setVehicleActiveStatus = (vehicleId, isActive, userId) => {
+  if (isActive) {
+    return db.prepare(
+      "UPDATE vehicles SET is_active = 1, deactivated_at = NULL, deactivated_by = NULL, updated_at = datetime('now') WHERE id = ?"
+    ).run(vehicleId);
+  }
+  return db.prepare(
+    "UPDATE vehicles SET is_active = 0, deactivated_at = datetime('now'), deactivated_by = ?, updated_at = datetime('now') WHERE id = ?"
+  ).run(userId || null, vehicleId);
+};
+
+const setStaffActiveStatus = (staffId, isActive, userId) => {
+  if (isActive) {
+    return db.prepare(
+      "UPDATE staff SET is_active = 1, deactivated_at = NULL, deactivated_by = NULL, updated_at = datetime('now') WHERE id = ?"
+    ).run(staffId);
+  }
+  return db.prepare(
+    "UPDATE staff SET is_active = 0, deactivated_at = datetime('now'), deactivated_by = ?, updated_at = datetime('now') WHERE id = ?"
+  ).run(userId || null, staffId);
+};
+
 const getAttendanceIotEnabled = () => String(
   (db.prepare("SELECT value FROM settings WHERE key = 'iot_attendance_enabled'").get() || { value: "0" }).value
 ) === "1";
@@ -909,10 +931,24 @@ router.get("/history", (req, res) => {
 });
 
 router.get("/vehicles", (req, res) => {
-  const vehicles = db.prepare("SELECT * FROM vehicles ORDER BY vehicle_number").all();
+  const includeInactive = String(req.query.include_inactive || "0") === "1";
+  const where = includeInactive ? "" : "WHERE COALESCE(is_active, 1) = 1";
+  const vehicles = db.prepare(
+    `SELECT *
+     FROM vehicles
+     ${where}
+     ORDER BY COALESCE(is_active, 1) DESC, vehicle_number ASC`
+  ).all();
+  const success = req.query.archived
+    ? req.t("vehicleArchived")
+    : req.query.activated
+      ? req.t("vehicleActivated")
+      : null;
   res.render("admin/vehicles", {
     title: req.t("vehicles"),
     vehicles,
+    includeInactive,
+    success,
     vehicleRouteBase: "/records/vehicles"
   });
 });
@@ -1012,22 +1048,36 @@ router.post("/vehicles/:id", vehicleUpload.single("profile_pic"), (req, res) => 
   }
 });
 
-router.post("/vehicles/:id/delete", (req, res) => {
+router.post("/vehicles/:id/archive", (req, res) => {
+  const vehicle = db.prepare("SELECT id, vehicle_number, is_active FROM vehicles WHERE id = ?").get(req.params.id);
+  if (!vehicle) return res.redirect("/records/vehicles");
+  setVehicleActiveStatus(req.params.id, false, req.session.userId);
+  logActivity({
+    userId: req.session.userId,
+    action: "update",
+    entityType: "vehicle",
+    entityId: req.params.id,
+    details: `status=archived, vehicle_number=${vehicle.vehicle_number || ""}`
+  });
+  return res.redirect("/records/vehicles?archived=1");
+});
+
+router.post("/vehicles/:id/activate", (req, res) => {
   const vehicle = db.prepare("SELECT id, vehicle_number FROM vehicles WHERE id = ?").get(req.params.id);
   if (!vehicle) return res.redirect("/records/vehicles");
-  try {
-    db.prepare("DELETE FROM vehicles WHERE id = ?").run(req.params.id);
-    logActivity({
-      userId: req.session.userId,
-      action: "delete",
-      entityType: "vehicle",
-      entityId: req.params.id,
-      details: `vehicle_number=${vehicle.vehicle_number || ""}`
-    });
-    return res.redirect("/records/vehicles");
-  } catch (err) {
-    return res.redirect("/records/vehicles");
-  }
+  setVehicleActiveStatus(req.params.id, true, req.session.userId);
+  logActivity({
+    userId: req.session.userId,
+    action: "update",
+    entityType: "vehicle",
+    entityId: req.params.id,
+    details: `status=active, vehicle_number=${vehicle.vehicle_number || ""}`
+  });
+  return res.redirect("/records/vehicles?activated=1&include_inactive=1");
+});
+
+router.post("/vehicles/:id/delete", (req, res) => {
+  return res.redirect(307, `/records/vehicles/${req.params.id}/archive`);
 });
 
 router.get("/water-tests", (req, res) => {
@@ -3148,13 +3198,16 @@ router.post("/imports/:id/delete", (req, res) => {
 });
 
 router.get("/staffs", (req, res) => {
+  const includeInactive = String(req.query.include_inactive || "0") === "1";
+  const whereClause = includeInactive ? "" : "WHERE COALESCE(staff.is_active, 1) = 1";
   const rows = db.prepare(
     `SELECT staff.*, staff_roles.name as role_name, COALESCE(SUM(staff_salary_payments.amount), 0) AS paid_total
      FROM staff
      LEFT JOIN staff_roles ON staff_roles.code = staff.staff_role
      LEFT JOIN staff_salary_payments ON staff_salary_payments.staff_id = staff.id
+     ${whereClause}
      GROUP BY staff.id
-     ORDER BY staff.created_at DESC`
+     ORDER BY COALESCE(staff.is_active, 1) DESC, staff.created_at DESC`
   ).all();
 
   const today = dayjs().format("YYYY-MM-DD");
@@ -3164,7 +3217,19 @@ router.get("/staffs", (req, res) => {
     due_salary: computeSalaryDue(row, row.paid_total, today)
   }));
 
-  res.render("admin/staffs", { title: req.t("staffsTitle"), staffs, basePath: "/records/staffs" });
+  const success = req.query.archived
+    ? req.t("staffArchived")
+    : req.query.activated
+      ? req.t("staffActivated")
+      : null;
+
+  res.render("admin/staffs", {
+    title: req.t("staffsTitle"),
+    staffs,
+    basePath: "/records/staffs",
+    includeInactive,
+    success
+  });
 });
 
 router.get("/staffs/new", (req, res) => {
@@ -3493,28 +3558,36 @@ router.post("/staffs/:id", (req, res) => {
   });
 });
 
-router.post("/staffs/:id/delete", (req, res) => {
-  const staff = db.prepare("SELECT * FROM staff WHERE id = ?").get(req.params.id);
+router.post("/staffs/:id/archive", (req, res) => {
+  const staff = db.prepare("SELECT id, full_name, is_active FROM staff WHERE id = ?").get(req.params.id);
   if (!staff) return res.redirect("/records/staffs");
-  const documents = db.prepare("SELECT * FROM staff_documents WHERE staff_id = ?").all(req.params.id);
-  const payments = db.prepare("SELECT * FROM staff_salary_payments WHERE staff_id = ?").all(req.params.id);
-  const attendance = db.prepare("SELECT * FROM staff_attendance WHERE staff_id = ?").all(req.params.id);
-  const recycleId = createRecycleEntry({
-    entityType: "staff",
-    entityId: req.params.id,
-    payload: { staff, documents, payments, attendance },
-    deletedBy: req.session.userId,
-    note: `name=${staff.full_name || ""}`
-  });
+  setStaffActiveStatus(req.params.id, false, req.session.userId);
   logActivity({
     userId: req.session.userId,
-    action: "delete",
+    action: "update",
     entityType: "staff",
     entityId: req.params.id,
-    details: `recycle_id=${recycleId}`
+    details: `status=archived, name=${staff.full_name || ""}`
   });
-  db.prepare("DELETE FROM staff WHERE id = ?").run(req.params.id);
-  res.redirect("/records/staffs");
+  res.redirect("/records/staffs?archived=1");
+});
+
+router.post("/staffs/:id/activate", (req, res) => {
+  const staff = db.prepare("SELECT id, full_name FROM staff WHERE id = ?").get(req.params.id);
+  if (!staff) return res.redirect("/records/staffs");
+  setStaffActiveStatus(req.params.id, true, req.session.userId);
+  logActivity({
+    userId: req.session.userId,
+    action: "update",
+    entityType: "staff",
+    entityId: req.params.id,
+    details: `status=active, name=${staff.full_name || ""}`
+  });
+  res.redirect("/records/staffs?activated=1&include_inactive=1");
+});
+
+router.post("/staffs/:id/delete", (req, res) => {
+  res.redirect(307, `/records/staffs/${req.params.id}/archive`);
 });
 
 router.post("/staffs/:id/payments", (req, res) => {

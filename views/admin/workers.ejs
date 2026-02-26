@@ -1,11 +1,17 @@
 <%- include('../partials/shell-start', { title }) %>
+<% const showInactive = Number(includeInactive || 0) === 1; %>
 <section class="py-8">
   <div class="flex flex-wrap items-center justify-between gap-3">
     <div>
       <h1 class="text-3xl font-semibold"><%= t('workersTitle') %></h1>
       <p class="text-slate-600"><%= t('workersSubtitle') %></p>
     </div>
-    <a class="btn-primary" href="/admin/workers/new"><%= t('addWorkerTitle') %></a>
+    <div class="flex flex-wrap gap-2">
+      <a class="btn-outline" href="/admin/workers?include_inactive=<%= showInactive ? '0' : '1' %>">
+        <%= showInactive ? t('hideArchived') : t('showArchived') %>
+      </a>
+      <a class="btn-primary" href="/admin/workers/new"><%= t('addWorkerTitle') %></a>
+    </div>
   </div>
 
   <div class="mt-6 card overflow-hidden">
@@ -53,12 +59,12 @@
                   <a class="btn-outline" href="/admin/workers/<%= worker.id %>"><%= t('manage') %></a>
                   <a class="btn-outline" href="/admin/workers/<%= worker.id %>/edit"><%= t('edit') %></a>
                   <% if (Number(worker.is_active) === 1) { %>
-                    <form method="post" action="/admin/workers/<%= worker.id %>/delete" onsubmit="return confirm('<%= t('deactivateWorkerConfirm') %>');">
-                      <button class="btn-danger" type="submit"><%= t('deactivate') %></button>
+                    <form method="post" action="/admin/workers/<%= worker.id %>/delete" onsubmit="return confirm('<%= t('archiveWorkerConfirm') %>');">
+                      <button class="btn-danger" type="submit"><%= t('archive') %></button>
                     </form>
                   <% } else { %>
-                    <form method="post" action="/admin/workers/<%= worker.id %>/activate" onsubmit="return confirm('<%= t('activateWorkerConfirm') %>');">
-                      <button class="btn-primary" type="submit"><%= t('activate') %></button>
+                    <form method="post" action="/admin/workers/<%= worker.id %>/activate" onsubmit="return confirm('<%= t('unarchiveWorkerConfirm') %>');">
+                      <button class="btn-primary" type="submit"><%= t('unarchive') %></button>
                     </form>
                   <% } %>
                 </div>
