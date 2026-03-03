@@ -35,6 +35,12 @@
       const externalOrganizationValue = typeof externalOrganization !== 'undefined' ? externalOrganization : pickValue('external_organization', '');
       const checkedByNameValue = typeof checkedByStaffName !== 'undefined' ? checkedByStaffName : pickValue('checked_by_staff_name', '');
       const forceWashByValue = typeof forceWashStaffName !== 'undefined' ? forceWashStaffName : pickValue('force_wash_staff_name', '');
+      const fallbackMethod = String(pickValue('payment_method', 'CASH') || 'CASH').toUpperCase();
+      const paidAmountFallbackRaw = Number(pickValue('paid_amount', 0) || 0);
+      const paidAmountFallback = Number.isNaN(paidAmountFallbackRaw) || paidAmountFallbackRaw < 0 ? 0 : paidAmountFallbackRaw;
+      const paidCashValue = pickValue('paid_cash_amount', fallbackMethod === 'CASH' ? paidAmountFallback : 0);
+      const paidBankValue = pickValue('paid_bank_amount', fallbackMethod === 'BANK' ? paidAmountFallback : 0);
+      const paidEWalletValue = pickValue('paid_ewallet_amount', fallbackMethod === 'E_WALLET' ? paidAmountFallback : 0);
     %>
     <form method="post" action="<%= record ? '/records/exports/' + record.id : '/records/exports' %>" class="space-y-4">
       <% if (duplicateWarningValue && duplicateWarningValue.type === 'export') { %>
@@ -182,16 +188,25 @@
       </div>
       <div id="paidWrap">
         <label class="label"><%= t('paidAmount') %></label>
-        <input class="input" type="number" min="0" step="0.01" name="paid_amount" value="<%= pickValue('paid_amount', '') %>" data-paid />
-      </div>
-      <div>
-        <label class="label"><%= t('paymentMethodLabel') %></label>
-        <select class="input" name="payment_method">
-          <% const exportPaymentMethod = String(pickValue('payment_method', 'CASH') || 'CASH').toUpperCase(); %>
-          <option value="CASH" <%= exportPaymentMethod === 'CASH' ? 'selected' : '' %>><%= t('methodCash') %></option>
-          <option value="BANK" <%= exportPaymentMethod === 'BANK' ? 'selected' : '' %>><%= t('methodBank') %></option>
-          <option value="E_WALLET" <%= exportPaymentMethod === 'E_WALLET' ? 'selected' : '' %>><%= t('methodEWallet') %></option>
-        </select>
+        <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <div>
+            <label class="label text-xs"><%= t('methodCash') %></label>
+            <input class="input" type="number" min="0" step="0.01" name="paid_cash_amount" value="<%= Number(paidCashValue || 0) > 0 ? Number(paidCashValue || 0) : '' %>" data-paid-cash />
+          </div>
+          <div>
+            <label class="label text-xs"><%= t('methodBank') %></label>
+            <input class="input" type="number" min="0" step="0.01" name="paid_bank_amount" value="<%= Number(paidBankValue || 0) > 0 ? Number(paidBankValue || 0) : '' %>" data-paid-bank />
+          </div>
+          <div>
+            <label class="label text-xs"><%= t('methodEWallet') %></label>
+            <input class="input" type="number" min="0" step="0.01" name="paid_ewallet_amount" value="<%= Number(paidEWalletValue || 0) > 0 ? Number(paidEWalletValue || 0) : '' %>" data-paid-ewallet />
+          </div>
+          <div>
+            <label class="label text-xs"><%= t('paidAmount') %></label>
+            <input class="input bg-slate-50" type="number" min="0" step="0.01" name="paid_amount" value="<%= Number(paidAmountFallback || 0) > 0 ? Number(paidAmountFallback || 0) : '' %>" data-paid-total readonly />
+          </div>
+        </div>
+        <input type="hidden" name="payment_method" value="CASH" />
       </div>
       <div id="collectionWrap" class="hidden">
         <label class="label"><%= t('collectionAmount') %></label>
@@ -241,7 +256,10 @@
     const jarPriceInput = document.querySelector('[data-jar-price]');
     const bottlePriceInput = document.querySelector('[data-bottle-price]');
     const dispenserPriceInput = document.querySelector('[data-dispenser-price]');
-    const paidInput = document.querySelector('[data-paid]');
+    const paidCashInput = document.querySelector('[data-paid-cash]');
+    const paidBankInput = document.querySelector('[data-paid-bank]');
+    const paidEWalletInput = document.querySelector('[data-paid-ewallet]');
+    const paidTotalInput = document.querySelector('[data-paid-total]');
     const returnJarInput = document.querySelector('[data-return-jar]');
     const returnBottleInput = document.querySelector('[data-return-bottle]');
     const leakageJarInput = document.querySelector('[data-leakage-jar]');
@@ -263,6 +281,10 @@
     const netBottlesEl = document.getElementById('netBottles');
     const soldAmountEl = document.getElementById('soldJarAmount');
     const dispenserAmountEl = document.getElementById('dispenserAmount');
+    const formatMoneyInput = (value) => {
+      const safe = Math.round(Math.max(0, Number(value || 0)) * 100) / 100;
+      return safe > 0 ? String(safe) : '';
+    };
     const isUsingExternalVehicle = () => !!(useExternalToggle && useExternalToggle.checked);
 
     const isCompanyVehicle = () => {
@@ -283,9 +305,12 @@
       const leakageJars = Number(leakageJarInput?.value || 0);
       const soldJars = Number(soldJarInput?.value || 0);
       const soldPrice = Number(soldPriceInput?.value || 0);
-      const paidRaw = paidInput ? String(paidInput.value || "").trim() : "";
-      const paidParsed = paidRaw === "" ? 0 : Number(paidRaw);
-      let paid = Number.isFinite(paidParsed) ? paidParsed : 0;
+      let paidCash = Number(paidCashInput?.value || 0);
+      let paidBank = Number(paidBankInput?.value || 0);
+      let paidEWallet = Number(paidEWalletInput?.value || 0);
+      if (Number.isNaN(paidCash) || paidCash < 0) paidCash = 0;
+      if (Number.isNaN(paidBank) || paidBank < 0) paidBank = 0;
+      if (Number.isNaN(paidEWallet) || paidEWallet < 0) paidEWallet = 0;
       const collection = Number(collectionInput?.value || 0);
       const netJars = Math.max(0, jarCount - returnJars - leakageJars);
       const netBottles = Math.max(0, bottleCount - returnBottles);
@@ -293,16 +318,29 @@
       const soldAmount = Math.max(0, soldJars) * Math.max(0, soldPrice);
       const total = netJars * jarPrice + netBottles * bottlePrice + dispenserAmount + soldAmount;
       const companyVehicle = isCompanyVehicle();
-      if (paid < 0) paid = 0;
       const safeCollection = Math.max(collection, 0);
       let paidSafe = 0;
       if (companyVehicle) {
+        paidCash = safeCollection;
+        paidBank = 0;
+        paidEWallet = 0;
         paidSafe = safeCollection;
-        if (paidInput) paidInput.value = paidSafe.toFixed(2);
       } else {
-        paidSafe = Math.min(Math.max(paid, 0), total);
-        if (paidInput && paidSafe !== paid) paidInput.value = paidSafe.toFixed(2);
+        let remainingForPaid = Math.max(total, 0);
+        const clamp = (value) => {
+          const use = Math.min(Math.max(value, 0), remainingForPaid);
+          remainingForPaid -= use;
+          return use;
+        };
+        paidCash = clamp(paidCash);
+        paidBank = clamp(paidBank);
+        paidEWallet = clamp(paidEWallet);
+        paidSafe = paidCash + paidBank + paidEWallet;
       }
+      if (paidCashInput) paidCashInput.value = formatMoneyInput(paidCash);
+      if (paidBankInput) paidBankInput.value = formatMoneyInput(paidBank);
+      if (paidEWalletInput) paidEWalletInput.value = formatMoneyInput(paidEWallet);
+      if (paidTotalInput) paidTotalInput.value = formatMoneyInput(paidSafe);
       if (netJarsEl) netJarsEl.textContent = netJars;
       if (netBottlesEl) netBottlesEl.textContent = netBottles;
       if (soldAmountEl) soldAmountEl.textContent = soldAmount.toFixed(2);
@@ -347,11 +385,13 @@
         if (isCompany) dispenserPriceInput.value = "0";
         dispenserPriceInput.readOnly = isCompany;
       }
-      if (paidInput) paidInput.readOnly = isCompany;
+      [paidCashInput, paidBankInput, paidEWalletInput].forEach((el) => {
+        if (el) el.readOnly = isCompany;
+      });
       recalc();
     };
 
-    [jarInput, bottleInput, dispenserInput, jarPriceInput, bottlePriceInput, dispenserPriceInput, returnJarInput, returnBottleInput, leakageJarInput, soldJarInput, soldPriceInput, paidInput, collectionInput].forEach((el) => {
+    [jarInput, bottleInput, dispenserInput, jarPriceInput, bottlePriceInput, dispenserPriceInput, returnJarInput, returnBottleInput, leakageJarInput, soldJarInput, soldPriceInput, paidCashInput, paidBankInput, paidEWalletInput, collectionInput].forEach((el) => {
       if (el) el.addEventListener('input', recalc);
     });
     if (vehicleSelect) vehicleSelect.addEventListener('change', toggleCollection);

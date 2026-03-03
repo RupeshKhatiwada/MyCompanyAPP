@@ -44,7 +44,7 @@
             </tr>
           <% } %>
           <% payments.forEach((row) => { %>
-            <% const methodLabel = row.payment_method === 'BANK' ? t('methodBank') : row.payment_method === 'E_WALLET' ? t('methodEWallet') : t('methodCash'); %>
+            <% const methodLabel = row.payment_method === 'BANK' ? t('methodBank') : row.payment_method === 'E_WALLET' ? t('methodEWallet') : row.payment_method === 'MIXED' ? t('methodMixed') : t('methodCash'); %>
             <tr class="table-row">
               <td class="px-4 py-3"><%= row.created_at %></td>
               <td class="px-4 py-3"><%= row.export_date %></td>

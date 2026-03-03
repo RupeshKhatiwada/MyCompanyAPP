@@ -561,9 +561,9 @@ router.get("/", (req, res) => {
   ).get(monthStart, today);
   const monthExportMethod = db.prepare(
     `SELECT
-        COALESCE(SUM(CASE WHEN payment_method = 'CASH' THEN paid_amount ELSE 0 END), 0) as cash_paid,
-        COALESCE(SUM(CASE WHEN payment_method = 'BANK' THEN paid_amount ELSE 0 END), 0) as bank_paid,
-        COALESCE(SUM(CASE WHEN payment_method = 'E_WALLET' THEN paid_amount ELSE 0 END), 0) as ewallet_paid
+        COALESCE(SUM(paid_cash_amount), 0) as cash_paid,
+        COALESCE(SUM(paid_bank_amount), 0) as bank_paid,
+        COALESCE(SUM(paid_ewallet_amount), 0) as ewallet_paid
      FROM exports
      WHERE export_date BETWEEN ? AND ?`
   ).get(monthStart, today);

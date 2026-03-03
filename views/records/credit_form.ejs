@@ -24,6 +24,12 @@
       const selectedVehicleRaw = pickValue('vehicle_id', typeof selectedVehicleId !== 'undefined' ? selectedVehicleId : '');
       const selectedVehicleValue = String(selectedVehicleRaw || '');
       const tripDateValue = pickValue('trip_date', typeof defaultTripDate !== 'undefined' ? defaultTripDate : '');
+      const fallbackMethod = String(pickValue('payment_method', 'CASH') || 'CASH').toUpperCase();
+      const fallbackPaidRaw = Number(pickValue('paid_amount', 0) || 0);
+      const fallbackPaid = Number.isNaN(fallbackPaidRaw) || fallbackPaidRaw < 0 ? 0 : fallbackPaidRaw;
+      const paidCashValue = pickValue('paid_cash_amount', fallbackMethod === 'CASH' ? fallbackPaid : 0);
+      const paidBankValue = pickValue('paid_bank_amount', fallbackMethod === 'BANK' ? fallbackPaid : 0);
+      const paidEWalletValue = pickValue('paid_ewallet_amount', fallbackMethod === 'E_WALLET' ? fallbackPaid : 0);
     %>
     <form method="post" action="<%= isEdit ? '/records/credits/' + record.id : '/records/credits' %>" class="space-y-4">
       <% if (duplicateWarningValue && duplicateWarningValue.type === 'credit') { %>
@@ -131,22 +137,30 @@
           <input id="creditAmount" class="input bg-slate-50" type="number" step="0.01" name="amount" value="<%= pickValue('amount', 0) %>" readonly />
         </div>
         <div>
-          <label class="label"><%= t('paidAmount') %></label>
-          <input id="paidAmount" class="input" type="number" step="0.01" min="0" name="paid_amount" value="<%= pickValue('paid_amount', 0) %>" />
+          <label class="label"><%= t('methodCash') %></label>
+          <input id="paidCashAmount" class="input" type="number" step="0.01" min="0" name="paid_cash_amount" value="<%= Number(paidCashValue || 0) > 0 ? Number(paidCashValue || 0) : '' %>" />
         </div>
         <div>
-          <label class="label"><%= t('remainingAmount') %></label>
-          <input id="remainingAmount" class="input bg-slate-50" type="number" step="0.01" value="0" readonly />
+          <label class="label"><%= t('methodBank') %></label>
+          <input id="paidBankAmount" class="input" type="number" step="0.01" min="0" name="paid_bank_amount" value="<%= Number(paidBankValue || 0) > 0 ? Number(paidBankValue || 0) : '' %>" />
         </div>
       </div>
       <div>
-        <label class="label"><%= t('paymentMethodLabel') %></label>
-        <% const creditPaymentMethod = String(pickValue('payment_method', 'CASH') || 'CASH').toUpperCase(); %>
-        <select class="input" name="payment_method">
-          <option value="CASH" <%= creditPaymentMethod === 'CASH' ? 'selected' : '' %>><%= t('methodCash') %></option>
-          <option value="BANK" <%= creditPaymentMethod === 'BANK' ? 'selected' : '' %>><%= t('methodBank') %></option>
-          <option value="E_WALLET" <%= creditPaymentMethod === 'E_WALLET' ? 'selected' : '' %>><%= t('methodEWallet') %></option>
-        </select>
+        <div class="grid gap-4 md:grid-cols-3">
+          <div>
+            <label class="label"><%= t('methodEWallet') %></label>
+            <input id="paidEWalletAmount" class="input" type="number" step="0.01" min="0" name="paid_ewallet_amount" value="<%= Number(paidEWalletValue || 0) > 0 ? Number(paidEWalletValue || 0) : '' %>" />
+          </div>
+          <div>
+            <label class="label"><%= t('paidAmount') %></label>
+            <input id="paidAmount" class="input bg-slate-50" type="number" step="0.01" min="0" name="paid_amount" value="<%= Number(fallbackPaid || 0) > 0 ? Number(fallbackPaid || 0) : '' %>" readonly />
+          </div>
+          <div>
+            <label class="label"><%= t('remainingAmount') %></label>
+            <input id="remainingAmount" class="input bg-slate-50" type="number" step="0.01" value="0" readonly />
+          </div>
+        </div>
+        <input type="hidden" name="payment_method" value="CASH" />
       </div>
       <div class="flex items-center gap-2">
         <input id="markPaid" type="checkbox" name="paid" class="h-4 w-4" <%= Number(pickValue('amount', 0)) <= Number(pickValue('paid_amount', 0)) && Number(pickValue('amount', 0)) > 0 ? 'checked' : '' %> />
@@ -168,6 +182,9 @@
     var jarContainerPriceInput = document.getElementById('jarContainerPrice');
     var amountInput = document.getElementById('creditAmount');
     var paidInput = document.getElementById('paidAmount');
+    var paidCashInput = document.getElementById('paidCashAmount');
+    var paidBankInput = document.getElementById('paidBankAmount');
+    var paidEWalletInput = document.getElementById('paidEWalletAmount');
     var remainingInput = document.getElementById('remainingAmount');
     var markPaid = document.getElementById('markPaid');
     if (!amountInput || !paidInput || !remainingInput) return;
@@ -175,6 +192,10 @@
     function toNumber(value) {
       var num = parseFloat(value);
       return Number.isFinite(num) ? num : 0;
+    }
+    function formatMoneyInput(value) {
+      var safe = Math.round(Math.max(0, toNumber(value)) * 100) / 100;
+      return safe > 0 ? String(safe) : '';
     }
 
     function syncAmounts() {
@@ -188,27 +209,50 @@
       var jarContainerPrice = Math.max(0, toNumber(jarContainerPriceInput ? jarContainerPriceInput.value : 0));
       var amount = (jars * jarPrice) + (bottles * bottlePrice) + (dispensers * dispenserPrice) + (jarContainers * jarContainerPrice);
       if (amount < 0) amount = 0;
-      var paid = Math.max(0, toNumber(paidInput ? paidInput.value : 0));
-      if (markPaid && markPaid.checked) paid = amount;
-      if (paid > amount) paid = amount;
+      var paidCash = Math.max(0, toNumber(paidCashInput ? paidCashInput.value : 0));
+      var paidBank = Math.max(0, toNumber(paidBankInput ? paidBankInput.value : 0));
+      var paidEWallet = Math.max(0, toNumber(paidEWalletInput ? paidEWalletInput.value : 0));
+      if (markPaid && markPaid.checked) {
+        paidCash = amount;
+        paidBank = 0;
+        paidEWallet = 0;
+      } else {
+        var remainingCap = amount;
+        var clamp = function (value) {
+          var used = Math.min(value, remainingCap);
+          remainingCap -= used;
+          return used;
+        };
+        paidCash = clamp(paidCash);
+        paidBank = clamp(paidBank);
+        paidEWallet = clamp(paidEWallet);
+      }
+      var paid = paidCash + paidBank + paidEWallet;
 
       amountInput.value = amount.toFixed(2);
-      paidInput.value = paid.toFixed(2);
+      if (paidCashInput) paidCashInput.value = formatMoneyInput(paidCash);
+      if (paidBankInput) paidBankInput.value = formatMoneyInput(paidBank);
+      if (paidEWalletInput) paidEWalletInput.value = formatMoneyInput(paidEWallet);
+      paidInput.value = formatMoneyInput(paid);
       remainingInput.value = Math.max(0, amount - paid).toFixed(2);
     }
 
     ['input', 'change'].forEach(function (eventName) {
-      [jarsInput, jarPriceInput, bottlesInput, bottlePriceInput, dispensersInput, dispenserPriceInput, jarContainersInput, jarContainerPriceInput, paidInput]
+      [jarsInput, jarPriceInput, bottlesInput, bottlePriceInput, dispensersInput, dispenserPriceInput, jarContainersInput, jarContainerPriceInput, paidCashInput, paidBankInput, paidEWalletInput]
         .forEach(function (el) {
           if (el) el.addEventListener(eventName, syncAmounts);
         });
     });
     if (markPaid) {
       markPaid.addEventListener('change', function () {
-        if (paidInput) paidInput.readOnly = markPaid.checked;
+        [paidCashInput, paidBankInput, paidEWalletInput].forEach(function (el) {
+          if (el) el.readOnly = markPaid.checked;
+        });
         syncAmounts();
       });
-      if (paidInput) paidInput.readOnly = markPaid.checked;
+      [paidCashInput, paidBankInput, paidEWalletInput].forEach(function (el) {
+        if (el) el.readOnly = markPaid.checked;
+      });
     }
     syncAmounts();
   })();

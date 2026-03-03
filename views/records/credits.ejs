@@ -99,7 +99,11 @@
             <% const isPartial = !isPaid && record.paid_amount > 0; %>
             <% const statusLabel = isPaid ? t('paid') : (isPartial ? t('statusPartial') : t('unpaid')); %>
             <% const statusClass = isPaid ? 'bg-emerald-100 text-emerald-700' : (isPartial ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700'); %>
-            <% const methodLabel = record.payment_method === 'BANK' ? t('methodBank') : record.payment_method === 'E_WALLET' ? t('methodEWallet') : t('methodCash'); %>
+            <% const paidCash = Number(record.paid_cash_amount || 0); %>
+            <% const paidBank = Number(record.paid_bank_amount || 0); %>
+            <% const paidEWallet = Number(record.paid_ewallet_amount || 0); %>
+            <% const activeMethods = [paidCash > 0, paidBank > 0, paidEWallet > 0].filter(Boolean).length; %>
+            <% const methodLabel = activeMethods > 1 ? t('methodMixed') : (paidBank > 0 ? t('methodBank') : (paidEWallet > 0 ? t('methodEWallet') : t('methodCash'))); %>
             <tr class="table-row">
               <td class="px-4 py-3"><%= record.credit_date %></td>
               <td class="px-4 py-3"><%= record.receipt_no || (`#${record.id}`) %></td>
@@ -213,12 +217,10 @@
               <td class="px-4 py-3">
                 <% if ((row.customer_name || '').trim() && Number(row.total_remaining || 0) > 0) { %>
                   <div class="flex flex-wrap items-center gap-2">
-                    <input form="customer-pay-<%= idx %>" class="input h-9 w-28" type="number" step="0.01" min="0.01" max="<%= row.total_remaining %>" name="payment_amount" placeholder="<%= t('paymentAmount') %>" required />
-                    <select form="customer-pay-<%= idx %>" class="input h-9 w-28" name="payment_method">
-                      <option value="CASH"><%= t('methodCash') %></option>
-                      <option value="BANK"><%= t('methodBank') %></option>
-                      <option value="E_WALLET"><%= t('methodEWallet') %></option>
-                    </select>
+                    <input form="customer-pay-<%= idx %>" class="input h-9 w-24" type="number" step="0.01" min="0" max="<%= row.total_remaining %>" name="cash_amount" placeholder="<%= t('methodCash') %>" />
+                    <input form="customer-pay-<%= idx %>" class="input h-9 w-24" type="number" step="0.01" min="0" max="<%= row.total_remaining %>" name="bank_amount" placeholder="<%= t('methodBank') %>" />
+                    <input form="customer-pay-<%= idx %>" class="input h-9 w-24" type="number" step="0.01" min="0" max="<%= row.total_remaining %>" name="ewallet_amount" placeholder="<%= t('methodEWallet') %>" />
+                    <input form="customer-pay-<%= idx %>" class="input h-9 w-24 bg-slate-50" type="number" step="0.01" min="0" name="payment_amount" placeholder="<%= t('paymentAmount') %>" readonly />
                   </div>
                 <% } else { %>
                   -
@@ -235,6 +237,7 @@
                     <input type="hidden" name="sort" value="<%= sort %>" />
                     <input type="hidden" name="customer_credit_from" value="<%= customerCreditFromValue %>" />
                     <input type="hidden" name="customer_credit_to" value="<%= customerCreditToValue %>" />
+                    <input type="hidden" name="payment_method" value="CASH" />
                     <button class="btn-outline" type="submit"><%= t('addPayment') %></button>
                   </form>
                 <% } else { %>
@@ -279,4 +282,47 @@
     </div>
   </div>
 </section>
+<script>
+  (() => {
+    const forms = Array.from(document.querySelectorAll("form[id^='customer-pay-']"));
+    const toSafe = (value) => {
+      const num = Number(value || 0);
+      if (Number.isNaN(num) || num < 0) return 0;
+      return num;
+    };
+    const formatMoneyInput = (value) => {
+      const safe = Math.round(toSafe(value) * 100) / 100;
+      return safe > 0 ? String(safe) : "";
+    };
+    forms.forEach((form) => {
+      const cashInput = form.querySelector("input[name='cash_amount']");
+      const bankInput = form.querySelector("input[name='bank_amount']");
+      const walletInput = form.querySelector("input[name='ewallet_amount']");
+      const totalInput = form.querySelector("input[name='payment_amount']");
+      if (!cashInput || !bankInput || !walletInput || !totalInput) return;
+      const maxRaw = Number(cashInput.getAttribute("max") || "0");
+      const maxValue = Number.isNaN(maxRaw) ? 0 : Math.max(maxRaw, 0);
+      const recalc = () => {
+        let cash = toSafe(cashInput.value);
+        let bank = toSafe(bankInput.value);
+        let wallet = toSafe(walletInput.value);
+        let remaining = maxValue;
+        const clamp = (value) => {
+          const used = Math.min(value, remaining);
+          remaining -= used;
+          return used;
+        };
+        cash = clamp(cash);
+        bank = clamp(bank);
+        wallet = clamp(wallet);
+        cashInput.value = formatMoneyInput(cash);
+        bankInput.value = formatMoneyInput(bank);
+        walletInput.value = formatMoneyInput(wallet);
+        totalInput.value = formatMoneyInput(cash + bank + wallet);
+      };
+      [cashInput, bankInput, walletInput].forEach((el) => el.addEventListener("input", recalc));
+      recalc();
+    });
+  })();
+</script>
 <%- include('../partials/shell-end') %>

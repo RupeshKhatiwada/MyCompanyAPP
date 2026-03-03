@@ -1329,6 +1329,15 @@ if (!exportColumns.has("paid_amount")) {
 if (!exportColumns.has("payment_method")) {
   db.exec("ALTER TABLE exports ADD COLUMN payment_method TEXT NOT NULL DEFAULT 'CASH';");
 }
+if (!exportColumns.has("paid_cash_amount")) {
+  db.exec("ALTER TABLE exports ADD COLUMN paid_cash_amount REAL NOT NULL DEFAULT 0;");
+}
+if (!exportColumns.has("paid_bank_amount")) {
+  db.exec("ALTER TABLE exports ADD COLUMN paid_bank_amount REAL NOT NULL DEFAULT 0;");
+}
+if (!exportColumns.has("paid_ewallet_amount")) {
+  db.exec("ALTER TABLE exports ADD COLUMN paid_ewallet_amount REAL NOT NULL DEFAULT 0;");
+}
 if (!exportColumns.has("credit_amount")) {
   db.exec("ALTER TABLE exports ADD COLUMN credit_amount REAL NOT NULL DEFAULT 0;");
 }
@@ -1394,8 +1403,32 @@ db.exec("CREATE INDEX IF NOT EXISTS idx_credits_checked_staff ON credits(checked
 db.exec("CREATE INDEX IF NOT EXISTS idx_exports_checked_staff ON exports(checked_by_staff_id);");
 db.exec("CREATE INDEX IF NOT EXISTS idx_staff_roles_show_in_exports ON staff_roles(show_in_exports);");
 db.exec("UPDATE exports SET payment_method = 'CASH' WHERE payment_method IS NULL OR TRIM(payment_method) = '';");
-db.exec("UPDATE exports SET payment_method = 'CASH' WHERE payment_method NOT IN ('CASH','BANK','E_WALLET');");
+db.exec("UPDATE exports SET payment_method = 'CASH' WHERE payment_method NOT IN ('CASH','BANK','E_WALLET','MIXED');");
 db.exec("CREATE INDEX IF NOT EXISTS idx_exports_payment_method ON exports(payment_method);");
+db.exec("UPDATE exports SET paid_cash_amount = 0 WHERE paid_cash_amount IS NULL OR paid_cash_amount < 0;");
+db.exec("UPDATE exports SET paid_bank_amount = 0 WHERE paid_bank_amount IS NULL OR paid_bank_amount < 0;");
+db.exec("UPDATE exports SET paid_ewallet_amount = 0 WHERE paid_ewallet_amount IS NULL OR paid_ewallet_amount < 0;");
+db.exec(
+  `UPDATE exports
+   SET paid_cash_amount = CASE WHEN payment_method = 'CASH' THEN paid_amount ELSE 0 END,
+       paid_bank_amount = CASE WHEN payment_method = 'BANK' THEN paid_amount ELSE 0 END,
+       paid_ewallet_amount = CASE WHEN payment_method = 'E_WALLET' THEN paid_amount ELSE 0 END
+   WHERE paid_amount > 0
+     AND COALESCE(paid_cash_amount, 0) = 0
+     AND COALESCE(paid_bank_amount, 0) = 0
+     AND COALESCE(paid_ewallet_amount, 0) = 0`
+);
+db.exec(
+  `UPDATE exports
+   SET paid_amount = ROUND(COALESCE(paid_cash_amount, 0) + COALESCE(paid_bank_amount, 0) + COALESCE(paid_ewallet_amount, 0), 2)`
+);
+db.exec(
+  `UPDATE exports
+   SET credit_amount = CASE
+     WHEN total_amount - paid_amount > 0 THEN total_amount - paid_amount
+     ELSE 0
+   END`
+);
 
 const staffSalaryColumns = new Set(
   db.prepare("PRAGMA table_info(staff_salary_payments)").all().map((col) => col.name)

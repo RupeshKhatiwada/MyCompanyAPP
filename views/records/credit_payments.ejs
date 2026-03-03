@@ -41,19 +41,25 @@
     <div class="card p-6">
       <h2 class="text-lg font-semibold"><%= t('addPayment') %></h2>
       <form class="mt-4 space-y-3" method="post" action="/records/credits/<%= record.id %>/pay">
-        <div>
-          <label class="label"><%= t('paymentAmount') %></label>
-          <input class="input" type="number" step="0.01" min="0" max="<%= Math.max(0, record.amount - record.paid_amount) %>" name="payment_amount" required />
+        <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <div>
+            <label class="label"><%= t('methodCash') %></label>
+            <input class="input" type="number" step="0.01" min="0" max="<%= Math.max(0, record.amount - record.paid_amount) %>" name="cash_amount" data-cash />
+          </div>
+          <div>
+            <label class="label"><%= t('methodBank') %></label>
+            <input class="input" type="number" step="0.01" min="0" max="<%= Math.max(0, record.amount - record.paid_amount) %>" name="bank_amount" data-bank />
+          </div>
+          <div>
+            <label class="label"><%= t('methodEWallet') %></label>
+            <input class="input" type="number" step="0.01" min="0" max="<%= Math.max(0, record.amount - record.paid_amount) %>" name="ewallet_amount" data-ewallet />
+          </div>
+          <div>
+            <label class="label"><%= t('paymentAmount') %></label>
+            <input class="input bg-slate-50" type="number" step="0.01" min="0" name="payment_amount" data-total readonly />
+          </div>
         </div>
-        <div>
-          <label class="label"><%= t('paymentMethodLabel') %></label>
-          <% const defaultMethod = String(record.payment_method || 'CASH').toUpperCase(); %>
-          <select class="input" name="payment_method">
-            <option value="CASH" <%= defaultMethod === 'CASH' ? 'selected' : '' %>><%= t('methodCash') %></option>
-            <option value="BANK" <%= defaultMethod === 'BANK' ? 'selected' : '' %>><%= t('methodBank') %></option>
-            <option value="E_WALLET" <%= defaultMethod === 'E_WALLET' ? 'selected' : '' %>><%= t('methodEWallet') %></option>
-          </select>
-        </div>
+        <input type="hidden" name="payment_method" value="CASH" />
         <button class="btn-primary w-full" type="submit"><%= t('addPayment') %></button>
       </form>
     </div>
@@ -107,4 +113,46 @@
     </div>
   </div>
 </section>
+<script>
+  (() => {
+    const maxTotal = Number("<%= Math.max(0, record.amount - record.paid_amount) %>");
+    const cashInput = document.querySelector("[data-cash]");
+    const bankInput = document.querySelector("[data-bank]");
+    const walletInput = document.querySelector("[data-ewallet]");
+    const totalInput = document.querySelector("[data-total]");
+    if (!cashInput || !bankInput || !walletInput || !totalInput) return;
+
+    const toSafe = (value) => {
+      const num = Number(value || 0);
+      if (Number.isNaN(num) || num < 0) return 0;
+      return num;
+    };
+    const formatMoneyInput = (value) => {
+      const safe = Math.round(toSafe(value) * 100) / 100;
+      return safe > 0 ? String(safe) : "";
+    };
+
+    const recalc = () => {
+      let cash = toSafe(cashInput.value);
+      let bank = toSafe(bankInput.value);
+      let wallet = toSafe(walletInput.value);
+      let remaining = Math.max(maxTotal, 0);
+      const clamp = (value) => {
+        const used = Math.min(value, remaining);
+        remaining -= used;
+        return used;
+      };
+      cash = clamp(cash);
+      bank = clamp(bank);
+      wallet = clamp(wallet);
+      cashInput.value = formatMoneyInput(cash);
+      bankInput.value = formatMoneyInput(bank);
+      walletInput.value = formatMoneyInput(wallet);
+      totalInput.value = formatMoneyInput(cash + bank + wallet);
+    };
+
+    [cashInput, bankInput, walletInput].forEach((el) => el.addEventListener("input", recalc));
+    recalc();
+  })();
+</script>
 <%- include('../partials/shell-end') %>

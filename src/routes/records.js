@@ -343,6 +343,110 @@ const parseMoneyValue = (value) => {
   return Math.round(num * 100) / 100;
 };
 
+const paymentBreakdownOrder = ["cash", "bank", "eWallet"];
+const paymentMethodByBreakdownKey = {
+  cash: "CASH",
+  bank: "BANK",
+  eWallet: "E_WALLET"
+};
+
+const clampBreakdownToTotal = (breakdown, maxTotal) => {
+  const safeMax = parseMoneyValue(maxTotal);
+  if (safeMax <= 0) {
+    return { cash: 0, bank: 0, eWallet: 0 };
+  }
+  let remaining = safeMax;
+  const out = { cash: 0, bank: 0, eWallet: 0 };
+  paymentBreakdownOrder.forEach((key) => {
+    const amount = parseMoneyValue(breakdown?.[key] || 0);
+    if (remaining <= 0 || amount <= 0) return;
+    const used = parseMoneyValue(Math.min(amount, remaining));
+    out[key] = used;
+    remaining = parseMoneyValue(remaining - used);
+  });
+  return out;
+};
+
+const sumPaymentBreakdown = (breakdown) => parseMoneyValue(
+  parseMoneyValue(breakdown?.cash || 0) +
+  parseMoneyValue(breakdown?.bank || 0) +
+  parseMoneyValue(breakdown?.eWallet || 0)
+);
+
+const getPrimaryMethodFromBreakdown = (breakdown, fallbackMethod = "CASH") => {
+  const safeFallback = normalizePaymentMethod(fallbackMethod);
+  const active = paymentBreakdownOrder
+    .filter((key) => parseMoneyValue(breakdown?.[key] || 0) > 0)
+    .map((key) => paymentMethodByBreakdownKey[key]);
+  if (!active.length) return safeFallback;
+  if (active.length === 1) return active[0];
+  return safeFallback;
+};
+
+const getPaymentMethodFromBreakdown = (breakdown, fallbackMethod = "CASH", allowMixed = false) => {
+  const safeFallback = normalizePaymentMethod(fallbackMethod);
+  const active = paymentBreakdownOrder
+    .filter((key) => parseMoneyValue(breakdown?.[key] || 0) > 0)
+    .map((key) => paymentMethodByBreakdownKey[key]);
+  if (!active.length) return safeFallback;
+  if (active.length === 1) return active[0];
+  return allowMixed ? "MIXED" : safeFallback;
+};
+
+const parsePaymentBreakdownFromBody = (body, options = {}) => {
+  const cashField = options.cashField || "cash_amount";
+  const bankField = options.bankField || "bank_amount";
+  const ewalletField = options.ewalletField || "ewallet_amount";
+  const amountField = options.amountField || "payment_amount";
+  const methodField = options.methodField || "payment_method";
+  const maxTotal = options.maxTotal;
+  const strictMax = Boolean(options.strictMax);
+
+  const splitRaw = {
+    cash: parseMoneyValue(body?.[cashField] || 0),
+    bank: parseMoneyValue(body?.[bankField] || 0),
+    eWallet: parseMoneyValue(body?.[ewalletField] || 0)
+  };
+  const splitEntered = sumPaymentBreakdown(splitRaw) > 0;
+
+  let breakdown = splitRaw;
+  if (!splitEntered) {
+    const total = parseMoneyValue(body?.[amountField] || 0);
+    const method = normalizePaymentMethod(body?.[methodField]);
+    breakdown = {
+      cash: method === "CASH" ? total : 0,
+      bank: method === "BANK" ? total : 0,
+      eWallet: method === "E_WALLET" ? total : 0
+    };
+  }
+
+  const hasMaxTotal = typeof maxTotal !== "undefined" && maxTotal !== null;
+  const safeMaxTotal = hasMaxTotal ? parseMoneyValue(maxTotal) : null;
+  const enteredTotal = sumPaymentBreakdown(breakdown);
+  const overLimitBy = hasMaxTotal ? parseMoneyValue(enteredTotal - safeMaxTotal) : 0;
+  const isOverLimit = hasMaxTotal && overLimitBy > 0;
+  if (hasMaxTotal && !strictMax) {
+    breakdown = clampBreakdownToTotal(breakdown, safeMaxTotal);
+  }
+
+  const total = sumPaymentBreakdown(breakdown);
+  const primaryMethod = getPrimaryMethodFromBreakdown(
+    breakdown,
+    normalizePaymentMethod(body?.[methodField])
+  );
+
+  return {
+    breakdown,
+    total,
+    primaryMethod,
+    splitEntered,
+    enteredTotal,
+    maxTotal: safeMaxTotal,
+    isOverLimit,
+    overLimitBy
+  };
+};
+
 const roundMoneySigned = (value) => {
   const num = Number(value || 0);
   if (Number.isNaN(num)) return 0;
@@ -396,9 +500,9 @@ const findDuplicateCreditEntries = ({ vehicleId, creditDate, customerName, amoun
 const getDailyReconciliationSnapshot = (businessDate) => {
   const exportPaid = db.prepare(
     `SELECT
-        COALESCE(SUM(CASE WHEN payment_method = 'CASH' THEN paid_amount ELSE 0 END), 0) AS cash_amount,
-        COALESCE(SUM(CASE WHEN payment_method = 'BANK' THEN paid_amount ELSE 0 END), 0) AS bank_amount,
-        COALESCE(SUM(CASE WHEN payment_method = 'E_WALLET' THEN paid_amount ELSE 0 END), 0) AS ewallet_amount
+        COALESCE(SUM(paid_cash_amount), 0) AS cash_amount,
+        COALESCE(SUM(paid_bank_amount), 0) AS bank_amount,
+        COALESCE(SUM(paid_ewallet_amount), 0) AS ewallet_amount
      FROM exports
      WHERE export_date = ?`
   ).get(businessDate);
@@ -541,10 +645,13 @@ const buildPaymentLedgerData = ({ channel, from, to, openingBalance }) => {
     });
   };
 
+  const exportAmountExpr = channel === "E_WALLET"
+    ? "COALESCE(exports.paid_ewallet_amount, 0)"
+    : "COALESCE(exports.paid_bank_amount, 0)";
   db.prepare(
     `SELECT exports.export_date as date,
             exports.created_at as created_at,
-            exports.paid_amount as amount,
+            ${exportAmountExpr} as amount,
             'EXPORT' as source,
             COALESCE(exports.receipt_no, '#' || exports.id) as reference,
             (vehicles.vehicle_number || ' • ' || vehicles.owner_name) as party,
@@ -552,8 +659,8 @@ const buildPaymentLedgerData = ({ channel, from, to, openingBalance }) => {
      FROM exports
      JOIN vehicles ON vehicles.id = exports.vehicle_id
      WHERE exports.export_date BETWEEN ? AND ?
-       AND exports.payment_method = ?`
-  ).all(from, to, channel).forEach((row) => pushEntry(row, "INFLOW"));
+       AND ${exportAmountExpr} > 0`
+  ).all(from, to).forEach((row) => pushEntry(row, "INFLOW"));
 
   db.prepare(
     `SELECT date(credit_payments.paid_at) as date,
@@ -782,7 +889,9 @@ const parsePaymentAmount = (details) => {
 const parsePaymentMethodFromDetails = (details) => {
   const match = String(details || "").match(/method=([A-Z_]+)/i);
   if (!match) return "CASH";
-  return normalizePaymentMethod(match[1]);
+  const raw = String(match[1] || "").toUpperCase();
+  if (raw === "MIXED") return "MIXED";
+  return normalizePaymentMethod(raw);
 };
 
 const buildCreditsListUrl = (params = {}) => {
@@ -833,7 +942,7 @@ const buildExportsListUrl = (params = {}) => {
   return `/records/exports?${query.toString()}`;
 };
 
-const applyCreditSettlementPayment = ({ creditRows, paymentAmount, note, userId, paymentMethod }) => {
+const applyCreditSettlementPayment = ({ creditRows, paymentAmount, paymentBreakdown, note, userId, paymentMethod }) => {
   const rows = Array.isArray(creditRows) ? creditRows : [];
   const totalRemaining = rows.reduce((sum, row) => {
     const remaining = computeRemainingMoney(row.amount || 0, row.paid_amount || 0);
@@ -841,36 +950,72 @@ const applyCreditSettlementPayment = ({ creditRows, paymentAmount, note, userId,
   }, 0);
   if (totalRemaining <= 0) return { applied: 0, totalRemaining: 0, count: 0 };
 
-  let toApply = Math.min(parseMoneyValue(paymentAmount || 0), totalRemaining);
-  if (Number.isNaN(toApply) || toApply <= 0) {
+  let breakdown = paymentBreakdown && typeof paymentBreakdown === "object"
+    ? {
+      cash: parseMoneyValue(paymentBreakdown.cash || 0),
+      bank: parseMoneyValue(paymentBreakdown.bank || 0),
+      eWallet: parseMoneyValue(paymentBreakdown.eWallet || 0)
+    }
+    : null;
+  if (!breakdown || sumPaymentBreakdown(breakdown) <= 0) {
+    const safeMethod = normalizePaymentMethod(paymentMethod);
+    const safeAmount = parseMoneyValue(paymentAmount || 0);
+    breakdown = {
+      cash: safeMethod === "CASH" ? safeAmount : 0,
+      bank: safeMethod === "BANK" ? safeAmount : 0,
+      eWallet: safeMethod === "E_WALLET" ? safeAmount : 0
+    };
+  }
+  breakdown = clampBreakdownToTotal(breakdown, totalRemaining);
+  const totalToApply = sumPaymentBreakdown(breakdown);
+  if (Number.isNaN(totalToApply) || totalToApply <= 0) {
     return { applied: 0, totalRemaining, count: 0 };
   }
+  const remainingByMethod = { ...breakdown };
 
   let applied = 0;
   let count = 0;
   db.exec("BEGIN;");
   try {
     rows.forEach((row) => {
-      if (toApply <= 0) return;
+      if (sumPaymentBreakdown(remainingByMethod) <= 0) return;
       const amount = parseMoneyValue(row.amount || 0);
       const paid = parseMoneyValue(row.paid_amount || 0);
       const remaining = computeRemainingMoney(amount, paid);
       if (remaining <= 0) return;
-      const share = parseMoneyValue(Math.min(toApply, remaining));
-      const newPaid = parseMoneyValue(Math.min(amount, paid + share));
+
+      let rowApplied = 0;
+      const rowBreakdown = { cash: 0, bank: 0, eWallet: 0 };
+      paymentBreakdownOrder.forEach((key) => {
+        const methodRemaining = parseMoneyValue(remainingByMethod[key] || 0);
+        if (methodRemaining <= 0) return;
+        const rowRemaining = parseMoneyValue(remaining - rowApplied);
+        if (rowRemaining <= 0) return;
+        const share = parseMoneyValue(Math.min(methodRemaining, rowRemaining));
+        if (share <= 0) return;
+        rowBreakdown[key] = share;
+        remainingByMethod[key] = parseMoneyValue(methodRemaining - share);
+        rowApplied = parseMoneyValue(rowApplied + share);
+      });
+      if (rowApplied <= 0) return;
+
+      const newPaid = parseMoneyValue(Math.min(amount, paid + rowApplied));
       const paidFlag = amount === 0 ? 1 : newPaid >= amount ? 1 : 0;
 
       db.prepare("UPDATE credits SET paid_amount = ?, paid = ? WHERE id = ?").run(newPaid, paidFlag, row.id);
-      insertCreditPayment({
-        creditId: row.id,
-        amount: share,
-        note,
-        userId,
-        paymentMethod
+      paymentBreakdownOrder.forEach((key) => {
+        const share = parseMoneyValue(rowBreakdown[key] || 0);
+        if (share <= 0) return;
+        insertCreditPayment({
+          creditId: row.id,
+          amount: share,
+          note,
+          userId,
+          paymentMethod: paymentMethodByBreakdownKey[key]
+        });
       });
 
-      toApply = parseMoneyValue(toApply - share);
-      applied = parseMoneyValue(applied + share);
+      applied = parseMoneyValue(applied + rowApplied);
       count += 1;
     });
     db.exec("COMMIT;");
@@ -1741,9 +1886,9 @@ router.get("/exports", (req, res) => {
   ).get(...params);
   const rangePaidByMethod = db.prepare(
     `SELECT
-        COALESCE(SUM(CASE WHEN exports.payment_method = 'CASH' THEN exports.paid_amount ELSE 0 END), 0) AS cash_paid,
-        COALESCE(SUM(CASE WHEN exports.payment_method = 'BANK' THEN exports.paid_amount ELSE 0 END), 0) AS bank_paid,
-        COALESCE(SUM(CASE WHEN exports.payment_method = 'E_WALLET' THEN exports.paid_amount ELSE 0 END), 0) AS ewallet_paid
+        COALESCE(SUM(exports.paid_cash_amount), 0) AS cash_paid,
+        COALESCE(SUM(exports.paid_bank_amount), 0) AS bank_paid,
+        COALESCE(SUM(exports.paid_ewallet_amount), 0) AS ewallet_paid
      FROM exports
      JOIN vehicles ON exports.vehicle_id = vehicles.id
      WHERE export_date BETWEEN ? AND ?
@@ -1774,9 +1919,9 @@ router.get("/exports", (req, res) => {
   ).get(today);
   const todayPaidByMethod = db.prepare(
     `SELECT
-        COALESCE(SUM(CASE WHEN payment_method = 'CASH' THEN paid_amount ELSE 0 END), 0) AS cash_paid,
-        COALESCE(SUM(CASE WHEN payment_method = 'BANK' THEN paid_amount ELSE 0 END), 0) AS bank_paid,
-        COALESCE(SUM(CASE WHEN payment_method = 'E_WALLET' THEN paid_amount ELSE 0 END), 0) AS ewallet_paid
+        COALESCE(SUM(paid_cash_amount), 0) AS cash_paid,
+        COALESCE(SUM(paid_bank_amount), 0) AS bank_paid,
+        COALESCE(SUM(paid_ewallet_amount), 0) AS ewallet_paid
      FROM exports
      WHERE export_date = ?`
   ).get(today);
@@ -1975,8 +2120,6 @@ router.get("/exports/daily-credit", (req, res) => {
 router.post("/exports/daily-credit", (req, res) => {
   const date = req.body.date || dayjs().format("YYYY-MM-DD");
   const vehicleId = Number(req.body.vehicle_id || 0);
-  const paymentRaw = parseMoneyValue(req.body.payment_amount || 0);
-  const paymentMethod = normalizePaymentMethod(req.body.payment_method);
   if (!vehicleId) {
     return res.redirect(`/records/exports?from=${date}&to=${date}&error=dayCreditSelectVehicle`);
   }
@@ -1987,7 +2130,9 @@ router.post("/exports/daily-credit", (req, res) => {
     return res.redirect(`/records/exports?from=${date}&to=${date}&error=companyVehicleNoCredit`);
   }
   const trips = db.prepare(
-    `SELECT exports.id, exports.total_amount, exports.paid_amount, exports.receipt_no
+    `SELECT exports.id, exports.total_amount, exports.paid_amount,
+            exports.paid_cash_amount, exports.paid_bank_amount, exports.paid_ewallet_amount,
+            exports.receipt_no
      FROM exports
      WHERE exports.export_date = ?
        AND exports.vehicle_id = ?
@@ -1997,6 +2142,9 @@ router.post("/exports/daily-credit", (req, res) => {
     ...row,
     total_amount: parseMoneyValue(row.total_amount || 0),
     paid_amount: parseMoneyValue(row.paid_amount || 0),
+    paid_cash_amount: parseMoneyValue(row.paid_cash_amount || 0),
+    paid_bank_amount: parseMoneyValue(row.paid_bank_amount || 0),
+    paid_ewallet_amount: parseMoneyValue(row.paid_ewallet_amount || 0),
     remaining: computeRemainingMoney(row.total_amount || 0, row.paid_amount || 0)
   }));
   const totalRemaining = trips.reduce((sum, row) => parseMoneyValue(sum + row.remaining), 0);
@@ -2004,7 +2152,10 @@ router.post("/exports/daily-credit", (req, res) => {
     return res.redirect(`/records/exports?from=${date}&to=${date}&error=dayCreditNoRemaining`);
   }
 
-  if (Number.isNaN(paymentRaw) || paymentRaw <= 0) {
+  const paymentParsed = parsePaymentBreakdownFromBody(req.body, {
+    maxTotal: totalRemaining
+  });
+  if (paymentParsed.total <= 0) {
     return res.render("records/export_daily_credit", {
       title: req.t("dayCreditTitle"),
       date,
@@ -2015,21 +2166,55 @@ router.post("/exports/daily-credit", (req, res) => {
     });
   }
 
-  let remainingPayment = parseMoneyValue(Math.min(paymentRaw, totalRemaining));
+  const remainingByMethod = {
+    cash: parseMoneyValue(paymentParsed.breakdown.cash || 0),
+    bank: parseMoneyValue(paymentParsed.breakdown.bank || 0),
+    eWallet: parseMoneyValue(paymentParsed.breakdown.eWallet || 0)
+  };
+  const appliedByMethod = { cash: 0, bank: 0, eWallet: 0 };
   db.exec("BEGIN;");
   try {
     trips.forEach((trip) => {
-      if (remainingPayment <= 0) return;
-      const applied = parseMoneyValue(Math.min(remainingPayment, trip.remaining));
+      const remainingOnTrip = computeRemainingMoney(trip.total_amount || 0, trip.paid_amount || 0);
+      if (remainingOnTrip <= 0) return;
+
+      const shareByMethod = { cash: 0, bank: 0, eWallet: 0 };
+      let applied = 0;
+      paymentBreakdownOrder.forEach((key) => {
+        const methodRemaining = parseMoneyValue(remainingByMethod[key] || 0);
+        if (methodRemaining <= 0) return;
+        const availableOnTrip = parseMoneyValue(remainingOnTrip - applied);
+        if (availableOnTrip <= 0) return;
+        const share = parseMoneyValue(Math.min(methodRemaining, availableOnTrip));
+        if (share <= 0) return;
+        shareByMethod[key] = share;
+        remainingByMethod[key] = parseMoneyValue(methodRemaining - share);
+        appliedByMethod[key] = parseMoneyValue(appliedByMethod[key] + share);
+        applied = parseMoneyValue(applied + share);
+      });
+      if (applied <= 0) return;
+
+      const nextPaidCash = parseMoneyValue(trip.paid_cash_amount + shareByMethod.cash);
+      const nextPaidBank = parseMoneyValue(trip.paid_bank_amount + shareByMethod.bank);
+      const nextPaidEWallet = parseMoneyValue(trip.paid_ewallet_amount + shareByMethod.eWallet);
       const newPaid = parseMoneyValue(Math.min(trip.total_amount, trip.paid_amount + applied));
       const newCredit = computeRemainingMoney(trip.total_amount, newPaid);
-      db.prepare("UPDATE exports SET paid_amount = ?, credit_amount = ?, payment_method = ? WHERE id = ?").run(
+      const methodForTrip = getPaymentMethodFromBreakdown(
+        { cash: nextPaidCash, bank: nextPaidBank, eWallet: nextPaidEWallet },
+        paymentParsed.primaryMethod,
+        true
+      );
+      db.prepare(
+        "UPDATE exports SET paid_amount = ?, paid_cash_amount = ?, paid_bank_amount = ?, paid_ewallet_amount = ?, credit_amount = ?, payment_method = ? WHERE id = ?"
+      ).run(
         newPaid,
+        nextPaidCash,
+        nextPaidBank,
+        nextPaidEWallet,
         newCredit,
-        paymentMethod,
+        methodForTrip,
         trip.id
       );
-      remainingPayment = parseMoneyValue(remainingPayment - applied);
     });
     db.exec("COMMIT;");
   } catch (err) {
@@ -2037,12 +2222,14 @@ router.post("/exports/daily-credit", (req, res) => {
     throw err;
   }
 
+  const appliedTotal = sumPaymentBreakdown(appliedByMethod);
+  const appliedMethodLabel = getPaymentMethodFromBreakdown(appliedByMethod, paymentParsed.primaryMethod, true);
   logActivity({
     userId: req.session.userId,
     action: "payment",
     entityType: "export_day_credit",
     entityId: `${vehicleId}:${date}`,
-    details: `date=${date}, vehicle_id=${vehicleId}, payment=${parseMoneyValue(Math.min(paymentRaw, totalRemaining))}, method=${paymentMethod}`
+    details: `date=${date}, vehicle_id=${vehicleId}, payment=${appliedTotal}, method=${appliedMethodLabel}, cash=${appliedByMethod.cash}, bank=${appliedByMethod.bank}, ewallet=${appliedByMethod.eWallet}`
   });
 
   return res.redirect(`/records/exports?from=${date}&to=${date}&status=day_credit_paid`);
@@ -2050,12 +2237,10 @@ router.post("/exports/daily-credit", (req, res) => {
 
 router.post("/exports/vehicle-credits/pay", (req, res) => {
   const vehicleId = parseOptionalId(req.body.vehicle_id);
-  const paymentAmount = parseMoneyValue(req.body.payment_amount || 0);
-  const paymentMethod = normalizePaymentMethod(req.body.payment_method);
   const vehicleCreditFrom = String(req.body.vehicle_credit_from || req.body.from || "").trim();
   const vehicleCreditTo = String(req.body.vehicle_credit_to || req.body.to || "").trim();
   const hasVehicleCreditRange = Boolean(vehicleCreditFrom && vehicleCreditTo);
-  if (!vehicleId || Number.isNaN(paymentAmount) || paymentAmount <= 0) {
+  if (!vehicleId) {
     return res.redirect(buildExportsListUrl({ ...req.body, error: "vehicleCumulativePaymentInvalid" }));
   }
 
@@ -2069,7 +2254,8 @@ router.post("/exports/vehicle-credits/pay", (req, res) => {
   const rangeClause = hasVehicleCreditRange ? "AND exports.export_date BETWEEN ? AND ?" : "";
   const rowParams = hasVehicleCreditRange ? [vehicleId, vehicleCreditFrom, vehicleCreditTo] : [vehicleId];
   const rows = db.prepare(
-    `SELECT exports.id, exports.total_amount, exports.paid_amount, exports.credit_amount
+    `SELECT exports.id, exports.total_amount, exports.paid_amount, exports.credit_amount,
+            exports.paid_cash_amount, exports.paid_bank_amount, exports.paid_ewallet_amount
      FROM exports
      JOIN vehicles ON exports.vehicle_id = vehicles.id
      WHERE exports.vehicle_id = ?
@@ -2086,32 +2272,68 @@ router.post("/exports/vehicle-credits/pay", (req, res) => {
     const remaining = computeRemainingMoney(row.total_amount || 0, row.paid_amount || 0);
     return parseMoneyValue(sum + remaining);
   }, 0);
-  let toApply = parseMoneyValue(Math.min(paymentAmount, totalRemaining));
-  if (toApply <= 0) {
+  const paymentParsed = parsePaymentBreakdownFromBody(req.body, {
+    maxTotal: totalRemaining
+  });
+  if (paymentParsed.total <= 0) {
     return res.redirect(buildExportsListUrl({ ...req.body, error: "vehicleCumulativePaymentInvalid" }));
   }
 
-  let applied = 0;
+  const remainingByMethod = {
+    cash: parseMoneyValue(paymentParsed.breakdown.cash || 0),
+    bank: parseMoneyValue(paymentParsed.breakdown.bank || 0),
+    eWallet: parseMoneyValue(paymentParsed.breakdown.eWallet || 0)
+  };
+  const appliedByMethod = { cash: 0, bank: 0, eWallet: 0 };
   let tripCount = 0;
   db.exec("BEGIN;");
   try {
     rows.forEach((row) => {
-      if (toApply <= 0) return;
       const total = parseMoneyValue(row.total_amount || 0);
       const paid = parseMoneyValue(row.paid_amount || 0);
+      const paidCash = parseMoneyValue(row.paid_cash_amount || 0);
+      const paidBank = parseMoneyValue(row.paid_bank_amount || 0);
+      const paidEWallet = parseMoneyValue(row.paid_ewallet_amount || 0);
       const remaining = computeRemainingMoney(total, paid);
       if (remaining <= 0) return;
-      const share = parseMoneyValue(Math.min(toApply, remaining));
+
+      const shareByMethod = { cash: 0, bank: 0, eWallet: 0 };
+      let share = 0;
+      paymentBreakdownOrder.forEach((key) => {
+        const methodRemaining = parseMoneyValue(remainingByMethod[key] || 0);
+        if (methodRemaining <= 0) return;
+        const availableOnRow = parseMoneyValue(remaining - share);
+        if (availableOnRow <= 0) return;
+        const use = parseMoneyValue(Math.min(methodRemaining, availableOnRow));
+        if (use <= 0) return;
+        shareByMethod[key] = use;
+        remainingByMethod[key] = parseMoneyValue(methodRemaining - use);
+        appliedByMethod[key] = parseMoneyValue(appliedByMethod[key] + use);
+        share = parseMoneyValue(share + use);
+      });
+      if (share <= 0) return;
+
+      const nextPaidCash = parseMoneyValue(paidCash + shareByMethod.cash);
+      const nextPaidBank = parseMoneyValue(paidBank + shareByMethod.bank);
+      const nextPaidEWallet = parseMoneyValue(paidEWallet + shareByMethod.eWallet);
       const newPaid = parseMoneyValue(Math.min(total, paid + share));
       const newCredit = computeRemainingMoney(total, newPaid);
-      db.prepare("UPDATE exports SET paid_amount = ?, credit_amount = ?, payment_method = ? WHERE id = ?").run(
+      const methodForRow = getPaymentMethodFromBreakdown(
+        { cash: nextPaidCash, bank: nextPaidBank, eWallet: nextPaidEWallet },
+        paymentParsed.primaryMethod,
+        true
+      );
+      db.prepare(
+        "UPDATE exports SET paid_amount = ?, paid_cash_amount = ?, paid_bank_amount = ?, paid_ewallet_amount = ?, credit_amount = ?, payment_method = ? WHERE id = ?"
+      ).run(
         newPaid,
+        nextPaidCash,
+        nextPaidBank,
+        nextPaidEWallet,
         newCredit,
-        paymentMethod,
+        methodForRow,
         row.id
       );
-      toApply = parseMoneyValue(toApply - share);
-      applied = parseMoneyValue(applied + share);
       tripCount += 1;
     });
     db.exec("COMMIT;");
@@ -2120,12 +2342,14 @@ router.post("/exports/vehicle-credits/pay", (req, res) => {
     throw err;
   }
 
+  const applied = sumPaymentBreakdown(appliedByMethod);
+  const methodLabel = getPaymentMethodFromBreakdown(appliedByMethod, paymentParsed.primaryMethod, true);
   logActivity({
     userId: req.session.userId,
     action: "payment",
     entityType: "export_vehicle_cumulative_settlement",
     entityId: vehicleId,
-    details: `vehicle=${vehicle.owner_name} • ${vehicle.vehicle_number}; payment=${applied}; method=${paymentMethod}; trips=${tripCount}`
+    details: `vehicle=${vehicle.owner_name} • ${vehicle.vehicle_number}; payment=${applied}; method=${methodLabel}; cash=${appliedByMethod.cash}; bank=${appliedByMethod.bank}; ewallet=${appliedByMethod.eWallet}; trips=${tripCount}`
   });
 
   return res.redirect(buildExportsListUrl({ ...req.body, status: "vehicle_cumulative_paid" }));
@@ -2463,18 +2687,30 @@ router.post("/exports", (req, res) => {
   }
   const soldJarAmount = Math.max(0, soldJars) * Math.max(0, soldJarPrice);
   let totalAmount = netJars * jarUnitPrice + netBottles * bottleCaseUnitPrice + dispenserAmount + soldJarAmount;
-  let paidAmount = Number(paid_amount || 0);
-  const paymentMethod = normalizePaymentMethod(payment_method);
   let collectionAmount = Number(collection_amount || 0);
   const expenseAmount = 0;
-  if (Number.isNaN(paidAmount) || paidAmount < 0) paidAmount = 0;
   if (Number.isNaN(collectionAmount) || collectionAmount < 0) collectionAmount = 0;
-  if (!isCompany) paidAmount = Math.min(paidAmount, totalAmount);
   if (!isCompany) {
     collectionAmount = 0;
   }
   if (isCompany) totalAmount = collectionAmount;
-  const effectivePaid = isCompany ? collectionAmount : paidAmount;
+  const paymentParsed = parsePaymentBreakdownFromBody(req.body, {
+    cashField: "paid_cash_amount",
+    bankField: "paid_bank_amount",
+    ewalletField: "paid_ewallet_amount",
+    amountField: "paid_amount",
+    methodField: "payment_method",
+    maxTotal: isCompany ? collectionAmount : totalAmount
+  });
+  const paidBreakdown = isCompany
+    ? { cash: parseMoneyValue(collectionAmount), bank: 0, eWallet: 0 }
+    : paymentParsed.breakdown;
+  const effectivePaid = sumPaymentBreakdown(paidBreakdown);
+  const paymentMethod = getPaymentMethodFromBreakdown(
+    paidBreakdown,
+    normalizePaymentMethod(payment_method),
+    true
+  );
   const creditAmount = isCompany ? 0 : Math.max(0, totalAmount - effectivePaid);
   const expenseNoteValue = null;
   const externalVehicleNote = buildExternalVehicleNote({
@@ -2528,7 +2764,7 @@ router.post("/exports", (req, res) => {
   }
 
   const exportResult = db.prepare(
-    "INSERT INTO exports (vehicle_id, export_date, jar_count, bottle_case_count, dispenser_count, jar_unit_price, bottle_case_unit_price, dispenser_unit_price, return_jar_count, return_bottle_case_count, leakage_jar_count, sold_jar_count, sold_jar_price, sold_jar_amount, collection_amount, expense_amount, expense_note, total_amount, paid_amount, payment_method, credit_amount, note, route, checked_by_staff_id, checked_by_staff_name, force_wash_required, force_wash_staff_name, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    "INSERT INTO exports (vehicle_id, export_date, jar_count, bottle_case_count, dispenser_count, jar_unit_price, bottle_case_unit_price, dispenser_unit_price, return_jar_count, return_bottle_case_count, leakage_jar_count, sold_jar_count, sold_jar_price, sold_jar_amount, collection_amount, expense_amount, expense_note, total_amount, paid_amount, paid_cash_amount, paid_bank_amount, paid_ewallet_amount, payment_method, credit_amount, note, route, checked_by_staff_id, checked_by_staff_name, force_wash_required, force_wash_staff_name, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
   ).run(
     resolvedVehicleId,
     export_date,
@@ -2549,6 +2785,9 @@ router.post("/exports", (req, res) => {
     expenseNoteValue,
     totalAmount,
     effectivePaid,
+    paidBreakdown.cash,
+    paidBreakdown.bank,
+    paidBreakdown.eWallet,
     paymentMethod,
     creditAmount,
     noteValue,
@@ -2567,7 +2806,7 @@ router.post("/exports", (req, res) => {
     action: "create",
     entityType: "export",
     entityId: exportId,
-    details: `receipt=${exportReceiptNo}, export_date=${export_date}, vehicle_id=${resolvedVehicleId}, external_vehicle=${vehicleResolution.useExternalVehicle ? 1 : 0}, external_vehicle_number=${vehicleResolution.externalVehicleNumber || ''}, external_owner=${vehicleResolution.externalOwnerName || ''}, external_phone=${vehicleResolution.externalPhone || ''}, external_org=${externalOrganizationRaw || ''}, jars=${jarCount}, jar_price=${jarUnitPrice}, bottles=${bottleCount}, bottle_price=${bottleCaseUnitPrice}, dispensers=${dispenserCount}, dispenser_price=${dispenserUnitPrice}, return_jars=${returnJars}, return_bottles=${returnBottles}, leakage_jars=${leakageJars}, sold_jars=${soldJars}, sold_price=${soldJarPrice}, collection=${collectionAmount}, paid_method=${paymentMethod}, expense=${expenseAmount}, route=${route || ''}, checked_staff=${checkedByStaffId || ''}, checked_staff_name=${checkedByStaffName || ''}, force_wash=${forceWashRequired}, force_wash_by=${forceWashStaffName || ''}`
+    details: `receipt=${exportReceiptNo}, export_date=${export_date}, vehicle_id=${resolvedVehicleId}, external_vehicle=${vehicleResolution.useExternalVehicle ? 1 : 0}, external_vehicle_number=${vehicleResolution.externalVehicleNumber || ''}, external_owner=${vehicleResolution.externalOwnerName || ''}, external_phone=${vehicleResolution.externalPhone || ''}, external_org=${externalOrganizationRaw || ''}, jars=${jarCount}, jar_price=${jarUnitPrice}, bottles=${bottleCount}, bottle_price=${bottleCaseUnitPrice}, dispensers=${dispenserCount}, dispenser_price=${dispenserUnitPrice}, return_jars=${returnJars}, return_bottles=${returnBottles}, leakage_jars=${leakageJars}, sold_jars=${soldJars}, sold_price=${soldJarPrice}, collection=${collectionAmount}, paid_method=${paymentMethod}, paid_cash=${paidBreakdown.cash}, paid_bank=${paidBreakdown.bank}, paid_ewallet=${paidBreakdown.eWallet}, expense=${expenseAmount}, route=${route || ''}, checked_staff=${checkedByStaffId || ''}, checked_staff_name=${checkedByStaffName || ''}, force_wash=${forceWashRequired}, force_wash_by=${forceWashStaffName || ''}`
   });
 
   res.redirect(`/records/exports/${exportId}/saved`);
@@ -2589,7 +2828,7 @@ router.get("/exports/:id/saved", (req, res) => {
 
 router.get("/exports/:id/pay-credit", (req, res) => {
   const record = db.prepare(
-    `SELECT exports.id, exports.export_date, exports.receipt_no, exports.total_amount, exports.paid_amount, exports.credit_amount,
+    `SELECT exports.id, exports.export_date, exports.receipt_no, exports.total_amount, exports.paid_amount, exports.paid_cash_amount, exports.paid_bank_amount, exports.paid_ewallet_amount, exports.credit_amount,
             exports.payment_method,
             exports.vehicle_id, vehicles.vehicle_number, vehicles.owner_name, vehicles.is_company
      FROM exports
@@ -2614,7 +2853,7 @@ router.get("/exports/:id/pay-credit", (req, res) => {
 
 router.post("/exports/:id/pay-credit", (req, res) => {
   const record = db.prepare(
-    `SELECT exports.id, exports.export_date, exports.total_amount, exports.paid_amount, exports.credit_amount,
+    `SELECT exports.id, exports.export_date, exports.total_amount, exports.paid_amount, exports.paid_cash_amount, exports.paid_bank_amount, exports.paid_ewallet_amount, exports.credit_amount,
             exports.payment_method,
             exports.vehicle_id, vehicles.vehicle_number, vehicles.owner_name, vehicles.is_company
      FROM exports
@@ -2631,9 +2870,10 @@ router.post("/exports/:id/pay-credit", (req, res) => {
     return res.redirect(`/records/exports?from=${record.export_date}&to=${record.export_date}&error=exportCreditPaymentNoRemaining`);
   }
 
-  const paymentAmountRaw = parseMoneyValue(req.body.payment_amount || 0);
-  const paymentMethod = normalizePaymentMethod(req.body.payment_method || record.payment_method);
-  if (Number.isNaN(paymentAmountRaw) || paymentAmountRaw <= 0) {
+  const paymentParsed = parsePaymentBreakdownFromBody(req.body, {
+    maxTotal: remaining
+  });
+  if (paymentParsed.total <= 0) {
     return res.render("records/export_credit_payment", {
       title: req.t("payExportCreditTitle"),
       record,
@@ -2643,15 +2883,26 @@ router.post("/exports/:id/pay-credit", (req, res) => {
   }
 
   const safeRemaining = computeRemainingMoney(record.total_amount || 0, record.paid_amount || 0);
-  const appliedPayment = parseMoneyValue(Math.min(paymentAmountRaw, safeRemaining));
+  const appliedPayment = parseMoneyValue(Math.min(paymentParsed.total, safeRemaining));
   const newPaidAmount = parseMoneyValue(Math.min(
     parseMoneyValue(record.total_amount || 0),
     parseMoneyValue(record.paid_amount || 0) + appliedPayment
   ));
   const newCreditAmount = computeRemainingMoney(record.total_amount || 0, newPaidAmount);
+  const nextPaidCash = parseMoneyValue(Number(record.paid_cash_amount || 0) + Number(paymentParsed.breakdown.cash || 0));
+  const nextPaidBank = parseMoneyValue(Number(record.paid_bank_amount || 0) + Number(paymentParsed.breakdown.bank || 0));
+  const nextPaidEWallet = parseMoneyValue(Number(record.paid_ewallet_amount || 0) + Number(paymentParsed.breakdown.eWallet || 0));
+  const paymentMethod = getPaymentMethodFromBreakdown(
+    { cash: nextPaidCash, bank: nextPaidBank, eWallet: nextPaidEWallet },
+    req.body.payment_method || record.payment_method,
+    true
+  );
 
-  db.prepare("UPDATE exports SET paid_amount = ?, credit_amount = ?, payment_method = ? WHERE id = ?").run(
+  db.prepare("UPDATE exports SET paid_amount = ?, paid_cash_amount = ?, paid_bank_amount = ?, paid_ewallet_amount = ?, credit_amount = ?, payment_method = ? WHERE id = ?").run(
     newPaidAmount,
+    nextPaidCash,
+    nextPaidBank,
+    nextPaidEWallet,
     newCreditAmount,
     paymentMethod,
     req.params.id
@@ -2662,7 +2913,7 @@ router.post("/exports/:id/pay-credit", (req, res) => {
     action: "payment",
     entityType: "export",
     entityId: req.params.id,
-    details: `payment=${appliedPayment}; method=${paymentMethod}; paid_amount: ${formatDiffValue(record.paid_amount)} -> ${formatDiffValue(newPaidAmount)}; credit_amount: ${formatDiffValue(record.credit_amount)} -> ${formatDiffValue(newCreditAmount)}`
+    details: `payment=${appliedPayment}; method=${getPaymentMethodFromBreakdown(paymentParsed.breakdown, paymentParsed.primaryMethod, true)}; cash=${paymentParsed.breakdown.cash || 0}; bank=${paymentParsed.breakdown.bank || 0}; ewallet=${paymentParsed.breakdown.eWallet || 0}; paid_amount: ${formatDiffValue(record.paid_amount)} -> ${formatDiffValue(newPaidAmount)}; credit_amount: ${formatDiffValue(record.credit_amount)} -> ${formatDiffValue(newCreditAmount)}`
   });
 
   return res.redirect(`/records/exports?from=${record.export_date}&to=${record.export_date}&status=credit_paid`);
@@ -2882,18 +3133,30 @@ router.post("/exports/:id", (req, res) => {
   }
   const soldJarAmount = Math.max(0, soldJars) * Math.max(0, soldJarPrice);
   let totalAmount = netJars * jarUnitPrice + netBottles * bottleCaseUnitPrice + dispenserAmount + soldJarAmount;
-  let paidAmount = Number(paid_amount || 0);
-  const paymentMethod = normalizePaymentMethod(payment_method);
   let collectionAmount = Number(collection_amount || 0);
   const expenseAmount = 0;
-  if (Number.isNaN(paidAmount) || paidAmount < 0) paidAmount = 0;
   if (Number.isNaN(collectionAmount) || collectionAmount < 0) collectionAmount = 0;
-  if (!isCompany) paidAmount = Math.min(paidAmount, totalAmount);
   if (!isCompany) {
     collectionAmount = 0;
   }
   if (isCompany) totalAmount = collectionAmount;
-  const effectivePaid = isCompany ? collectionAmount : paidAmount;
+  const paymentParsed = parsePaymentBreakdownFromBody(req.body, {
+    cashField: "paid_cash_amount",
+    bankField: "paid_bank_amount",
+    ewalletField: "paid_ewallet_amount",
+    amountField: "paid_amount",
+    methodField: "payment_method",
+    maxTotal: isCompany ? collectionAmount : totalAmount
+  });
+  const paidBreakdown = isCompany
+    ? { cash: parseMoneyValue(collectionAmount), bank: 0, eWallet: 0 }
+    : paymentParsed.breakdown;
+  const effectivePaid = sumPaymentBreakdown(paidBreakdown);
+  const paymentMethod = getPaymentMethodFromBreakdown(
+    paidBreakdown,
+    normalizePaymentMethod(payment_method),
+    true
+  );
   const creditAmount = isCompany ? 0 : Math.max(0, totalAmount - effectivePaid);
   const expenseNoteValue = null;
   const externalVehicleNote = buildExternalVehicleNote({
@@ -2905,7 +3168,7 @@ router.post("/exports/:id", (req, res) => {
   const noteValue = mergeNoteWithExternalVehicle(note, externalVehicleNote);
 
   db.prepare(
-    "UPDATE exports SET vehicle_id = ?, export_date = ?, jar_count = ?, bottle_case_count = ?, dispenser_count = ?, jar_unit_price = ?, bottle_case_unit_price = ?, dispenser_unit_price = ?, return_jar_count = ?, return_bottle_case_count = ?, leakage_jar_count = ?, sold_jar_count = ?, sold_jar_price = ?, sold_jar_amount = ?, collection_amount = ?, expense_amount = ?, expense_note = ?, total_amount = ?, paid_amount = ?, payment_method = ?, credit_amount = ?, note = ?, route = ?, checked_by_staff_id = ?, checked_by_staff_name = ?, force_wash_required = ?, force_wash_staff_name = ? WHERE id = ?"
+    "UPDATE exports SET vehicle_id = ?, export_date = ?, jar_count = ?, bottle_case_count = ?, dispenser_count = ?, jar_unit_price = ?, bottle_case_unit_price = ?, dispenser_unit_price = ?, return_jar_count = ?, return_bottle_case_count = ?, leakage_jar_count = ?, sold_jar_count = ?, sold_jar_price = ?, sold_jar_amount = ?, collection_amount = ?, expense_amount = ?, expense_note = ?, total_amount = ?, paid_amount = ?, paid_cash_amount = ?, paid_bank_amount = ?, paid_ewallet_amount = ?, payment_method = ?, credit_amount = ?, note = ?, route = ?, checked_by_staff_id = ?, checked_by_staff_name = ?, force_wash_required = ?, force_wash_staff_name = ? WHERE id = ?"
   ).run(
     resolvedVehicleId,
     export_date,
@@ -2926,6 +3189,9 @@ router.post("/exports/:id", (req, res) => {
     expenseNoteValue,
     totalAmount,
     effectivePaid,
+    paidBreakdown.cash,
+    paidBreakdown.bank,
+    paidBreakdown.eWallet,
     paymentMethod,
     creditAmount,
     noteValue,
@@ -2963,6 +3229,9 @@ router.post("/exports/:id", (req, res) => {
         expense_note: expenseNoteValue,
         total_amount: totalAmount,
         paid_amount: effectivePaid,
+        paid_cash_amount: paidBreakdown.cash,
+        paid_bank_amount: paidBreakdown.bank,
+        paid_ewallet_amount: paidBreakdown.eWallet,
         payment_method: paymentMethod,
         credit_amount: creditAmount,
         note: noteValue,
@@ -2992,6 +3261,9 @@ router.post("/exports/:id", (req, res) => {
         "expense_note",
         "total_amount",
         "paid_amount",
+        "paid_cash_amount",
+        "paid_bank_amount",
+        "paid_ewallet_amount",
         "payment_method",
         "credit_amount",
         "note",
@@ -6977,12 +7249,23 @@ router.get("/credits", (req, res) => {
             credit_export.receipt_no as trip_receipt_no,
             COALESCE(credits.trip_date, credit_export.export_date) as trip_date,
             checked_staff.full_name as checked_by_staff_name,
+            COALESCE(cps.paid_cash_amount, 0) as paid_cash_amount,
+            COALESCE(cps.paid_bank_amount, 0) as paid_bank_amount,
+            COALESCE(cps.paid_ewallet_amount, 0) as paid_ewallet_amount,
             CASE WHEN credits.amount - credits.paid_amount < 0 THEN 0 ELSE credits.amount - credits.paid_amount END AS remaining_amount
      FROM credits
      JOIN vehicles ON credits.vehicle_id = vehicles.id
      LEFT JOIN users ON credits.created_by = users.id
      LEFT JOIN exports as credit_export ON credits.export_id = credit_export.id
      LEFT JOIN staff as checked_staff ON credits.checked_by_staff_id = checked_staff.id
+     LEFT JOIN (
+       SELECT credit_id,
+              COALESCE(SUM(CASE WHEN payment_method = 'CASH' THEN amount ELSE 0 END), 0) as paid_cash_amount,
+              COALESCE(SUM(CASE WHEN payment_method = 'BANK' THEN amount ELSE 0 END), 0) as paid_bank_amount,
+              COALESCE(SUM(CASE WHEN payment_method = 'E_WALLET' THEN amount ELSE 0 END), 0) as paid_ewallet_amount
+       FROM credit_payments
+       GROUP BY credit_id
+     ) as cps ON cps.credit_id = credits.id
      WHERE credit_date BETWEEN ? AND ?
      AND vehicles.is_company = 0
      ${statusClause}
@@ -7078,15 +7361,14 @@ router.get("/credits", (req, res) => {
 
 router.post("/credits/pay/customer-total", (req, res) => {
   const customerName = String(req.body.customer_name || "").trim();
-  const paymentAmount = Number(req.body.payment_amount || 0);
-  const paymentMethod = normalizePaymentMethod(req.body.payment_method);
   const customerCreditFrom = String(req.body.customer_credit_from || req.body.from || "").trim();
   const customerCreditTo = String(req.body.customer_credit_to || req.body.to || "").trim();
   const hasCustomerRange = Boolean(customerCreditFrom && customerCreditTo);
   if (!customerName) {
     return res.redirect(buildCreditsListUrl({ ...req.body, error: "creditSettlementCustomerRequired" }));
   }
-  if (Number.isNaN(paymentAmount) || paymentAmount <= 0) {
+  const paymentParsed = parsePaymentBreakdownFromBody(req.body);
+  if (paymentParsed.total <= 0) {
     return res.redirect(buildCreditsListUrl({ ...req.body, error: "creditSettlementInvalid" }));
   }
 
@@ -7111,10 +7393,11 @@ router.post("/credits/pay/customer-total", (req, res) => {
 
   const result = applyCreditSettlementPayment({
     creditRows: rows,
-    paymentAmount,
+    paymentAmount: paymentParsed.total,
+    paymentBreakdown: paymentParsed.breakdown,
     note: `Customer settlement (${customerName})`,
     userId: req.session.userId,
-    paymentMethod
+    paymentMethod: paymentParsed.primaryMethod
   });
   if (result.applied <= 0) {
     return res.redirect(buildCreditsListUrl({ ...req.body, error: "creditSettlementInvalid" }));
@@ -7125,7 +7408,7 @@ router.post("/credits/pay/customer-total", (req, res) => {
     action: "payment",
     entityType: "credit_customer_settlement",
     entityId: customerName,
-    details: `customer=${customerName}; payment=${result.applied}; method=${paymentMethod}; credits=${result.count}`
+    details: `customer=${customerName}; payment=${result.applied}; method=${paymentParsed.splitEntered ? 'MIXED' : paymentParsed.primaryMethod}; cash=${paymentParsed.breakdown.cash || 0}; bank=${paymentParsed.breakdown.bank || 0}; ewallet=${paymentParsed.breakdown.eWallet || 0}; credits=${result.count}`
   });
 
   return res.redirect(buildCreditsListUrl({ ...req.body, notice: "creditSettlementCustomerSaved" }));
@@ -7309,7 +7592,6 @@ router.post("/credits", (req, res) => {
     : null;
   const checkedByStaffId = staffRow ? staffRow.id : null;
   const forceWashRequired = forceWashDefault ? 1 : 0;
-  const paymentMethod = normalizePaymentMethod(payment_method);
 
   const jarCreditRaw = Number(credit_jars || 0);
   const bottleCreditRaw = Number(credit_bottle_cases || 0);
@@ -7340,10 +7622,25 @@ router.post("/credits", (req, res) => {
   const shouldUseDerived = hasPriceInputs
     && (derivedAmount > 0 || jarPrice > 0 || bottlePrice > 0 || dispenserPrice > 0 || jarContainerPrice > 0 || fallbackAmount === 0);
   const amountNum = shouldUseDerived ? derivedAmount : fallbackAmount;
-  let paidAmount = Number(paid_amount || 0);
-  if (Number.isNaN(paidAmount) || paidAmount < 0) paidAmount = 0;
-  if (typeof paid !== "undefined") paidAmount = amountNum;
-  if (paidAmount > amountNum) paidAmount = amountNum;
+  const paymentParsed = parsePaymentBreakdownFromBody(req.body, {
+    cashField: "paid_cash_amount",
+    bankField: "paid_bank_amount",
+    ewalletField: "paid_ewallet_amount",
+    amountField: "paid_amount",
+    methodField: "payment_method",
+    maxTotal: amountNum
+  });
+  let openingBreakdown = paymentParsed.breakdown;
+  if (typeof paid !== "undefined") {
+    const markMethod = normalizePaymentMethod(payment_method);
+    openingBreakdown = {
+      cash: markMethod === "CASH" ? amountNum : 0,
+      bank: markMethod === "BANK" ? amountNum : 0,
+      eWallet: markMethod === "E_WALLET" ? amountNum : 0
+    };
+  }
+  const paidAmount = sumPaymentBreakdown(openingBreakdown);
+  const paymentMethod = getPrimaryMethodFromBreakdown(openingBreakdown, normalizePaymentMethod(payment_method));
   const paidFlag = amountNum === 0 ? 1 : paidAmount >= amountNum ? 1 : 0;
   const duplicateCredits = findDuplicateCreditEntries({
     vehicleId: vehicle_id,
@@ -7413,13 +7710,17 @@ router.post("/credits", (req, res) => {
   const creditReceiptNo = createReceiptNo(db, "CRD", credit_date || dayjs().format("YYYY-MM-DD"));
   db.prepare("UPDATE credits SET receipt_no = ? WHERE id = ?").run(creditReceiptNo, creditId);
   if (paidAmount > 0 && creditId) {
-    insertCreditPayment({
-      creditId,
-      amount: paidAmount,
-      note: "Opening payment",
-      paidAt: credit_date,
-      userId: req.session.userId,
-      paymentMethod
+    paymentBreakdownOrder.forEach((key) => {
+      const amountValue = parseMoneyValue(openingBreakdown[key] || 0);
+      if (amountValue <= 0) return;
+      insertCreditPayment({
+        creditId,
+        amount: amountValue,
+        note: "Opening payment",
+        paidAt: credit_date,
+        userId: req.session.userId,
+        paymentMethod: paymentMethodByBreakdownKey[key]
+      });
     });
   }
   logActivity({
@@ -7427,7 +7728,7 @@ router.post("/credits", (req, res) => {
     action: "create",
     entityType: "credit",
     entityId: creditId,
-    details: `receipt=${creditReceiptNo}, export_id=${linkedExportId || ""}, credit_date=${credit_date}, trip_date=${tripDateValue || ""}, method=${paymentMethod}, checked_staff=${checkedByStaffId || ""}, force_wash=${forceWashRequired}, amount=${amountNum}, paid=${paidAmount}, jars=${jarCreditCount}@${jarPrice}, bottles=${bottleCreditCount}@${bottlePrice}, dispensers=${dispenserCreditCount}@${dispenserPrice}, containers=${jarContainerCreditCount}@${jarContainerPrice}, customer=${customer_name.trim()}`
+    details: `receipt=${creditReceiptNo}, export_id=${linkedExportId || ""}, credit_date=${credit_date}, trip_date=${tripDateValue || ""}, method=${paymentParsed.splitEntered ? 'MIXED' : paymentMethod}, cash=${openingBreakdown.cash || 0}, bank=${openingBreakdown.bank || 0}, ewallet=${openingBreakdown.eWallet || 0}, checked_staff=${checkedByStaffId || ""}, force_wash=${forceWashRequired}, amount=${amountNum}, paid=${paidAmount}, jars=${jarCreditCount}@${jarPrice}, bottles=${bottleCreditCount}@${bottlePrice}, dispensers=${dispenserCreditCount}@${dispenserPrice}, containers=${jarContainerCreditCount}@${jarContainerPrice}, customer=${customer_name.trim()}`
   });
 
   res.redirect(`/records/credits?from=${credit_date}&to=${credit_date}`);
@@ -7474,6 +7775,14 @@ router.post("/credits/:id", (req, res) => {
     payment_method
   } = req.body;
   const record = db.prepare("SELECT * FROM credits WHERE id = ?").get(req.params.id);
+  const existingPaymentBreakdownRow = db.prepare(
+    `SELECT
+        COALESCE(SUM(CASE WHEN payment_method = 'CASH' THEN amount ELSE 0 END), 0) as cash_amount,
+        COALESCE(SUM(CASE WHEN payment_method = 'BANK' THEN amount ELSE 0 END), 0) as bank_amount,
+        COALESCE(SUM(CASE WHEN payment_method = 'E_WALLET' THEN amount ELSE 0 END), 0) as ewallet_amount
+     FROM credit_payments
+     WHERE credit_id = ?`
+  ).get(req.params.id) || { cash_amount: 0, bank_amount: 0, ewallet_amount: 0 };
   const vehicles = getCreditVehicles();
   const staffOptions = getStaffOptions();
   const hasExportIdField = Object.prototype.hasOwnProperty.call(req.body, "export_id");
@@ -7536,7 +7845,6 @@ router.post("/credits/:id", (req, res) => {
     : null;
   const checkedByStaffId = staffRow ? staffRow.id : null;
   const forceWashRequired = forceWashDefault ? 1 : 0;
-  const paymentMethod = normalizePaymentMethod(payment_method);
 
   const jarCreditRaw = Number(credit_jars || 0);
   const bottleCreditRaw = Number(credit_bottle_cases || 0);
@@ -7567,10 +7875,25 @@ router.post("/credits/:id", (req, res) => {
   const shouldUseDerived = hasPriceInputs
     && (derivedAmount > 0 || jarPrice > 0 || bottlePrice > 0 || dispenserPrice > 0 || jarContainerPrice > 0 || fallbackAmount === 0);
   const amountNum = shouldUseDerived ? derivedAmount : fallbackAmount;
-  let paidAmount = Number(paid_amount || 0);
-  if (Number.isNaN(paidAmount) || paidAmount < 0) paidAmount = 0;
-  if (typeof paid !== "undefined") paidAmount = amountNum;
-  if (paidAmount > amountNum) paidAmount = amountNum;
+  const paymentParsed = parsePaymentBreakdownFromBody(req.body, {
+    cashField: "paid_cash_amount",
+    bankField: "paid_bank_amount",
+    ewalletField: "paid_ewallet_amount",
+    amountField: "paid_amount",
+    methodField: "payment_method",
+    maxTotal: amountNum
+  });
+  let openingBreakdown = paymentParsed.breakdown;
+  if (typeof paid !== "undefined") {
+    const markMethod = normalizePaymentMethod(payment_method);
+    openingBreakdown = {
+      cash: markMethod === "CASH" ? amountNum : 0,
+      bank: markMethod === "BANK" ? amountNum : 0,
+      eWallet: markMethod === "E_WALLET" ? amountNum : 0
+    };
+  }
+  const paidAmount = sumPaymentBreakdown(openingBreakdown);
+  const paymentMethod = getPrimaryMethodFromBreakdown(openingBreakdown, normalizePaymentMethod(payment_method));
   const paidFlag = amountNum === 0 ? 1 : paidAmount >= amountNum ? 1 : 0;
 
   db.prepare(
@@ -7597,11 +7920,38 @@ router.post("/credits/:id", (req, res) => {
     paidFlag,
     req.params.id
   );
-  const delta = paidAmount - Number(record.paid_amount || 0);
-  if (delta !== 0) {
+  const desiredBreakdown = {
+    cash: parseMoneyValue(openingBreakdown.cash || 0),
+    bank: parseMoneyValue(openingBreakdown.bank || 0),
+    eWallet: parseMoneyValue(openingBreakdown.eWallet || 0)
+  };
+  const existingBreakdown = {
+    cash: parseMoneyValue(existingPaymentBreakdownRow.cash_amount || 0),
+    bank: parseMoneyValue(existingPaymentBreakdownRow.bank_amount || 0),
+    eWallet: parseMoneyValue(existingPaymentBreakdownRow.ewallet_amount || 0)
+  };
+  let insertedDeltaTotal = 0;
+  paymentBreakdownOrder.forEach((key) => {
+    const desired = parseMoneyValue(desiredBreakdown[key] || 0);
+    const existing = parseMoneyValue(existingBreakdown[key] || 0);
+    const delta = roundMoneySigned(desired - existing);
+    if (Math.abs(delta) < 0.01) return;
+    insertedDeltaTotal = roundMoneySigned(insertedDeltaTotal + delta);
     insertCreditPayment({
       creditId: req.params.id,
       amount: delta,
+      note: "Adjustment",
+      userId: req.session.userId,
+      paymentMethod: paymentMethodByBreakdownKey[key]
+    });
+  });
+  const existingTotal = sumPaymentBreakdown(existingBreakdown);
+  const desiredTotal = sumPaymentBreakdown(desiredBreakdown);
+  const residue = roundMoneySigned(desiredTotal - roundMoneySigned(existingTotal + insertedDeltaTotal));
+  if (Math.abs(residue) >= 0.01) {
+    insertCreditPayment({
+      creditId: req.params.id,
+      amount: residue,
       note: "Adjustment",
       userId: req.session.userId,
       paymentMethod
@@ -7697,33 +8047,40 @@ router.post("/credits/:id/paid", (req, res) => {
 router.post("/credits/:id/pay", (req, res) => {
   const record = db.prepare("SELECT id, amount, paid_amount, payment_method FROM credits WHERE id = ?").get(req.params.id);
   if (!record) return res.redirect("/records/credits");
-  const paymentMethod = normalizePaymentMethod(req.body.payment_method || record.payment_method);
-  let payment = Number(req.body.payment_amount || 0);
-  if (Number.isNaN(payment) || payment <= 0) {
+  const paymentParsed = parsePaymentBreakdownFromBody(req.body);
+  if (paymentParsed.total <= 0) {
     return res.redirect(req.get("Referrer") || "/records/credits");
   }
   const remaining = Math.max(0, Number(record.amount || 0) - Number(record.paid_amount || 0));
-  const appliedPayment = Math.min(payment, remaining);
+  const cappedBreakdown = clampBreakdownToTotal(paymentParsed.breakdown, remaining);
+  const appliedPayment = sumPaymentBreakdown(cappedBreakdown);
   if (appliedPayment <= 0) {
     return res.redirect(req.get("Referrer") || "/records/credits");
   }
   let newPaidAmount = Number(record.paid_amount || 0) + appliedPayment;
   if (newPaidAmount > Number(record.amount || 0)) newPaidAmount = Number(record.amount || 0);
   const paidFlag = Number(record.amount || 0) === 0 ? 1 : newPaidAmount >= Number(record.amount || 0) ? 1 : 0;
-  insertCreditPayment({
-    creditId: req.params.id,
-    amount: appliedPayment,
-    note: "Payment",
-    userId: req.session.userId,
-    paymentMethod
+  paymentBreakdownOrder.forEach((key) => {
+    const amount = parseMoneyValue(cappedBreakdown[key] || 0);
+    if (amount <= 0) return;
+    insertCreditPayment({
+      creditId: req.params.id,
+      amount,
+      note: "Payment",
+      userId: req.session.userId,
+      paymentMethod: paymentMethodByBreakdownKey[key]
+    });
   });
-  db.prepare("UPDATE credits SET paid_amount = ?, paid = ?, payment_method = ? WHERE id = ?").run(newPaidAmount, paidFlag, paymentMethod, req.params.id);
+  const nextMethod = Number(record.paid_amount || 0) > 0
+    ? record.payment_method
+    : getPrimaryMethodFromBreakdown(cappedBreakdown, paymentParsed.primaryMethod);
+  db.prepare("UPDATE credits SET paid_amount = ?, paid = ?, payment_method = ? WHERE id = ?").run(newPaidAmount, paidFlag, nextMethod, req.params.id);
   logActivity({
     userId: req.session.userId,
     action: "payment",
     entityType: "credit",
     entityId: req.params.id,
-    details: `payment=${appliedPayment}; method=${paymentMethod}; paid_amount: ${formatDiffValue(record.paid_amount)} -> ${formatDiffValue(newPaidAmount)}`
+    details: `payment=${appliedPayment}; method=${paymentParsed.splitEntered ? 'MIXED' : paymentParsed.primaryMethod}; cash=${cappedBreakdown.cash || 0}; bank=${cappedBreakdown.bank || 0}; ewallet=${cappedBreakdown.eWallet || 0}; paid_amount: ${formatDiffValue(record.paid_amount)} -> ${formatDiffValue(newPaidAmount)}`
   });
   res.redirect(req.get("Referrer") || "/records/credits");
 });

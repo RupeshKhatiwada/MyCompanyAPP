@@ -41,21 +41,71 @@
     </div>
 
     <form class="mt-6 space-y-4" method="post" action="/records/exports/<%= record.id %>/pay-credit">
-      <div>
-        <label class="label"><%= t('paymentAmount') %></label>
-        <input class="input" type="number" min="0.01" step="0.01" max="<%= Number(remaining || 0).toFixed(2) %>" name="payment_amount" required />
+      <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div>
+          <label class="label"><%= t('methodCash') %></label>
+          <input class="input" type="number" min="0" step="0.01" max="<%= Number(remaining || 0).toFixed(2) %>" name="cash_amount" data-cash />
+        </div>
+        <div>
+          <label class="label"><%= t('methodBank') %></label>
+          <input class="input" type="number" min="0" step="0.01" max="<%= Number(remaining || 0).toFixed(2) %>" name="bank_amount" data-bank />
+        </div>
+        <div>
+          <label class="label"><%= t('methodEWallet') %></label>
+          <input class="input" type="number" min="0" step="0.01" max="<%= Number(remaining || 0).toFixed(2) %>" name="ewallet_amount" data-ewallet />
+        </div>
+        <div>
+          <label class="label"><%= t('paymentAmount') %></label>
+          <input class="input bg-slate-50" type="number" min="0" step="0.01" name="payment_amount" data-total readonly />
+        </div>
       </div>
-      <div>
-        <label class="label"><%= t('paymentMethodLabel') %></label>
-        <% const selectedMethod = String(record.payment_method || 'CASH').toUpperCase(); %>
-        <select class="input" name="payment_method">
-          <option value="CASH" <%= selectedMethod === 'CASH' ? 'selected' : '' %>><%= t('methodCash') %></option>
-          <option value="BANK" <%= selectedMethod === 'BANK' ? 'selected' : '' %>><%= t('methodBank') %></option>
-          <option value="E_WALLET" <%= selectedMethod === 'E_WALLET' ? 'selected' : '' %>><%= t('methodEWallet') %></option>
-        </select>
-      </div>
+      <input type="hidden" name="payment_method" value="CASH" />
       <button class="btn-primary" type="submit"><%= t('addPayment') %></button>
     </form>
   </div>
 </section>
+<script>
+  (() => {
+    const remaining = Number("<%= Number(remaining || 0).toFixed(2) %>");
+    const cashInput = document.querySelector("[data-cash]");
+    const bankInput = document.querySelector("[data-bank]");
+    const ewalletInput = document.querySelector("[data-ewallet]");
+    const totalInput = document.querySelector("[data-total]");
+    if (!cashInput || !bankInput || !ewalletInput || !totalInput) return;
+
+    const toSafe = (value) => {
+      const num = Number(value || 0);
+      if (Number.isNaN(num) || num < 0) return 0;
+      return num;
+    };
+    const formatMoneyInput = (value) => {
+      const safe = Math.round(toSafe(value) * 100) / 100;
+      return safe > 0 ? String(safe) : "";
+    };
+
+    const recalc = () => {
+      let cash = toSafe(cashInput.value);
+      let bank = toSafe(bankInput.value);
+      let ewallet = toSafe(ewalletInput.value);
+      let remainingCap = Math.max(remaining, 0);
+      const clamp = (value) => {
+        const used = Math.min(value, remainingCap);
+        remainingCap -= used;
+        return used;
+      };
+      cash = clamp(cash);
+      bank = clamp(bank);
+      ewallet = clamp(ewallet);
+      cashInput.value = formatMoneyInput(cash);
+      bankInput.value = formatMoneyInput(bank);
+      ewalletInput.value = formatMoneyInput(ewallet);
+      totalInput.value = formatMoneyInput(cash + bank + ewallet);
+    };
+
+    [cashInput, bankInput, ewalletInput].forEach((el) => {
+      el.addEventListener("input", recalc);
+    });
+    recalc();
+  })();
+</script>
 <%- include('../partials/shell-end') %>

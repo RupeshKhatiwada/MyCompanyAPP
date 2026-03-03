@@ -112,10 +112,18 @@ const getLatestBusinessDate = () => {
        SELECT MAX(export_date) as d FROM exports
        UNION ALL SELECT MAX(credit_date) as d FROM credits
        UNION ALL SELECT MAX(sale_date) as d FROM jar_sales
+       UNION ALL SELECT MAX(date(paid_at)) as d FROM credit_payments
+       UNION ALL SELECT MAX(entry_date) as d FROM import_entries
+       UNION ALL SELECT MAX(payment_date) as d FROM import_payments
        UNION ALL SELECT MAX(payment_date) as d FROM staff_salary_payments
        UNION ALL SELECT MAX(payment_date) as d FROM worker_salary_payments
        UNION ALL SELECT MAX(purchase_date) as d FROM company_purchases
+       UNION ALL SELECT MAX(payment_date) as d FROM company_purchase_payments
        UNION ALL SELECT MAX(expense_date) as d FROM vehicle_expenses
+       UNION ALL SELECT MAX(payment_date) as d FROM vehicle_expense_payments
+       UNION ALL SELECT MAX(entry_date) as d FROM vehicle_savings
+       UNION ALL SELECT MAX(rent_date) as d FROM rent_entries
+       UNION ALL SELECT MAX(business_date) as d FROM day_reconciliations
      ) x`
   ).get();
   return row && row.max_date ? row.max_date : "";
@@ -434,9 +442,9 @@ app.get("/worker", requireAuth, (req, res) => {
   ).get(selectedDate);
   const exportMethodDaily = db.prepare(
     `SELECT
-        COALESCE(SUM(CASE WHEN payment_method = 'CASH' THEN paid_amount ELSE 0 END), 0) as cash_amount,
-        COALESCE(SUM(CASE WHEN payment_method = 'BANK' THEN paid_amount ELSE 0 END), 0) as bank_amount,
-        COALESCE(SUM(CASE WHEN payment_method = 'E_WALLET' THEN paid_amount ELSE 0 END), 0) as ewallet_amount
+        COALESCE(SUM(paid_cash_amount), 0) as cash_amount,
+        COALESCE(SUM(paid_bank_amount), 0) as bank_amount,
+        COALESCE(SUM(paid_ewallet_amount), 0) as ewallet_amount
      FROM exports
      WHERE export_date = ?`
   ).get(selectedDate);
@@ -457,6 +465,15 @@ app.get("/worker", requireAuth, (req, res) => {
             COALESCE(SUM(CASE WHEN amount - paid_amount < 0 THEN 0 ELSE amount - paid_amount END), 0) as remaining_amount
      FROM credits
      WHERE credit_date = ?`
+  ).get(selectedDate);
+  const customerCreditPaymentDaily = db.prepare(
+    `SELECT COUNT(*) as payment_count,
+            COALESCE(SUM(amount), 0) as total_amount,
+            COALESCE(SUM(CASE WHEN payment_method = 'CASH' THEN amount ELSE 0 END), 0) as cash_amount,
+            COALESCE(SUM(CASE WHEN payment_method = 'BANK' THEN amount ELSE 0 END), 0) as bank_amount,
+            COALESCE(SUM(CASE WHEN payment_method = 'E_WALLET' THEN amount ELSE 0 END), 0) as ewallet_amount
+     FROM credit_payments
+     WHERE date(paid_at) = ?`
   ).get(selectedDate);
 
   const vehicleCreditDaily = db.prepare(
@@ -644,21 +661,29 @@ app.get("/worker", requireAuth, (req, res) => {
   const totalSalaryAllTimePayments = Number(staffSalaryAllTime.payment_count || 0) + Number(workerSalaryAllTime.payment_count || 0);
   const totalSalaryAllTimeFromCollection =
     Number(staffSalaryAllTime.collection_amount || 0) + Number(workerSalaryAllTime.collection_amount || 0);
+  const customerCreditCollected = Number(customerCreditPaymentDaily.total_amount || 0);
   const totalOutflow =
     totalSalaryFromCollection +
     importPaidFromCollection +
     companyPurchasePaidFromCollection +
     vehicleExpensePaidFromCollection +
     savingsWithdrawFromCollection;
-  const totalPaidIn = totalSalesPaid + savingsDeposits + rentCollection;
+  const totalPaidIn = totalSalesPaid + savingsDeposits + rentCollection + customerCreditCollected;
   const paidByMethod = {
     cash:
       Number(exportMethodDaily.cash_amount || 0) +
+      Number(customerCreditPaymentDaily.cash_amount || 0) +
       Number(rentMethodDaily.cash_amount || 0) +
       Number(jarSaleDaily.paid_amount || 0) +
       savingsDeposits,
-    bank: Number(exportMethodDaily.bank_amount || 0) + Number(rentMethodDaily.bank_amount || 0),
-    eWallet: Number(exportMethodDaily.ewallet_amount || 0) + Number(rentMethodDaily.ewallet_amount || 0)
+    bank:
+      Number(exportMethodDaily.bank_amount || 0) +
+      Number(customerCreditPaymentDaily.bank_amount || 0) +
+      Number(rentMethodDaily.bank_amount || 0),
+    eWallet:
+      Number(exportMethodDaily.ewallet_amount || 0) +
+      Number(customerCreditPaymentDaily.ewallet_amount || 0) +
+      Number(rentMethodDaily.ewallet_amount || 0)
   };
   const netDayResult = totalPaidIn - totalOutflow;
 
@@ -680,6 +705,13 @@ app.get("/worker", requireAuth, (req, res) => {
       count: Number(customerCreditDaily.entry_count || 0),
       total: Number(customerCreditDaily.total_amount || 0),
       paid: Number(customerCreditDaily.paid_amount || 0),
+      collected: customerCreditCollected,
+      paymentCount: Number(customerCreditPaymentDaily.payment_count || 0),
+      collectedByMethod: {
+        cash: Number(customerCreditPaymentDaily.cash_amount || 0),
+        bank: Number(customerCreditPaymentDaily.bank_amount || 0),
+        eWallet: Number(customerCreditPaymentDaily.ewallet_amount || 0)
+      },
       remaining: Number(customerCreditDaily.remaining_amount || 0),
       openCount: Number(openCustomerCredits.entry_count || 0),
       openRemaining: Number(openCustomerCredits.remaining_amount || 0)

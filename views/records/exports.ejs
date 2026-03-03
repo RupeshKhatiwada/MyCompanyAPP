@@ -120,7 +120,11 @@
             <% const netJars = Math.max(0, (record.jar_count || 0) - (record.return_jar_count || 0) - (record.leakage_jar_count || 0)); %>
             <% const collectionAmount = Number(record.collection_amount || 0); %>
             <% const remainingCredit = Math.max(0, Number(record.total_amount || 0) - Number(record.paid_amount || 0)); %>
-            <% const methodLabel = record.payment_method === 'BANK' ? t('methodBank') : record.payment_method === 'E_WALLET' ? t('methodEWallet') : t('methodCash'); %>
+            <% const paidCash = Number(record.paid_cash_amount || 0); %>
+            <% const paidBank = Number(record.paid_bank_amount || 0); %>
+            <% const paidEWallet = Number(record.paid_ewallet_amount || 0); %>
+            <% const activeMethods = [paidCash > 0, paidBank > 0, paidEWallet > 0].filter(Boolean).length; %>
+            <% const methodLabel = activeMethods > 1 ? t('methodMixed') : (paidBank > 0 ? t('methodBank') : (paidEWallet > 0 ? t('methodEWallet') : t('methodCash'))); %>
             <tr class="table-row">
               <td class="px-4 py-3"><%= record.export_date %></td>
               <td class="px-4 py-3"><%= record.vehicle_number %></td>
@@ -205,15 +209,27 @@
                     step="0.01"
                     min="0.01"
                     max="<%= group.total_remaining %>"
-                    name="payment_amount"
-                    placeholder="<%= t('paymentAmount') %>"
-                    required
+                    name="cash_amount"
+                    placeholder="<%= t('methodCash') %>"
                   />
-                  <select class="input h-9 w-32" name="payment_method">
-                    <option value="CASH"><%= t('methodCash') %></option>
-                    <option value="BANK"><%= t('methodBank') %></option>
-                    <option value="E_WALLET"><%= t('methodEWallet') %></option>
-                  </select>
+                  <input
+                    class="input h-9 w-32"
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    max="<%= group.total_remaining %>"
+                    name="bank_amount"
+                    placeholder="<%= t('methodBank') %>"
+                  />
+                  <input
+                    class="input h-9 w-32"
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    max="<%= group.total_remaining %>"
+                    name="ewallet_amount"
+                    placeholder="<%= t('methodEWallet') %>"
+                  />
                   <button class="btn-outline" type="submit"><%= t('addPayment') %></button>
                 </form>
                 <a class="btn-outline" href="/records/exports/payment-history?from=<%= from %>&to=<%= to %>&vehicle_id=<%= group.vehicle_id %>"><%= t('paymentHistory') %></a>
@@ -314,15 +330,27 @@
                     step="0.01"
                     min="0.01"
                     max="<%= row.total_remaining %>"
-                    name="payment_amount"
-                    placeholder="<%= t('paymentAmount') %>"
-                    required
+                    name="cash_amount"
+                    placeholder="<%= t('methodCash') %>"
                   />
-                  <select class="input h-9 w-32" name="payment_method">
-                    <option value="CASH"><%= t('methodCash') %></option>
-                    <option value="BANK"><%= t('methodBank') %></option>
-                    <option value="E_WALLET"><%= t('methodEWallet') %></option>
-                  </select>
+                  <input
+                    class="input h-9 w-32"
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    max="<%= row.total_remaining %>"
+                    name="bank_amount"
+                    placeholder="<%= t('methodBank') %>"
+                  />
+                  <input
+                    class="input h-9 w-32"
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    max="<%= row.total_remaining %>"
+                    name="ewallet_amount"
+                    placeholder="<%= t('methodEWallet') %>"
+                  />
                   <button class="btn-outline" type="submit"><%= t('addPayment') %></button>
                 </form>
               <% } %>

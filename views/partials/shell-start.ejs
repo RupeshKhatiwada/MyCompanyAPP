@@ -12,14 +12,15 @@
     :root[data-font-size="lg"] { font-size: 18px; }
     :root[data-font-size="xl"] { font-size: 20px; }
     .print-only { display: none; }
-    .action-menu { position: relative; display: inline-block; }
-    .action-menu[open] { z-index: 10000; }
+    .action-menu { position: relative; display: inline-block; overflow: visible; }
+    .action-menu[open] { z-index: 12000; }
     .action-menu > summary { list-style: none; }
     .action-menu > summary::-webkit-details-marker { display: none; }
     .action-menu-panel {
-      position: absolute;
-      right: 0;
-      top: calc(100% + 6px);
+      position: fixed;
+      right: auto;
+      top: 0;
+      left: 0;
       min-width: 180px;
       max-width: min(220px, calc(100vw - 1.5rem));
       max-height: min(320px, calc(100vh - 1rem));
@@ -30,11 +31,7 @@
       padding: 6px;
       overflow-y: auto;
       overscroll-behavior: contain;
-      z-index: 40;
-    }
-    .action-menu.action-menu-up .action-menu-panel {
-      top: auto;
-      bottom: calc(100% + 6px);
+      z-index: 12010;
     }
     .action-menu-item {
       display: block;
@@ -93,11 +90,13 @@
       function resetPanelPosition(menu) {
         var panel = getPanel(menu);
         if (!panel) return;
+        panel.style.position = "";
         panel.style.left = "";
         panel.style.top = "";
         panel.style.right = "";
         panel.style.bottom = "";
         panel.style.maxHeight = "";
+        panel.style.width = "";
         panel.style.visibility = "";
         panel.style.display = "";
       }
@@ -120,38 +119,50 @@
         var anchor = menu.querySelector("summary");
         var anchorRect = (anchor instanceof HTMLElement ? anchor : menu).getBoundingClientRect();
         var viewportMargin = 8;
+        var gap = 6;
 
-        panel.style.left = "";
-        panel.style.right = "";
+        panel.style.position = "fixed";
+        panel.style.left = viewportMargin + "px";
+        panel.style.top = viewportMargin + "px";
+        panel.style.right = "auto";
+        panel.style.bottom = "auto";
         panel.style.maxHeight = "";
+        panel.style.width = "";
         panel.style.visibility = "hidden";
         panel.style.display = "block";
 
         var panelRect = panel.getBoundingClientRect();
+        var panelWidth = Math.max(panelRect.width || 180, 180);
         var panelHeight = Math.max(panelRect.height || 120, 120);
-        panel.style.display = "";
-        panel.style.visibility = "";
 
-        var spaceBelow = Math.max(0, window.innerHeight - anchorRect.bottom - viewportMargin);
+        var spaceBelow = Math.max(0, window.innerHeight - anchorRect.bottom - viewportMargin - gap);
         var spaceAbove = Math.max(0, anchorRect.top - viewportMargin);
         var openUp = isForcedUp(menu) || (panelHeight > spaceBelow && spaceAbove > spaceBelow);
 
         if (openUp) menu.classList.add("action-menu-up");
         else menu.classList.remove("action-menu-up");
 
-        var availableSpace = openUp ? spaceAbove : spaceBelow;
-        panel.style.maxHeight = Math.max(140, Math.floor(availableSpace)) + "px";
+        var availableSpace = Math.max(140, Math.floor(openUp ? spaceAbove : spaceBelow));
+        panel.style.maxHeight = availableSpace + "px";
+        panel.style.display = "block";
+        panel.style.visibility = "hidden";
+        panelRect = panel.getBoundingClientRect();
+        panelWidth = Math.max(panelRect.width || panelWidth, 180);
+        panelHeight = Math.min(Math.max(panelRect.height || 120, 120), availableSpace);
 
-        var viewportRect = panel.getBoundingClientRect();
-        if (viewportRect.left < viewportMargin) {
-          panel.style.left = "0";
-          panel.style.right = "auto";
-          viewportRect = panel.getBoundingClientRect();
-        }
-        if (viewportRect.right > window.innerWidth - viewportMargin) {
-          panel.style.left = "auto";
-          panel.style.right = "0";
-        }
+        var left = anchorRect.right - panelWidth;
+        left = Math.max(viewportMargin, Math.min(left, window.innerWidth - viewportMargin - panelWidth));
+        var top = openUp
+          ? (anchorRect.top - panelHeight - gap)
+          : (anchorRect.bottom + gap);
+        top = Math.max(viewportMargin, Math.min(top, window.innerHeight - viewportMargin - panelHeight));
+
+        panel.style.left = Math.round(left) + "px";
+        panel.style.top = Math.round(top) + "px";
+        panel.style.right = "auto";
+        panel.style.bottom = "auto";
+        panel.style.visibility = "";
+        panel.style.display = "";
       }
 
       document.addEventListener("toggle", function (event) {
