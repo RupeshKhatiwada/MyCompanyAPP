@@ -6,7 +6,8 @@ const dayjs = require("dayjs");
 const bcrypt = require("bcryptjs");
 const crypto = require("crypto");
 const { db, dbPath } = require("../db");
-const { requireRole } = require("../middleware/auth");
+const { requireRole, requireModule } = require("../middleware/auth");
+const { adToBs } = require("../utils/calendar");
 const { formatActivityRows } = require("../utils/activity");
 const { createReceiptNo, createInvoiceNo, getNumberingConfig } = require("../utils/numbering");
 const {
@@ -35,6 +36,12 @@ const {
   listArchiveRuns,
   runRetentionArchive
 } = require("../utils/retention");
+const {
+  MODULE_PERMISSION_ITEMS,
+  ROLE_PERMISSION_ROLES,
+  ensureRolePermissionRows,
+  getRolePermissionMap
+} = require("../utils/modulePermissions");
 
 const router = express.Router();
 const defaultStaffRoleCodes = ["CLEANER", "MACHINE_MANAGER", "VEHICLE_CONDUCTOR", "KITCHEN_COOK"];
@@ -229,7 +236,6 @@ const getAlertSnapshot = () => {
     ...row,
     due_salary: computeSalaryDue(row, row.paid_total, today)
   })).filter((row) => Number(row.due_salary || 0) > 0);
-
   return {
     backup: {
       lastBackupAt,
@@ -319,6 +325,11 @@ const renderSettingsPage = (req, res, overrides = {}) => {
     "SELECT code, name, unit_label FROM import_item_types WHERE is_active = 1 ORDER BY name"
   ).all();
   const itemThresholdMap = getImportItemAlertThresholdMap();
+  ensureRolePermissionRows(db);
+  const rolePermissionValues = ROLE_PERMISSION_ROLES.reduce((acc, role) => {
+    acc[role] = getRolePermissionMap(db, role);
+    return acc;
+  }, {});
   const selectedClosureDate = overrides.selectedClosureDate || req.query.closure_date || dayjs().format("YYYY-MM-DD");
   const selectedClosure = getDayClosure(selectedClosureDate);
 
@@ -346,6 +357,9 @@ const renderSettingsPage = (req, res, overrides = {}) => {
     overdueDays,
     importItemTypes,
     itemThresholdMap,
+    modulePermissionItems: MODULE_PERMISSION_ITEMS,
+    rolePermissionRoles: ROLE_PERMISSION_ROLES,
+    rolePermissionValues,
     selectedClosureDate,
     selectedClosure,
     recentClosures: getRecentDayClosures(),
@@ -503,6 +517,12 @@ const resolveImportItemLabel = (code, name, t) => {
 };
 
 router.use(requireRole(["SUPER_ADMIN", "ADMIN"]));
+router.use("/vehicles", requireModule("vehicles", "view"));
+router.use("/staffs", requireModule("staffs", "view"));
+router.use("/staff-roles", requireModule("staffs", "view"));
+router.use("/worker-attendance", requireModule("attendance", "view"));
+router.use("/activity", requireModule("history", "view"));
+router.use("/savings", requireModule("savings", "view"));
 
 router.get("/", (req, res) => {
   const today = dayjs().format("YYYY-MM-DD");
@@ -1218,6 +1238,30 @@ const computeSalaryDue = (staffRow, paidTotal, asOf) => {
   return Math.max(0, accrued - paid);
 };
 
+const getStaffPaidTotal = (staffId, { excludePaymentId = null } = {}) => {
+  if (!staffId) return 0;
+  const row = excludePaymentId
+    ? db.prepare(
+      "SELECT COALESCE(SUM(amount), 0) as paid_total FROM staff_salary_payments WHERE staff_id = ? AND id != ?"
+    ).get(staffId, excludePaymentId)
+    : db.prepare(
+      "SELECT COALESCE(SUM(amount), 0) as paid_total FROM staff_salary_payments WHERE staff_id = ?"
+    ).get(staffId);
+  return roundMoney(row?.paid_total || 0);
+};
+
+const getWorkerPaidTotal = (workerId, { excludePaymentId = null } = {}) => {
+  if (!workerId) return 0;
+  const row = excludePaymentId
+    ? db.prepare(
+      "SELECT COALESCE(SUM(amount), 0) as paid_total FROM worker_salary_payments WHERE worker_id = ? AND id != ?"
+    ).get(workerId, excludePaymentId)
+    : db.prepare(
+      "SELECT COALESCE(SUM(amount), 0) as paid_total FROM worker_salary_payments WHERE worker_id = ?"
+    ).get(workerId);
+  return roundMoney(row?.paid_total || 0);
+};
+
 const parseMonthToken = (value) => {
   const safe = String(value || "").trim();
   return /^\d{4}-(0[1-9]|1[0-2])$/.test(safe) ? safe : dayjs().format("YYYY-MM");
@@ -1800,6 +1844,8 @@ router.get("/staffs/:id", (req, res) => {
        AND status = 'ABSENT'
      ORDER BY attendance_date DESC`
   ).all(req.params.id).map((row) => row.attendance_date);
+  const errorKey = String(req.query.error || "").trim();
+  const error = errorKey ? req.t(errorKey) : null;
 
   res.render("admin/staff_detail", {
     title: req.t("staffDetailTitle"),
@@ -1811,6 +1857,7 @@ router.get("/staffs/:id", (req, res) => {
     todayDate,
     attendanceSummary,
     absentDates,
+    error,
     basePath: "/admin/staffs"
   });
 });
@@ -2036,6 +2083,13 @@ router.post("/staffs/:id/payments", (req, res) => {
   }
   const type = payment_type === "ADVANCE" ? "ADVANCE" : "SALARY";
   const source = normalizeSalaryPaymentSource(payment_source);
+  if (type === "SALARY") {
+    const paidTotal = getStaffPaidTotal(req.params.id);
+    const due = computeSalaryDue(staff, paidTotal, payment_date || dayjs().format("YYYY-MM-DD"));
+    if (amt > roundMoney(due) + 0.01) {
+      return res.redirect(`/admin/staffs/${req.params.id}?error=salaryOverpaymentBlocked`);
+    }
+  }
 
   const paymentResult = db.prepare(
     "INSERT INTO staff_salary_payments (staff_id, payment_date, amount, payment_type, payment_source, note, created_by) VALUES (?, ?, ?, ?, ?, ?, ?)"
@@ -2066,10 +2120,13 @@ router.get("/staffs/payments/:id/edit", (req, res) => {
      WHERE staff_salary_payments.id = ?`
   ).get(req.params.id);
   if (!payment) return res.redirect("/admin/staffs");
+  const errorKey = String(req.query.error || "").trim();
+  const error = errorKey ? req.t(errorKey) : null;
   res.render("admin/staff_payment_form", {
     title: req.t("editSalaryPaymentTitle"),
     payment,
     staff: { id: payment.staff_id, full_name: payment.full_name },
+    error,
     basePath: "/admin/staffs"
   });
 });
@@ -2077,6 +2134,8 @@ router.get("/staffs/payments/:id/edit", (req, res) => {
 router.post("/staffs/payments/:id", (req, res) => {
   const payment = db.prepare("SELECT * FROM staff_salary_payments WHERE id = ?").get(req.params.id);
   if (!payment) return res.redirect("/admin/staffs");
+  const staff = db.prepare("SELECT * FROM staff WHERE id = ?").get(payment.staff_id);
+  if (!staff) return res.redirect("/admin/staffs");
   const { payment_date, amount, payment_type, payment_source, note, print } = req.body;
   const amt = Number(amount || 0);
   if (!payment_date || Number.isNaN(amt) || amt <= 0) {
@@ -2084,6 +2143,13 @@ router.post("/staffs/payments/:id", (req, res) => {
   }
   const type = payment_type === "ADVANCE" ? "ADVANCE" : "SALARY";
   const source = normalizeSalaryPaymentSource(payment_source);
+  if (type === "SALARY") {
+    const paidTotal = getStaffPaidTotal(payment.staff_id, { excludePaymentId: req.params.id });
+    const due = computeSalaryDue(staff, paidTotal, payment_date || dayjs().format("YYYY-MM-DD"));
+    if (amt > roundMoney(due) + 0.01) {
+      return res.redirect(`/admin/staffs/payments/${req.params.id}/edit?error=salaryOverpaymentBlocked`);
+    }
+  }
 
   db.prepare(
     "UPDATE staff_salary_payments SET payment_date = ?, amount = ?, payment_type = ?, payment_source = ?, note = ? WHERE id = ?"
@@ -2767,6 +2833,42 @@ router.get("/reports/customer-invoice", (req, res) => {
     rows,
     totals
   });
+});
+
+router.get("/reports/customer-invoice/export", (req, res) => {
+  const from = req.query.from || dayjs().startOf("month").format("YYYY-MM-DD");
+  const to = req.query.to || dayjs().format("YYYY-MM-DD");
+  const customer = String(req.query.customer || "").trim();
+  if (!customer) {
+    return res.redirect(`/admin/reports/customer-invoice?from=${from}&to=${to}`);
+  }
+  const rows = db.prepare(
+    `SELECT credits.credit_date, vehicles.vehicle_number, vehicles.owner_name,
+            credits.amount, credits.paid_amount
+     FROM credits
+     JOIN vehicles ON credits.vehicle_id = vehicles.id
+     WHERE credits.customer_name = ?
+       AND credits.credit_date BETWEEN ? AND ?
+     ORDER BY credits.credit_date ASC`
+  ).all(customer, from, to);
+  const header = ["Date (AD)", "Date (BS)", "Vehicle Number", "Owner Name", "Amount", "Paid Amount", "Remaining Amount"];
+  const lines = rows.map((row) => {
+    const amount = Number(row.amount || 0);
+    const paid = Number(row.paid_amount || 0);
+    const remaining = Math.max(0, amount - paid);
+    return [
+      row.credit_date,
+      adToBs(row.credit_date) || "",
+      row.vehicle_number || "",
+      row.owner_name || "",
+      amount,
+      paid,
+      remaining
+    ].map((value) => `"${String(value ?? "").replace(/"/g, '""')}"`).join(",");
+  });
+  res.setHeader("Content-Type", "text/csv");
+  res.setHeader("Content-Disposition", `attachment; filename="customer_invoice_${customer.replace(/[^a-zA-Z0-9_-]/g, "_")}_${from}_to_${to}.csv"`);
+  return res.send([header.join(","), ...lines].join("\n"));
 });
 
 router.get("/reports/customer-invoice/print", (req, res) => {
@@ -4684,6 +4786,8 @@ router.get("/workers/:id", (req, res) => {
        AND status = 'ABSENT'
      ORDER BY attendance_date DESC`
   ).all(req.params.id).map((row) => row.attendance_date);
+  const errorKey = String(req.query.error || "").trim();
+  const error = errorKey ? req.t(errorKey) : null;
 
   res.render("admin/worker_detail", {
     title: req.t("workerDetailTitle"),
@@ -4694,7 +4798,8 @@ router.get("/workers/:id", (req, res) => {
     dueSalary,
     todayDate,
     attendanceSummary,
-    absentDates
+    absentDates,
+    error
   });
 });
 
@@ -4898,6 +5003,15 @@ router.post("/workers/:id/payments", (req, res) => {
   }
   const type = payment_type === "ADVANCE" ? "ADVANCE" : "SALARY";
   const source = normalizeSalaryPaymentSource(payment_source);
+  if (type === "SALARY") {
+    const workerRow = db.prepare("SELECT * FROM users WHERE id = ? AND role = 'WORKER'").get(req.params.id);
+    if (!workerRow) return res.redirect("/admin/workers");
+    const paidTotal = getWorkerPaidTotal(req.params.id);
+    const due = computeSalaryDue(workerRow, paidTotal, payment_date || dayjs().format("YYYY-MM-DD"));
+    if (amt > roundMoney(due) + 0.01) {
+      return res.redirect(`/admin/workers/${req.params.id}?error=salaryOverpaymentBlocked`);
+    }
+  }
 
   const paymentResult = db.prepare(
     "INSERT INTO worker_salary_payments (worker_id, payment_date, amount, payment_type, payment_source, note, created_by) VALUES (?, ?, ?, ?, ?, ?, ?)"
@@ -4928,10 +5042,13 @@ router.get("/workers/payments/:id/edit", (req, res) => {
      WHERE worker_salary_payments.id = ?`
   ).get(req.params.id);
   if (!payment) return res.redirect("/admin/workers");
+  const errorKey = String(req.query.error || "").trim();
+  const error = errorKey ? req.t(errorKey) : null;
   res.render("admin/staff_payment_form", {
     title: req.t("editSalaryPaymentTitle"),
     payment,
     staff: { id: payment.worker_id, full_name: payment.full_name },
+    error,
     basePath: "/admin/workers"
   });
 });
@@ -4939,6 +5056,8 @@ router.get("/workers/payments/:id/edit", (req, res) => {
 router.post("/workers/payments/:id", (req, res) => {
   const payment = db.prepare("SELECT * FROM worker_salary_payments WHERE id = ?").get(req.params.id);
   if (!payment) return res.redirect("/admin/workers");
+  const worker = db.prepare("SELECT * FROM users WHERE id = ? AND role = 'WORKER'").get(payment.worker_id);
+  if (!worker) return res.redirect("/admin/workers");
   const { payment_date, amount, payment_type, payment_source, note, print } = req.body;
   const amt = Number(amount || 0);
   if (!payment_date || Number.isNaN(amt) || amt <= 0) {
@@ -4946,6 +5065,13 @@ router.post("/workers/payments/:id", (req, res) => {
   }
   const type = payment_type === "ADVANCE" ? "ADVANCE" : "SALARY";
   const source = normalizeSalaryPaymentSource(payment_source);
+  if (type === "SALARY") {
+    const paidTotal = getWorkerPaidTotal(payment.worker_id, { excludePaymentId: req.params.id });
+    const due = computeSalaryDue(worker, paidTotal, payment_date || dayjs().format("YYYY-MM-DD"));
+    if (amt > roundMoney(due) + 0.01) {
+      return res.redirect(`/admin/workers/payments/${req.params.id}/edit?error=salaryOverpaymentBlocked`);
+    }
+  }
 
   db.prepare(
     "UPDATE worker_salary_payments SET payment_date = ?, amount = ?, payment_type = ?, payment_source = ?, note = ? WHERE id = ?"
@@ -5141,6 +5267,7 @@ router.get("/settings", (req, res) => {
 });
 
 router.post("/settings", (req, res) => {
+  const currentUser = res.locals.currentUser;
   const autoBackupEnabled = req.body.auto_backup_enabled === "on";
   const autoBackupHour = Number(req.body.auto_backup_hour || 18);
   const autoBackupKeep = Number(req.body.auto_backup_keep || 30);
@@ -5244,6 +5371,25 @@ router.post("/settings", (req, res) => {
     }
     perItemThresholdValues.push({ code, value: String(Math.floor(num)) });
   }
+  let permissionSummary = "";
+  if (currentUser && currentUser.role === "SUPER_ADMIN") {
+    ensureRolePermissionRows(db);
+    const updateRolePermission = db.prepare(
+      "UPDATE role_permissions SET can_view = ?, can_edit = ?, updated_at = datetime('now') WHERE role = ? AND module_key = ?"
+    );
+    const permissionParts = [];
+    ROLE_PERMISSION_ROLES.forEach((role) => {
+      MODULE_PERMISSION_ITEMS.forEach((item) => {
+        const viewKey = `perm_${role}_${item.key}_view`;
+        const editKey = `perm_${role}_${item.key}_edit`;
+        const canView = req.body[viewKey] === "on";
+        const canEdit = canView && req.body[editKey] === "on";
+        updateRolePermission.run(canView ? 1 : 0, canEdit ? 1 : 0, role, item.key);
+        permissionParts.push(`${role}.${item.key}=v${canView ? 1 : 0}e${canEdit ? 1 : 0}`);
+      });
+    });
+    permissionSummary = permissionParts.join(", ");
+  }
   setSetting("auto_backup_enabled", autoBackupEnabled ? 1 : 0);
   setSetting("auto_backup_hour", Math.floor(autoBackupHour));
   setSetting("auto_backup_keep", Math.floor(autoBackupKeep));
@@ -5271,7 +5417,7 @@ router.post("/settings", (req, res) => {
     action: "update",
     entityType: "settings",
     entityId: "backup",
-    details: `auto_backup=${autoBackupEnabled ? 1 : 0}, backup_hour=${Math.floor(autoBackupHour)}, keep=${Math.floor(autoBackupKeep)}, retention=${retentionEnabled ? 1 : 0}, retention_days=${Math.floor(retentionDays)}, retention_batch=${Math.floor(retentionBatchSize)}, fiscal_start_month=${Math.floor(numberingFiscalStartMonth)}, sequence_pad=${Math.floor(numberingSequencePad)}, jar_alert=${Math.floor(jarLowThreshold)}, item_alert=${Math.floor(itemLowThreshold)}, overdue_days=${Math.floor(overdueCreditDays)}, hybrid_sync=${hybridSyncEnabled ? 1 : 0}, hybrid_interval=${Math.floor(hybridSyncIntervalMin)}, iot_attendance=${iotAttendanceEnabled ? 1 : 0}`
+    details: `auto_backup=${autoBackupEnabled ? 1 : 0}, backup_hour=${Math.floor(autoBackupHour)}, keep=${Math.floor(autoBackupKeep)}, retention=${retentionEnabled ? 1 : 0}, retention_days=${Math.floor(retentionDays)}, retention_batch=${Math.floor(retentionBatchSize)}, fiscal_start_month=${Math.floor(numberingFiscalStartMonth)}, sequence_pad=${Math.floor(numberingSequencePad)}, jar_alert=${Math.floor(jarLowThreshold)}, item_alert=${Math.floor(itemLowThreshold)}, overdue_days=${Math.floor(overdueCreditDays)}, hybrid_sync=${hybridSyncEnabled ? 1 : 0}, hybrid_interval=${Math.floor(hybridSyncIntervalMin)}, iot_attendance=${iotAttendanceEnabled ? 1 : 0}${permissionSummary ? `, permissions=${permissionSummary}` : ""}`
   });
 
   return renderSettingsPage(req, res, {

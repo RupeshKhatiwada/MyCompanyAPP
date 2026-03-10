@@ -237,17 +237,19 @@
             <th class="px-4 py-3"><%= t('date') %></th>
             <th class="px-4 py-3"><%= t('itemName') %></th>
             <th class="px-4 py-3"><%= t('sellerName') %></th>
+            <th class="px-4 py-3"><%= t('paymentReceiptNo') %></th>
             <th class="px-4 py-3"><%= t('amount') %></th>
             <th class="px-4 py-3"><%= t('paymentMethodLabel') %></th>
             <th class="px-4 py-3"><%= t('paymentSourceLabel') %></th>
             <th class="px-4 py-3"><%= t('note') %></th>
             <th class="px-4 py-3"><%= t('recordedBy') %></th>
+            <th class="px-4 py-3 text-right"><%= t('print') %></th>
           </tr>
         </thead>
         <tbody>
           <% if (!safePaymentRows.length) { %>
             <tr>
-              <td class="px-4 py-4 text-slate-500" colspan="8"><%= t('noPaymentHistory') %></td>
+              <td class="px-4 py-4 text-slate-500" colspan="10"><%= t('noPaymentHistory') %></td>
             </tr>
           <% } %>
           <% safePaymentRows.forEach((row) => { %>
@@ -257,11 +259,15 @@
               <td class="px-4 py-3"><%= row.payment_date %></td>
               <td class="px-4 py-3"><%= row.item_name %></td>
               <td class="px-4 py-3"><%= row.seller_name || '-' %></td>
+              <td class="px-4 py-3"><%= row.receipt_no || '-' %></td>
               <td class="px-4 py-3"><%= row.amount %></td>
               <td class="px-4 py-3"><%= methodLabel %></td>
               <td class="px-4 py-3"><%= sourceLabel %></td>
               <td class="px-4 py-3"><%= row.note || '-' %></td>
               <td class="px-4 py-3"><%= row.recorded_by || '-' %></td>
+              <td class="px-4 py-3 text-right">
+                <a class="btn-outline" href="/records/company-purchases/payments/<%= row.id %>/print?autoprint=1" target="_blank"><%= t('print') %></a>
+              </td>
             </tr>
           <% }) %>
         </tbody>

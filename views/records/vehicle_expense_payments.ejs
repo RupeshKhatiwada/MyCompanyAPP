@@ -77,6 +77,7 @@
         <thead class="table-head">
           <tr>
             <th class="px-4 py-3"><%= t('date') %></th>
+            <th class="px-4 py-3"><%= t('paymentReceiptNo') %></th>
             <th class="px-4 py-3"><%= t('amount') %></th>
             <th class="px-4 py-3"><%= t('paymentMethodLabel') %></th>
             <th class="px-4 py-3"><%= t('paymentSourceLabel') %></th>
@@ -88,7 +89,7 @@
         <tbody>
           <% if (!payments || payments.length === 0) { %>
             <tr>
-              <td class="px-4 py-4 text-slate-500" colspan="7"><%= t('noPayments') %></td>
+              <td class="px-4 py-4 text-slate-500" colspan="8"><%= t('noPayments') %></td>
             </tr>
           <% } %>
           <% payments.forEach((payment) => { %>
@@ -96,15 +97,19 @@
             <% const sourceLabel = payment.payment_source === 'OWNER_PERSONAL' ? t('sourceOwnerPersonal') : payment.payment_source === 'BANK_OTHER' ? t('sourceBankOther') : t('sourceDailyCollection'); %>
             <tr class="table-row">
               <td class="px-4 py-3"><%= payment.payment_date %></td>
+              <td class="px-4 py-3"><%= payment.receipt_no || '-' %></td>
               <td class="px-4 py-3"><%= payment.amount %></td>
               <td class="px-4 py-3"><%= methodLabel %></td>
               <td class="px-4 py-3"><%= sourceLabel %></td>
               <td class="px-4 py-3"><%= payment.note || '-' %></td>
               <td class="px-4 py-3"><%= payment.recorded_by || '-' %></td>
               <td class="px-4 py-3 text-right">
-                <form method="post" action="/records/vehicle-expenses/payments/<%= payment.id %>/delete" onsubmit="return confirm('<%= t('deletePaymentConfirm') %>');">
-                  <button class="btn-outline" type="submit"><%= t('delete') %></button>
-                </form>
+                <div class="flex justify-end gap-2">
+                  <a class="btn-outline" href="/records/vehicle-expenses/payments/<%= payment.id %>/print?autoprint=1" target="_blank"><%= t('print') %></a>
+                  <form method="post" action="/records/vehicle-expenses/payments/<%= payment.id %>/delete" onsubmit="return confirm('<%= t('deletePaymentConfirm') %>');">
+                    <button class="btn-outline" type="submit"><%= t('delete') %></button>
+                  </form>
+                </div>
               </td>
             </tr>
           <% }) %>

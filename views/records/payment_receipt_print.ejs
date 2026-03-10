@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="<%= lang %>">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title><%= title %> | AQUA MSK</title>
+  <link rel="stylesheet" href="/css/styles.css?v=<%= assetVersion %>" />
+  <style>
+    @media print {
+      @page {
+        size: A4 portrait;
+        margin: 12mm;
+      }
+      .print-hidden { display: none !important; }
+      .print-sheet {
+        max-width: none !important;
+        width: 100% !important;
+        margin: 0 !important;
+        padding: 0 !important;
+      }
+    }
+  </style>
+</head>
+<body class="bg-white text-slate-900">
+  <div class="print-sheet mx-auto max-w-3xl p-6">
+    <div class="flex items-start justify-between gap-4">
+      <div class="flex-1">
+        <%- include('../partials/print-brand', { subtitle: printSubtitle || title }) %>
+        <p class="mt-2 text-sm text-slate-600"><strong><%= t('paymentReceiptNo') %>:</strong> <%= receiptNo || '-' %></p>
+      </div>
+      <button class="btn-primary print-hidden" onclick="window.print()"><%= t('print') %></button>
+    </div>
+
+    <div class="mt-6 overflow-hidden rounded-2xl border border-slate-200">
+      <table class="table-base">
+        <tbody>
+          <tr class="table-row">
+            <th class="px-4 py-3 text-left text-slate-500"><%= t('module') %></th>
+            <td class="px-4 py-3"><%= moduleLabel || '-' %></td>
+          </tr>
+          <tr class="table-row">
+            <th class="px-4 py-3 text-left text-slate-500"><%= t('date') %></th>
+            <td class="px-4 py-3"><%= typeof formatDateDual === 'function' ? formatDateDual(paymentDate) : paymentDate %></td>
+          </tr>
+          <tr class="table-row">
+            <th class="px-4 py-3 text-left text-slate-500"><%= t('dateTime') %></th>
+            <td class="px-4 py-3"><%= createdAt || '-' %></td>
+          </tr>
+          <tr class="table-row">
+            <th class="px-4 py-3 text-left text-slate-500"><%= t('reference') %></th>
+            <td class="px-4 py-3"><%= referenceNo || '-' %></td>
+          </tr>
+          <tr class="table-row">
+            <th class="px-4 py-3 text-left text-slate-500"><%= t('party') %></th>
+            <td class="px-4 py-3"><%= partyName || '-' %></td>
+          </tr>
+          <tr class="table-row">
+            <th class="px-4 py-3 text-left text-slate-500"><%= t('paymentMethodLabel') %></th>
+            <td class="px-4 py-3"><%= paymentMethodLabel || '-' %></td>
+          </tr>
+          <tr class="table-row">
+            <th class="px-4 py-3 text-left text-slate-500"><%= t('paymentSourceLabel') %></th>
+            <td class="px-4 py-3"><%= paymentSourceLabel || '-' %></td>
+          </tr>
+          <tr class="table-row">
+            <th class="px-4 py-3 text-left text-slate-500"><%= t('amount') %></th>
+            <td class="px-4 py-3 text-lg font-semibold"><%= amount || 0 %></td>
+          </tr>
+          <tr class="table-row">
+            <th class="px-4 py-3 text-left text-slate-500"><%= t('note') %></th>
+            <td class="px-4 py-3"><%= note || '-' %></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+  <% if (autoPrint) { %>
+    <script>
+      window.addEventListener('load', function () {
+        window.print();
+      });
+    </script>
+  <% } %>
+</body>
+</html>

@@ -2,6 +2,7 @@ const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
 const { DatabaseSync } = require("node:sqlite");
+const { ensureRolePermissionRows } = require("./utils/modulePermissions");
 
 const dbPath = path.join(__dirname, "..", "data", "aqua.db");
 fs.mkdirSync(path.dirname(dbPath), { recursive: true });
@@ -428,6 +429,16 @@ CREATE INDEX IF NOT EXISTS idx_credit_payments_paid_at ON credit_payments(paid_a
 CREATE TABLE IF NOT EXISTS settings (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS role_permissions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  role TEXT NOT NULL CHECK (role IN ('ADMIN','WORKER')),
+  module_key TEXT NOT NULL,
+  can_view INTEGER NOT NULL DEFAULT 1,
+  can_edit INTEGER NOT NULL DEFAULT 1,
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE(role, module_key)
 );
 
 CREATE TABLE IF NOT EXISTS account_recovery (
@@ -1087,9 +1098,13 @@ const creditPaymentColumns = new Set(
 if (creditPaymentColumns.size > 0 && !creditPaymentColumns.has("payment_method")) {
   db.exec("ALTER TABLE credit_payments ADD COLUMN payment_method TEXT NOT NULL DEFAULT 'CASH';");
 }
+if (creditPaymentColumns.size > 0 && !creditPaymentColumns.has("receipt_no")) {
+  db.exec("ALTER TABLE credit_payments ADD COLUMN receipt_no TEXT;");
+}
 db.exec("UPDATE credit_payments SET payment_method = 'CASH' WHERE payment_method IS NULL OR TRIM(payment_method) = '';");
 db.exec("UPDATE credit_payments SET payment_method = 'CASH' WHERE payment_method NOT IN ('CASH','BANK','E_WALLET');");
 db.exec("CREATE INDEX IF NOT EXISTS idx_credit_payments_method ON credit_payments(payment_method);");
+db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_credit_payments_receipt_no ON credit_payments(receipt_no);");
 
 const importPaymentColumns = new Set(
   db.prepare("PRAGMA table_info(import_payments)").all().map((col) => col.name)
@@ -1100,12 +1115,16 @@ if (importPaymentColumns.size > 0 && !importPaymentColumns.has("payment_method")
 if (importPaymentColumns.size > 0 && !importPaymentColumns.has("payment_source")) {
   db.exec("ALTER TABLE import_payments ADD COLUMN payment_source TEXT NOT NULL DEFAULT 'DAILY_COLLECTION';");
 }
+if (importPaymentColumns.size > 0 && !importPaymentColumns.has("receipt_no")) {
+  db.exec("ALTER TABLE import_payments ADD COLUMN receipt_no TEXT;");
+}
 db.exec("UPDATE import_payments SET payment_method = 'CASH' WHERE payment_method IS NULL OR TRIM(payment_method) = '';");
 db.exec("UPDATE import_payments SET payment_method = 'CASH' WHERE payment_method NOT IN ('CASH','BANK','E_WALLET');");
 db.exec("UPDATE import_payments SET payment_source = 'DAILY_COLLECTION' WHERE payment_source IS NULL OR TRIM(payment_source) = '';");
 db.exec("UPDATE import_payments SET payment_source = 'DAILY_COLLECTION' WHERE payment_source NOT IN ('DAILY_COLLECTION','OWNER_PERSONAL','BANK_OTHER');");
 db.exec("CREATE INDEX IF NOT EXISTS idx_import_payments_method ON import_payments(payment_method);");
 db.exec("CREATE INDEX IF NOT EXISTS idx_import_payments_source ON import_payments(payment_source);");
+db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_import_payments_receipt_no ON import_payments(receipt_no);");
 if (!importColumns.has("direction")) {
   db.exec("ALTER TABLE import_entries ADD COLUMN direction TEXT NOT NULL DEFAULT 'IN';");
   db.exec("UPDATE import_entries SET direction = 'IN' WHERE direction IS NULL;");
@@ -1128,6 +1147,13 @@ if (!importColumns.has("paid_amount")) {
 if (!importColumns.has("is_credit")) {
   db.exec("ALTER TABLE import_entries ADD COLUMN is_credit INTEGER NOT NULL DEFAULT 0;");
 }
+if (!importColumns.has("due_date")) {
+  db.exec("ALTER TABLE import_entries ADD COLUMN due_date TEXT;");
+}
+if (!importColumns.has("reminder_days")) {
+  db.exec("ALTER TABLE import_entries ADD COLUMN reminder_days INTEGER NOT NULL DEFAULT 0;");
+}
+db.exec("UPDATE import_entries SET reminder_days = 0 WHERE reminder_days IS NULL OR reminder_days < 0;");
 db.exec("CREATE INDEX IF NOT EXISTS idx_import_entries_seller ON import_entries(seller_name);");
 
 db.exec(
@@ -1161,6 +1187,13 @@ if (!companyPurchaseColumns.has("paid_amount")) {
 if (!companyPurchaseColumns.has("is_credit")) {
   db.exec("ALTER TABLE company_purchases ADD COLUMN is_credit INTEGER NOT NULL DEFAULT 0;");
 }
+if (!companyPurchaseColumns.has("due_date")) {
+  db.exec("ALTER TABLE company_purchases ADD COLUMN due_date TEXT;");
+}
+if (!companyPurchaseColumns.has("reminder_days")) {
+  db.exec("ALTER TABLE company_purchases ADD COLUMN reminder_days INTEGER NOT NULL DEFAULT 0;");
+}
+db.exec("UPDATE company_purchases SET reminder_days = 0 WHERE reminder_days IS NULL OR reminder_days < 0;");
 db.exec("CREATE INDEX IF NOT EXISTS idx_company_purchases_seller ON company_purchases(seller_name);");
 
 db.exec(
@@ -1189,12 +1222,16 @@ if (companyPurchasePaymentColumns.size > 0 && !companyPurchasePaymentColumns.has
 if (companyPurchasePaymentColumns.size > 0 && !companyPurchasePaymentColumns.has("payment_source")) {
   db.exec("ALTER TABLE company_purchase_payments ADD COLUMN payment_source TEXT NOT NULL DEFAULT 'DAILY_COLLECTION';");
 }
+if (companyPurchasePaymentColumns.size > 0 && !companyPurchasePaymentColumns.has("receipt_no")) {
+  db.exec("ALTER TABLE company_purchase_payments ADD COLUMN receipt_no TEXT;");
+}
 db.exec("UPDATE company_purchase_payments SET payment_method = 'CASH' WHERE payment_method IS NULL OR TRIM(payment_method) = '';");
 db.exec("UPDATE company_purchase_payments SET payment_method = 'CASH' WHERE payment_method NOT IN ('CASH','BANK','E_WALLET');");
 db.exec("UPDATE company_purchase_payments SET payment_source = 'DAILY_COLLECTION' WHERE payment_source IS NULL OR TRIM(payment_source) = '';");
 db.exec("UPDATE company_purchase_payments SET payment_source = 'DAILY_COLLECTION' WHERE payment_source NOT IN ('DAILY_COLLECTION','OWNER_PERSONAL','BANK_OTHER');");
 db.exec("CREATE INDEX IF NOT EXISTS idx_company_purchase_payments_method ON company_purchase_payments(payment_method);");
 db.exec("CREATE INDEX IF NOT EXISTS idx_company_purchase_payments_source ON company_purchase_payments(payment_source);");
+db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_company_purchase_payments_receipt_no ON company_purchase_payments(receipt_no);");
 
 const vehicleExpenseTable = db.prepare(
   "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'vehicle_expenses'"
@@ -1268,12 +1305,16 @@ if (vehicleExpensePaymentColumns.size > 0 && !vehicleExpensePaymentColumns.has("
 if (vehicleExpensePaymentColumns.size > 0 && !vehicleExpensePaymentColumns.has("payment_source")) {
   db.exec("ALTER TABLE vehicle_expense_payments ADD COLUMN payment_source TEXT NOT NULL DEFAULT 'DAILY_COLLECTION';");
 }
+if (vehicleExpensePaymentColumns.size > 0 && !vehicleExpensePaymentColumns.has("receipt_no")) {
+  db.exec("ALTER TABLE vehicle_expense_payments ADD COLUMN receipt_no TEXT;");
+}
 db.exec("UPDATE vehicle_expense_payments SET payment_method = 'CASH' WHERE payment_method IS NULL OR TRIM(payment_method) = '';");
 db.exec("UPDATE vehicle_expense_payments SET payment_method = 'CASH' WHERE payment_method NOT IN ('CASH','BANK','E_WALLET');");
 db.exec("UPDATE vehicle_expense_payments SET payment_source = 'DAILY_COLLECTION' WHERE payment_source IS NULL OR TRIM(payment_source) = '';");
 db.exec("UPDATE vehicle_expense_payments SET payment_source = 'DAILY_COLLECTION' WHERE payment_source NOT IN ('DAILY_COLLECTION','OWNER_PERSONAL','BANK_OTHER');");
 db.exec("CREATE INDEX IF NOT EXISTS idx_vehicle_expense_payments_method ON vehicle_expense_payments(payment_method);");
 db.exec("CREATE INDEX IF NOT EXISTS idx_vehicle_expense_payments_source ON vehicle_expense_payments(payment_source);");
+db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_vehicle_expense_payments_receipt_no ON vehicle_expense_payments(receipt_no);");
 
 const jarTypeColumns = new Set(
   db.prepare("PRAGMA table_info(jar_types)").all().map((col) => col.name)
@@ -1514,6 +1555,14 @@ if (jarSalesColumns.size > 0 && !jarSalesColumns.has("vehicle_number")) {
   db.exec("ALTER TABLE jar_sales ADD COLUMN vehicle_number TEXT;");
 }
 
+const jarSalePaymentColumns = new Set(
+  db.prepare("PRAGMA table_info(jar_sale_payments)").all().map((col) => col.name)
+);
+if (jarSalePaymentColumns.size > 0 && !jarSalePaymentColumns.has("receipt_no")) {
+  db.exec("ALTER TABLE jar_sale_payments ADD COLUMN receipt_no TEXT;");
+}
+db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_jar_sale_payments_receipt_no ON jar_sale_payments(receipt_no);");
+
 if (jarTypeColumns.size > 0 && !jarTypeColumns.has("updated_at")) {
   db.exec("ALTER TABLE jar_types ADD COLUMN updated_at TEXT NOT NULL DEFAULT (datetime('now'));");
 }
@@ -1591,6 +1640,10 @@ defaultStaffRoles.forEach((role) => {
   insertStaffRoleIfMissing.run(role.code, role.name);
 });
 
+ensureRolePermissionRows(db);
+db.exec("CREATE INDEX IF NOT EXISTS idx_role_permissions_role ON role_permissions(role);");
+db.exec("CREATE INDEX IF NOT EXISTS idx_role_permissions_module ON role_permissions(module_key);");
+
 const humanizeRoleCode = (code) => String(code || "")
   .trim()
   .replace(/_/g, " ")
@@ -1624,6 +1677,31 @@ db.exec(
    WHERE receipt_no IS NULL OR TRIM(receipt_no) = ''`
 );
 db.exec(
+  `UPDATE credit_payments
+   SET receipt_no = 'CPY-' || COALESCE(NULLIF(REPLACE(date(paid_at), '-', ''), ''), strftime('%Y%m%d', 'now')) || '-' || printf('%06d', id)
+   WHERE receipt_no IS NULL OR TRIM(receipt_no) = ''`
+);
+db.exec(
+  `UPDATE import_payments
+   SET receipt_no = 'IMP-' || COALESCE(NULLIF(REPLACE(payment_date, '-', ''), ''), strftime('%Y%m%d', 'now')) || '-' || printf('%06d', id)
+   WHERE receipt_no IS NULL OR TRIM(receipt_no) = ''`
+);
+db.exec(
+  `UPDATE company_purchase_payments
+   SET receipt_no = 'CPP-' || COALESCE(NULLIF(REPLACE(payment_date, '-', ''), ''), strftime('%Y%m%d', 'now')) || '-' || printf('%06d', id)
+   WHERE receipt_no IS NULL OR TRIM(receipt_no) = ''`
+);
+db.exec(
+  `UPDATE vehicle_expense_payments
+   SET receipt_no = 'VEP-' || COALESCE(NULLIF(REPLACE(payment_date, '-', ''), ''), strftime('%Y%m%d', 'now')) || '-' || printf('%06d', id)
+   WHERE receipt_no IS NULL OR TRIM(receipt_no) = ''`
+);
+db.exec(
+  `UPDATE jar_sale_payments
+   SET receipt_no = 'JRP-' || COALESCE(NULLIF(REPLACE(payment_date, '-', ''), ''), strftime('%Y%m%d', 'now')) || '-' || printf('%06d', id)
+   WHERE receipt_no IS NULL OR TRIM(receipt_no) = ''`
+);
+db.exec(
   "CREATE UNIQUE INDEX IF NOT EXISTS idx_exports_receipt_no ON exports(receipt_no);"
 );
 db.exec(
@@ -1634,6 +1712,21 @@ db.exec(
 );
 db.exec(
   "CREATE UNIQUE INDEX IF NOT EXISTS idx_worker_salary_receipt_no ON worker_salary_payments(receipt_no);"
+);
+db.exec(
+  "CREATE UNIQUE INDEX IF NOT EXISTS idx_credit_payments_receipt_no ON credit_payments(receipt_no);"
+);
+db.exec(
+  "CREATE UNIQUE INDEX IF NOT EXISTS idx_import_payments_receipt_no ON import_payments(receipt_no);"
+);
+db.exec(
+  "CREATE UNIQUE INDEX IF NOT EXISTS idx_company_purchase_payments_receipt_no ON company_purchase_payments(receipt_no);"
+);
+db.exec(
+  "CREATE UNIQUE INDEX IF NOT EXISTS idx_vehicle_expense_payments_receipt_no ON vehicle_expense_payments(receipt_no);"
+);
+db.exec(
+  "CREATE UNIQUE INDEX IF NOT EXISTS idx_jar_sale_payments_receipt_no ON jar_sale_payments(receipt_no);"
 );
 db.exec(
   `UPDATE recycle_bin

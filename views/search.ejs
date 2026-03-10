@@ -45,6 +45,7 @@
               <div class="flex flex-wrap gap-2">
                 <a class="btn-outline" href="/records/exports?q=<%= encodeURIComponent(v.vehicle_number) %>"><%= t('exports') %></a>
                 <a class="btn-outline" href="/records/credits?q=<%= encodeURIComponent(v.vehicle_number) %>"><%= t('credits') %></a>
+                <a class="btn-outline" href="/records/vehicle-invoice?vehicle_id=<%= v.id %>"><%= t('vehicleInvoiceTitle') %></a>
               </div>
             </div>
           <% }) %>
@@ -68,9 +69,7 @@
               </div>
               <div class="flex flex-wrap gap-2">
                 <a class="btn-outline" href="/records/credits?q=<%= encodeURIComponent(row.customer_name) %>"><%= t('credits') %></a>
-                <% if (isAdmin) { %>
-                  <a class="btn-outline" href="/admin/reports/customer-invoice?customer=<%= encodeURIComponent(row.customer_name) %>"><%= t('customerInvoiceTitle') %></a>
-                <% } %>
+                <a class="btn-outline" href="/records/customer-invoice?customer=<%= encodeURIComponent(row.customer_name) %>"><%= t('customerInvoiceTitle') %></a>
               </div>
             </div>
           <% }) %>

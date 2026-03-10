@@ -60,10 +60,6 @@
               </tbody>
             </table>
           </div>
-          <label class="mt-3 inline-flex items-center gap-2 text-sm">
-            <input type="checkbox" name="allow_duplicate_entry" value="1" required />
-            <span><%= t('confirmDuplicateEntry') %></span>
-          </label>
         </div>
       <% } %>
       <div>
@@ -84,7 +80,13 @@
       </div>
       <div>
         <label class="label"><%= t('customerName') %></label>
-        <input class="input" type="text" name="customer_name" list="customerList" value="<%= pickValue('customer_name', '') %>" required />
+        <select id="savedCustomerSelect" class="input mb-2">
+          <option value=""><%= t('selectCustomer') %></option>
+          <% (customers || []).forEach((name) => { %>
+            <option value="<%= name %>" <%= pickValue('customer_name', '') === name ? 'selected' : '' %>><%= name %></option>
+          <% }) %>
+        </select>
+        <input id="customerNameInput" class="input" type="text" name="customer_name" list="customerList" value="<%= pickValue('customer_name', '') %>" required />
         <datalist id="customerList">
           <% (customers || []).forEach((name) => { %>
             <option value="<%= name %>"></option>
@@ -187,6 +189,8 @@
     var paidEWalletInput = document.getElementById('paidEWalletAmount');
     var remainingInput = document.getElementById('remainingAmount');
     var markPaid = document.getElementById('markPaid');
+    var savedCustomerSelect = document.getElementById('savedCustomerSelect');
+    var customerNameInput = document.getElementById('customerNameInput');
     if (!amountInput || !paidInput || !remainingInput) return;
 
     function toNumber(value) {
@@ -252,6 +256,17 @@
       });
       [paidCashInput, paidBankInput, paidEWalletInput].forEach(function (el) {
         if (el) el.readOnly = markPaid.checked;
+      });
+    }
+    if (savedCustomerSelect && customerNameInput) {
+      savedCustomerSelect.addEventListener('change', function () {
+        if (!savedCustomerSelect.value) return;
+        customerNameInput.value = savedCustomerSelect.value;
+      });
+      customerNameInput.addEventListener('input', function () {
+        if (!customerNameInput.value || customerNameInput.value !== savedCustomerSelect.value) {
+          savedCustomerSelect.value = '';
+        }
       });
     }
     syncAmounts();

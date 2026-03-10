@@ -7,6 +7,7 @@
   <% const vehicleCreditToValue = typeof vehicleCreditTo !== 'undefined' ? vehicleCreditTo : to; %>
   <% const safeVehicleCumulativeTotals = typeof vehicleCumulativeTotals !== 'undefined' ? vehicleCumulativeTotals : { vehicle_count: 0, total_amount: 0, total_paid: 0, total_remaining: 0 }; %>
   <% const safeVehicleCumulativeAllTime = typeof vehicleCumulativeAllTime !== 'undefined' ? Number(vehicleCumulativeAllTime || 0) : 0; %>
+  <% const safeVehicleCumulativeDetailsByVehicle = typeof vehicleCumulativeDetailsByVehicle !== 'undefined' ? vehicleCumulativeDetailsByVehicle : {}; %>
   <div class="flex flex-wrap items-center justify-between gap-3">
     <div>
       <h1 class="text-3xl font-semibold"><%= t('exportsTitle') %></h1>
@@ -199,40 +200,32 @@
                   <span><%= t('receiptNo') %>: <%= group.trips.map((trip) => trip.receipt_no).join(', ') %></span>
                 <% } %>
               </div>
-              <div class="mt-4 flex flex-wrap items-center gap-2">
-                <form method="post" action="/records/exports/daily-credit" class="flex flex-wrap items-center gap-2">
+              <div class="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-3">
+                <form method="post" action="/records/exports/daily-credit" class="js-payment-split grid gap-3 lg:grid-cols-5" data-max="<%= group.total_remaining %>">
                   <input type="hidden" name="date" value="<%= from %>" />
                   <input type="hidden" name="vehicle_id" value="<%= group.vehicle_id %>" />
-                  <input
-                    class="input h-9 w-32"
-                    type="number"
-                    step="0.01"
-                    min="0.01"
-                    max="<%= group.total_remaining %>"
-                    name="cash_amount"
-                    placeholder="<%= t('methodCash') %>"
-                  />
-                  <input
-                    class="input h-9 w-32"
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    max="<%= group.total_remaining %>"
-                    name="bank_amount"
-                    placeholder="<%= t('methodBank') %>"
-                  />
-                  <input
-                    class="input h-9 w-32"
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    max="<%= group.total_remaining %>"
-                    name="ewallet_amount"
-                    placeholder="<%= t('methodEWallet') %>"
-                  />
-                  <button class="btn-outline" type="submit"><%= t('addPayment') %></button>
+                  <div>
+                    <label class="label"><%= t('methodCash') %></label>
+                    <input class="input h-10" type="number" step="0.01" min="0" max="<%= group.total_remaining %>" name="cash_amount" />
+                  </div>
+                  <div>
+                    <label class="label"><%= t('methodBank') %></label>
+                    <input class="input h-10" type="number" step="0.01" min="0" max="<%= group.total_remaining %>" name="bank_amount" />
+                  </div>
+                  <div>
+                    <label class="label"><%= t('methodEWallet') %></label>
+                    <input class="input h-10" type="number" step="0.01" min="0" max="<%= group.total_remaining %>" name="ewallet_amount" />
+                  </div>
+                  <div>
+                    <label class="label"><%= t('paymentAmount') %></label>
+                    <input class="input h-10 bg-slate-50" type="number" step="0.01" min="0" name="payment_amount" readonly />
+                    <p class="mt-1 text-xs text-slate-500"><%= t('totalRemaining') %>: <%= group.total_remaining %></p>
+                  </div>
+                  <div class="flex items-end gap-2">
+                    <button class="btn-primary" type="submit"><%= t('addPayment') %></button>
+                    <a class="btn-outline" href="/records/exports/payment-history?from=<%= from %>&to=<%= to %>&vehicle_id=<%= group.vehicle_id %>"><%= t('paymentHistory') %></a>
+                  </div>
                 </form>
-                <a class="btn-outline" href="/records/exports/payment-history?from=<%= from %>&to=<%= to %>&vehicle_id=<%= group.vehicle_id %>"><%= t('paymentHistory') %></a>
               </div>
             </div>
           <% }) %>
@@ -285,13 +278,17 @@
     <% } else { %>
       <div class="mt-4 grid gap-3">
         <% safeVehicleCumulativeCredits.forEach((row) => { %>
+          <% const vehicleDetails = safeVehicleCumulativeDetailsByVehicle[String(row.vehicle_id)] || []; %>
           <div class="card p-4">
             <div class="flex flex-wrap items-center justify-between gap-2">
               <div>
                 <p class="font-semibold"><%= `${row.owner_name} • ${row.vehicle_number}` %></p>
                 <p class="text-xs text-slate-500"><%= t('lastDate') %>: <%= row.last_export_date || '-' %></p>
               </div>
-              <span class="badge bg-red-100 text-red-700"><%= t('totalRemaining') %>: <%= row.total_remaining %></span>
+              <div class="flex flex-wrap items-center gap-2">
+                <span class="badge bg-red-100 text-red-700"><%= t('totalRemaining') %>: <%= row.total_remaining %></span>
+                <a class="btn-outline btn-sm" target="_blank" href="/records/exports/vehicle-credits/print?vehicle_id=<%= row.vehicle_id %>&vehicle_credit_from=<%= vehicleCreditFromValue %>&vehicle_credit_to=<%= vehicleCreditToValue %>&from=<%= from %>&to=<%= to %>"><%= t('printList') %></a>
+              </div>
             </div>
 
             <div class="mt-3 grid gap-2 text-sm sm:grid-cols-4">
@@ -313,9 +310,9 @@
               </div>
             </div>
 
-            <div class="mt-4 flex flex-wrap items-center gap-2">
+            <div class="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-3">
               <% if (Number(row.total_remaining || 0) > 0) { %>
-                <form id="export-vehicle-credit-pay-<%= row.vehicle_id %>" method="post" action="/records/exports/vehicle-credits/pay" class="flex flex-wrap items-center gap-2">
+                <form id="export-vehicle-credit-pay-<%= row.vehicle_id %>" method="post" action="/records/exports/vehicle-credits/pay" class="js-payment-split grid gap-3 lg:grid-cols-5" data-max="<%= row.total_remaining %>">
                   <input type="hidden" name="vehicle_id" value="<%= row.vehicle_id %>" />
                   <input type="hidden" name="from" value="<%= from %>" />
                   <input type="hidden" name="to" value="<%= to %>" />
@@ -324,37 +321,59 @@
                   <input type="hidden" name="trip_vehicle_id" value="<%= selectedTripVehicleId %>" />
                   <input type="hidden" name="vehicle_credit_from" value="<%= vehicleCreditFromValue %>" />
                   <input type="hidden" name="vehicle_credit_to" value="<%= vehicleCreditToValue %>" />
-                  <input
-                    class="input h-9 w-32"
-                    type="number"
-                    step="0.01"
-                    min="0.01"
-                    max="<%= row.total_remaining %>"
-                    name="cash_amount"
-                    placeholder="<%= t('methodCash') %>"
-                  />
-                  <input
-                    class="input h-9 w-32"
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    max="<%= row.total_remaining %>"
-                    name="bank_amount"
-                    placeholder="<%= t('methodBank') %>"
-                  />
-                  <input
-                    class="input h-9 w-32"
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    max="<%= row.total_remaining %>"
-                    name="ewallet_amount"
-                    placeholder="<%= t('methodEWallet') %>"
-                  />
-                  <button class="btn-outline" type="submit"><%= t('addPayment') %></button>
+                  <div>
+                    <label class="label"><%= t('methodCash') %></label>
+                    <input class="input h-10" type="number" step="0.01" min="0" max="<%= row.total_remaining %>" name="cash_amount" />
+                  </div>
+                  <div>
+                    <label class="label"><%= t('methodBank') %></label>
+                    <input class="input h-10" type="number" step="0.01" min="0" max="<%= row.total_remaining %>" name="bank_amount" />
+                  </div>
+                  <div>
+                    <label class="label"><%= t('methodEWallet') %></label>
+                    <input class="input h-10" type="number" step="0.01" min="0" max="<%= row.total_remaining %>" name="ewallet_amount" />
+                  </div>
+                  <div>
+                    <label class="label"><%= t('paymentAmount') %></label>
+                    <input class="input h-10 bg-slate-50" type="number" step="0.01" min="0" name="payment_amount" readonly />
+                    <p class="mt-1 text-xs text-slate-500"><%= t('totalRemaining') %>: <%= row.total_remaining %></p>
+                  </div>
+                  <div class="flex items-end gap-2">
+                    <button class="btn-primary" type="submit"><%= t('addPayment') %></button>
+                    <a class="btn-outline" href="/records/exports/payment-history?from=<%= vehicleCreditFromValue %>&to=<%= vehicleCreditToValue %>&vehicle_id=<%= row.vehicle_id %>"><%= t('paymentHistory') %></a>
+                  </div>
                 </form>
               <% } %>
-              <a class="btn-outline" href="/records/exports/payment-history?from=<%= vehicleCreditFromValue %>&to=<%= vehicleCreditToValue %>&vehicle_id=<%= row.vehicle_id %>"><%= t('paymentHistory') %></a>
+            </div>
+
+            <div class="mt-4 overflow-x-auto rounded-xl border border-slate-200">
+              <table class="table-base text-sm">
+                <thead class="table-head">
+                  <tr>
+                    <th class="px-3 py-2"><%= t('date') %></th>
+                    <th class="px-3 py-2"><%= t('receiptNo') %></th>
+                    <th class="px-3 py-2"><%= t('jarCount') %></th>
+                    <th class="px-3 py-2"><%= t('netJars') %></th>
+                    <th class="px-3 py-2"><%= t('remainingAmount') %></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <% if (!vehicleDetails.length) { %>
+                    <tr>
+                      <td class="px-3 py-3 text-slate-500" colspan="5"><%= t('noCredits') %></td>
+                    </tr>
+                  <% } %>
+                  <% vehicleDetails.forEach((detail) => { %>
+                    <tr class="table-row">
+                      <td class="px-3 py-2"><%= detail.export_date %></td>
+                      <td class="px-3 py-2"><%= detail.receipt_no || (`#${detail.id}`) %></td>
+                      <td class="px-3 py-2"><%= detail.jar_count || 0 %></td>
+                      <td class="px-3 py-2"><%= detail.net_jars || 0 %></td>
+                      <td class="px-3 py-2"><%= detail.remaining_amount || 0 %></td>
+                    </tr>
+                  <% }) %>
+                </tbody>
+              </table>
             </div>
           </div>
         <% }) %>
@@ -531,6 +550,47 @@
           if (other !== panel) other.removeAttribute('open');
         });
       });
+    });
+  })();
+  (() => {
+    const forms = Array.from(document.querySelectorAll('form.js-payment-split'));
+    const toSafe = (value) => {
+      const num = Number(value || 0);
+      if (Number.isNaN(num) || num < 0) return 0;
+      return num;
+    };
+    const formatMoney = (value) => {
+      const safe = Math.round(toSafe(value) * 100) / 100;
+      return safe > 0 ? String(safe) : '';
+    };
+    forms.forEach((form) => {
+      const cashInput = form.querySelector("input[name='cash_amount']");
+      const bankInput = form.querySelector("input[name='bank_amount']");
+      const walletInput = form.querySelector("input[name='ewallet_amount']");
+      const totalInput = form.querySelector("input[name='payment_amount']");
+      if (!cashInput || !bankInput || !walletInput || !totalInput) return;
+      const maxRaw = Number(form.dataset.max || cashInput.getAttribute('max') || '0');
+      const maxValue = Number.isNaN(maxRaw) ? 0 : Math.max(0, maxRaw);
+      const recalc = () => {
+        let cash = toSafe(cashInput.value);
+        let bank = toSafe(bankInput.value);
+        let wallet = toSafe(walletInput.value);
+        let remaining = maxValue;
+        const clamp = (amount) => {
+          const use = Math.min(amount, remaining);
+          remaining -= use;
+          return use;
+        };
+        cash = clamp(cash);
+        bank = clamp(bank);
+        wallet = clamp(wallet);
+        cashInput.value = formatMoney(cash);
+        bankInput.value = formatMoney(bank);
+        walletInput.value = formatMoney(wallet);
+        totalInput.value = formatMoney(cash + bank + wallet);
+      };
+      [cashInput, bankInput, walletInput].forEach((input) => input.addEventListener('input', recalc));
+      recalc();
     });
   })();
 </script>

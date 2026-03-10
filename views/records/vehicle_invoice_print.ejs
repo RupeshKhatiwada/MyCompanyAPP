@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="<%= lang %>">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title><%= t('vehicleInvoiceTitle') %> | AQUA MSK</title>
+  <link rel="stylesheet" href="/css/styles.css?v=<%= assetVersion %>" />
+  <style>
+    @media print {
+      @page {
+        size: A4 portrait;
+        margin: 10mm;
+      }
+      .print-hidden { display: none !important; }
+      .print-sheet {
+        max-width: none !important;
+        width: 100% !important;
+        margin: 0 !important;
+        padding: 0 !important;
+      }
+      .print-table {
+        width: 100% !important;
+        font-size: 10px !important;
+      }
+      .print-table thead {
+        display: table-header-group !important;
+      }
+      .print-table th,
+      .print-table td {
+        padding: 4px 6px !important;
+        vertical-align: top;
+      }
+      .print-table tr {
+        break-inside: avoid;
+        page-break-inside: avoid;
+      }
+    }
+  </style>
+</head>
+<body class="bg-white text-slate-900">
+  <div class="print-sheet mx-auto max-w-5xl p-6">
+    <div class="flex items-start justify-between gap-4">
+      <div class="flex-1">
+        <%- include('../partials/print-brand', { subtitle: t('vehicleInvoiceTitle') }) %>
+        <p class="mt-2 text-sm text-slate-600"><strong><%= t('vehicle') %>:</strong> <%= `${vehicle.vehicle_number} • ${vehicle.owner_name}` %></p>
+        <p class="text-sm text-slate-600">
+          <span><%= t('from') %>: <%= typeof formatDateDual === 'function' ? formatDateDual(from) : from %></span>
+          <span class="mx-2">•</span>
+          <span><%= t('to') %>: <%= typeof formatDateDual === 'function' ? formatDateDual(to) : to %></span>
+          <% if (invoiceNo) { %>
+            <span class="mx-2">•</span>
+            <span><%= t('invoiceNo') %>: <strong><%= invoiceNo %></strong></span>
+          <% } %>
+        </p>
+      </div>
+      <button class="btn-primary print-hidden" onclick="window.print()"><%= t('print') %></button>
+    </div>
+
+    <div class="mt-6 grid gap-3 text-sm sm:grid-cols-3 lg:grid-cols-6">
+      <div class="card p-4">
+        <p class="text-slate-500"><%= t('tripCount') %></p>
+        <p class="text-lg font-semibold"><%= totals.total_trips %></p>
+      </div>
+      <div class="card p-4">
+        <p class="text-slate-500"><%= t('totalJars') %></p>
+        <p class="text-lg font-semibold"><%= totals.total_jars %></p>
+      </div>
+      <div class="card p-4">
+        <p class="text-slate-500"><%= t('netJars') %></p>
+        <p class="text-lg font-semibold"><%= totals.total_net_jars %></p>
+      </div>
+      <div class="card p-4">
+        <p class="text-slate-500"><%= t('totalAmount') %></p>
+        <p class="text-lg font-semibold"><%= totals.total_amount %></p>
+      </div>
+      <div class="card p-4">
+        <p class="text-slate-500"><%= t('totalPaidAmount') %></p>
+        <p class="text-lg font-semibold"><%= totals.total_paid %></p>
+      </div>
+      <div class="card p-4">
+        <p class="text-slate-500"><%= t('totalRemaining') %></p>
+        <p class="text-lg font-semibold"><%= totals.total_remaining %></p>
+      </div>
+    </div>
+
+    <div class="mt-6 overflow-hidden rounded-2xl border border-slate-200">
+      <table class="table-base print-table">
+        <thead class="table-head">
+          <tr>
+            <th class="px-4 py-3"><%= t('date') %></th>
+            <th class="px-4 py-3"><%= t('receiptNo') %></th>
+            <th class="px-4 py-3"><%= t('jarCount') %></th>
+            <th class="px-4 py-3"><%= t('netJars') %></th>
+            <th class="px-4 py-3"><%= t('amount') %></th>
+            <th class="px-4 py-3"><%= t('paidAmount') %></th>
+            <th class="px-4 py-3"><%= t('remainingAmount') %></th>
+          </tr>
+        </thead>
+        <tbody>
+          <% if (!rows || rows.length === 0) { %>
+            <tr>
+              <td class="px-4 py-4 text-slate-500" colspan="7"><%= t('noExports') %></td>
+            </tr>
+          <% } %>
+          <% (rows || []).forEach((row) => { %>
+            <tr class="table-row">
+              <td class="px-4 py-3"><%= typeof formatDateDual === 'function' ? formatDateDual(row.export_date) : row.export_date %></td>
+              <td class="px-4 py-3"><%= row.receipt_no || (`#${row.id}`) %></td>
+              <td class="px-4 py-3"><%= row.jar_count || 0 %></td>
+              <td class="px-4 py-3"><%= row.net_jars || 0 %></td>
+              <td class="px-4 py-3"><%= row.total_amount || 0 %></td>
+              <td class="px-4 py-3"><%= row.paid_amount || 0 %></td>
+              <td class="px-4 py-3"><%= row.remaining_amount || 0 %></td>
+            </tr>
+          <% }) %>
+        </tbody>
+      </table>
+    </div>
+  </div>
+  <% if (autoPrint) { %>
+    <script>
+      window.addEventListener('load', function () {
+        window.print();
+      });
+    </script>
+  <% } %>
+</body>
+</html>

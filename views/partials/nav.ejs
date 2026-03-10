@@ -2,6 +2,7 @@
 <% const isAdmin = user && (user.role === 'ADMIN' || user.role === 'SUPER_ADMIN'); %>
 <% const isSuper = user && user.role === 'SUPER_ADMIN'; %>
 <% const roleLabel = user ? (user.role === 'SUPER_ADMIN' ? t('roleSuper') : user.role === 'ADMIN' ? t('roleAdmin') : t('workersTitle')) : ''; %>
+<% const canAccessModule = (moduleKey, action = 'view') => (typeof canModuleAccess === 'function' ? canModuleAccess(moduleKey, action) : true); %>
 <header class="app-header sticky top-0 z-50 border-b border-slate-200/80 bg-white/95 backdrop-blur shadow-sm">
   <div class="mx-auto flex w-full max-w-6xl flex-wrap items-center justify-between gap-4 px-4 py-3">
     <div class="flex items-center gap-3">
@@ -90,24 +91,26 @@
             <p class="pill"><%= t('menuOperations') %></p>
             <div class="mt-2 grid gap-2 sm:grid-cols-2">
               <a class="btn-outline" href="/admin"><%= t('dashboard') %></a>
-              <a class="btn-outline" href="/records/exports"><%= t('exports') %></a>
-              <a class="btn-outline" href="/records/credits"><%= t('credits') %></a>
-              <a class="btn-outline" href="/records/imports"><%= t('importsTitle') %></a>
-              <a class="btn-outline" href="/records/water-tests"><%= t('waterTestsTitle') %></a>
+              <% if (canAccessModule('exports')) { %><a class="btn-outline" href="/records/exports"><%= t('exports') %></a><% } %>
+              <% if (canAccessModule('credits')) { %><a class="btn-outline" href="/records/credits"><%= t('credits') %></a><% } %>
+              <% if (canAccessModule('imports')) { %><a class="btn-outline" href="/records/imports"><%= t('importsTitle') %></a><% } %>
+              <% if (canAccessModule('water_tests')) { %><a class="btn-outline" href="/records/water-tests"><%= t('waterTestsTitle') %></a><% } %>
               <a class="btn-outline" href="/admin/alerts"><%= t('alertCenterTitle') %></a>
             </div>
           </div>
           <div>
             <p class="pill"><%= t('menuFinance') %></p>
             <div class="mt-2 grid gap-2 sm:grid-cols-2">
-              <a class="btn-outline" href="/records/jar-sales"><%= t('jarSalesTitle') %></a>
-              <a class="btn-outline" href="/records/rentals"><%= t('rentalsTitle') %></a>
-              <a class="btn-outline" href="/records/reconciliation"><%= t('reconciliationTitle') %></a>
-              <a class="btn-outline" href="/records/payment-ledger"><%= t('paymentLedgerTitle') %></a>
-              <a class="btn-outline" href="/records/vehicle-expenses"><%= t('vehicleExpensesTitle') %></a>
-              <a class="btn-outline" href="/records/company-purchases"><%= t('companyPurchasesTitle') %></a>
-              <a class="btn-outline" href="/records/vendor-aging"><%= t('vendorAgingTitle') %></a>
-              <a class="btn-outline" href="/admin/savings"><%= t('savingsTitle') %></a>
+              <% if (canAccessModule('jar_sales')) { %><a class="btn-outline" href="/records/jar-sales"><%= t('jarSalesTitle') %></a><% } %>
+              <% if (canAccessModule('rentals')) { %><a class="btn-outline" href="/records/rentals"><%= t('rentalsTitle') %></a><% } %>
+              <% if (canAccessModule('invoices')) { %><a class="btn-outline" href="/records/customer-invoice"><%= t('customerInvoiceTitle') %></a><% } %>
+              <% if (canAccessModule('invoices')) { %><a class="btn-outline" href="/records/vehicle-invoice"><%= t('vehicleInvoiceTitle') %></a><% } %>
+              <% if (canAccessModule('reconciliation')) { %><a class="btn-outline" href="/records/reconciliation"><%= t('reconciliationTitle') %></a><% } %>
+              <% if (canAccessModule('payment_ledger')) { %><a class="btn-outline" href="/records/payment-ledger"><%= t('paymentLedgerTitle') %></a><% } %>
+              <% if (canAccessModule('vehicle_expenses')) { %><a class="btn-outline" href="/records/vehicle-expenses"><%= t('vehicleExpensesTitle') %></a><% } %>
+              <% if (canAccessModule('company_expenses')) { %><a class="btn-outline" href="/records/company-purchases"><%= t('companyPurchasesTitle') %></a><% } %>
+              <% if (canAccessModule('vendor_aging')) { %><a class="btn-outline" href="/records/vendor-aging"><%= t('vendorAgingTitle') %></a><% } %>
+              <% if (canAccessModule('savings')) { %><a class="btn-outline" href="/admin/savings"><%= t('savingsTitle') %></a><% } %>
               <a class="btn-outline" href="/admin/reports/all"><%= t('allReportsTitle') %></a>
               <a class="btn-outline" href="/admin/reports/payroll-summary"><%= t('payrollSummaryTitle') %></a>
               <a class="btn-outline" href="/admin/backup"><%= t('backup') %></a>
@@ -116,11 +119,11 @@
           <div>
             <p class="pill"><%= t('menuPeopleAccess') %></p>
             <div class="mt-2 grid gap-2 sm:grid-cols-2">
-              <a class="btn-outline" href="/admin/vehicles"><%= t('vehicles') %></a>
+              <% if (canAccessModule('vehicles')) { %><a class="btn-outline" href="/admin/vehicles"><%= t('vehicles') %></a><% } %>
               <a class="btn-outline" href="/admin/workers"><%= t('workers') %></a>
-              <a class="btn-outline" href="/admin/staffs"><%= t('staffsTitle') %></a>
-              <a class="btn-outline" href="/admin/staff-roles"><%= t('manageStaffRoles') %></a>
-              <a class="btn-outline" href="/admin/worker-attendance"><%= t('workerAttendanceTitle') %></a>
+              <% if (canAccessModule('staffs')) { %><a class="btn-outline" href="/admin/staffs"><%= t('staffsTitle') %></a><% } %>
+              <% if (canAccessModule('staffs')) { %><a class="btn-outline" href="/admin/staff-roles"><%= t('manageStaffRoles') %></a><% } %>
+              <% if (canAccessModule('attendance')) { %><a class="btn-outline" href="/admin/worker-attendance"><%= t('workerAttendanceTitle') %></a><% } %>
               <a class="btn-outline" href="/admin/profile"><%= t('profileTitle') %></a>
               <% if (isSuper) { %>
                 <a class="btn-outline" href="/admin/admins"><%= t('admins') %></a>
@@ -131,7 +134,7 @@
           <div>
             <p class="pill"><%= t('menuInsights') %></p>
             <div class="mt-2 grid gap-2 sm:grid-cols-2">
-              <a class="btn-outline" href="/records/history"><%= t('activityLogTitle') %></a>
+              <% if (canAccessModule('history')) { %><a class="btn-outline" href="/records/history"><%= t('activityLogTitle') %></a><% } %>
               <a class="btn-outline" href="/search"><%= t('search') %></a>
               <a class="btn-outline" href="/admin/audit"><%= t('auditCenterTitle') %></a>
               <a class="btn-outline" href="/records/leakage-guard"><%= t('leakageGuardTitle') %></a>
@@ -149,39 +152,41 @@
             <p class="pill"><%= t('menuOperations') %></p>
             <div class="mt-2 grid gap-2 sm:grid-cols-2">
               <a class="btn-outline" href="/worker"><%= t('home') %></a>
-              <a class="btn-outline" href="/records/exports"><%= t('exports') %></a>
-              <a class="btn-outline" href="/records/credits"><%= t('credits') %></a>
-              <a class="btn-outline" href="/records/imports"><%= t('importsTitle') %></a>
-              <a class="btn-outline" href="/records/water-tests"><%= t('waterTestsTitle') %></a>
+              <% if (canAccessModule('exports')) { %><a class="btn-outline" href="/records/exports"><%= t('exports') %></a><% } %>
+              <% if (canAccessModule('credits')) { %><a class="btn-outline" href="/records/credits"><%= t('credits') %></a><% } %>
+              <% if (canAccessModule('imports')) { %><a class="btn-outline" href="/records/imports"><%= t('importsTitle') %></a><% } %>
+              <% if (canAccessModule('water_tests')) { %><a class="btn-outline" href="/records/water-tests"><%= t('waterTestsTitle') %></a><% } %>
               <a class="btn-outline" href="/records/alerts"><%= t('alertCenterTitle') %></a>
             </div>
           </div>
           <div>
             <p class="pill"><%= t('menuFinance') %></p>
             <div class="mt-2 grid gap-2 sm:grid-cols-2">
-              <a class="btn-outline" href="/records/jar-sales"><%= t('jarSalesTitle') %></a>
-              <a class="btn-outline" href="/records/rentals"><%= t('rentalsTitle') %></a>
-              <a class="btn-outline" href="/records/reconciliation"><%= t('reconciliationTitle') %></a>
-              <a class="btn-outline" href="/records/payment-ledger"><%= t('paymentLedgerTitle') %></a>
-              <a class="btn-outline" href="/records/vehicle-expenses"><%= t('vehicleExpensesTitle') %></a>
-              <a class="btn-outline" href="/records/company-purchases"><%= t('companyPurchasesTitle') %></a>
-              <a class="btn-outline" href="/records/vendor-aging"><%= t('vendorAgingTitle') %></a>
-              <a class="btn-outline" href="/records/savings"><%= t('savingsTitle') %></a>
+              <% if (canAccessModule('jar_sales')) { %><a class="btn-outline" href="/records/jar-sales"><%= t('jarSalesTitle') %></a><% } %>
+              <% if (canAccessModule('rentals')) { %><a class="btn-outline" href="/records/rentals"><%= t('rentalsTitle') %></a><% } %>
+              <% if (canAccessModule('invoices')) { %><a class="btn-outline" href="/records/customer-invoice"><%= t('customerInvoiceTitle') %></a><% } %>
+              <% if (canAccessModule('invoices')) { %><a class="btn-outline" href="/records/vehicle-invoice"><%= t('vehicleInvoiceTitle') %></a><% } %>
+              <% if (canAccessModule('reconciliation')) { %><a class="btn-outline" href="/records/reconciliation"><%= t('reconciliationTitle') %></a><% } %>
+              <% if (canAccessModule('payment_ledger')) { %><a class="btn-outline" href="/records/payment-ledger"><%= t('paymentLedgerTitle') %></a><% } %>
+              <% if (canAccessModule('vehicle_expenses')) { %><a class="btn-outline" href="/records/vehicle-expenses"><%= t('vehicleExpensesTitle') %></a><% } %>
+              <% if (canAccessModule('company_expenses')) { %><a class="btn-outline" href="/records/company-purchases"><%= t('companyPurchasesTitle') %></a><% } %>
+              <% if (canAccessModule('vendor_aging')) { %><a class="btn-outline" href="/records/vendor-aging"><%= t('vendorAgingTitle') %></a><% } %>
+              <% if (canAccessModule('savings')) { %><a class="btn-outline" href="/records/savings"><%= t('savingsTitle') %></a><% } %>
             </div>
           </div>
           <div>
             <p class="pill"><%= t('menuPeopleAccess') %></p>
             <div class="mt-2 grid gap-2 sm:grid-cols-2">
-              <a class="btn-outline" href="/records/vehicles"><%= t('vehicles') %></a>
-              <a class="btn-outline" href="/records/staffs"><%= t('staffsTitle') %></a>
-              <a class="btn-outline" href="/records/staff-attendance"><%= t('staffAttendanceTitle') %></a>
+              <% if (canAccessModule('vehicles')) { %><a class="btn-outline" href="/records/vehicles"><%= t('vehicles') %></a><% } %>
+              <% if (canAccessModule('staffs')) { %><a class="btn-outline" href="/records/staffs"><%= t('staffsTitle') %></a><% } %>
+              <% if (canAccessModule('attendance')) { %><a class="btn-outline" href="/records/staff-attendance"><%= t('staffAttendanceTitle') %></a><% } %>
               <a class="btn-outline" href="/records/profile"><%= t('profileTitle') %></a>
             </div>
           </div>
           <div>
             <p class="pill"><%= t('menuInsights') %></p>
             <div class="mt-2 grid gap-2 sm:grid-cols-2">
-              <a class="btn-outline" href="/records/history"><%= t('activityLogTitle') %></a>
+              <% if (canAccessModule('history')) { %><a class="btn-outline" href="/records/history"><%= t('activityLogTitle') %></a><% } %>
               <a class="btn-outline" href="/search"><%= t('search') %></a>
             </div>
           </div>

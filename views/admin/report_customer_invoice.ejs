@@ -1,5 +1,6 @@
 <%- include('../partials/shell-start', { title }) %>
 <section class="py-8">
+  <% const invoiceBasePath = typeof reportBasePath !== 'undefined' && reportBasePath ? reportBasePath : '/admin/reports/customer-invoice'; %>
   <div class="flex flex-wrap items-center justify-between gap-3">
     <div>
       <h1 class="text-3xl font-semibold"><%= t('customerInvoiceTitle') %></h1>
@@ -7,12 +8,13 @@
     </div>
     <div class="flex flex-wrap gap-2">
       <% if (customer) { %>
-        <a class="btn-primary" href="/admin/reports/customer-invoice/print?from=<%= from %>&to=<%= to %>&customer=<%= encodeURIComponent(customer) %>&autoprint=1" target="_blank"><%= t('oneClickInvoicePdf') %></a>
+        <a class="btn-primary" href="<%= `${invoiceBasePath}/print?from=${from}&to=${to}&customer=${encodeURIComponent(customer)}&autoprint=1` %>" target="_blank"><%= t('oneClickInvoicePdf') %></a>
+        <a class="btn-outline" href="<%= `${invoiceBasePath}/export?from=${from}&to=${to}&customer=${encodeURIComponent(customer)}` %>"><%= t('exportCsv') %></a>
       <% } %>
     </div>
   </div>
 
-  <form class="mt-4 flex flex-wrap items-end gap-3" method="get" action="/admin/reports/customer-invoice">
+  <form class="mt-4 flex flex-wrap items-end gap-3" method="get" action="<%= invoiceBasePath %>">
     <div>
       <label class="label"><%= t('from') %></label>
       <input class="input" type="date" name="from" value="<%= from %>" />

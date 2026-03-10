@@ -5,7 +5,7 @@ const { requireRole } = require("../middleware/auth");
 const path = require("path");
 const multer = require("multer");
 const bcrypt = require("bcryptjs");
-const { createReceiptNo } = require("../utils/numbering");
+const { createReceiptNo, createInvoiceNo } = require("../utils/numbering");
 const { createRecycleEntry } = require("../utils/recycleBin");
 const { formatActivityRows } = require("../utils/activity");
 const { adToBs } = require("../utils/calendar");
@@ -834,6 +834,34 @@ const getDispenserStorageBalance = ({ excludeExportId = null } = {}) => {
   return imported - exported;
 };
 
+const getImportItemDirectionalBalance = (itemType, { excludeEntryId = null } = {}) => {
+  if (!itemType) return 0;
+  const row = excludeEntryId
+    ? db.prepare(
+      `SELECT COALESCE(SUM(CASE WHEN direction = 'OUT' THEN -quantity ELSE quantity END), 0) as qty
+       FROM import_entries
+       WHERE item_type = ? AND id != ?`
+    ).get(itemType, excludeEntryId)
+    : db.prepare(
+      `SELECT COALESCE(SUM(CASE WHEN direction = 'OUT' THEN -quantity ELSE quantity END), 0) as qty
+       FROM import_entries
+       WHERE item_type = ?`
+    ).get(itemType);
+  return Number(row?.qty || 0);
+};
+
+const getStaffPaidTotal = (staffId, { excludePaymentId = null } = {}) => {
+  if (!staffId) return 0;
+  const row = excludePaymentId
+    ? db.prepare(
+      "SELECT COALESCE(SUM(amount), 0) as paid_total FROM staff_salary_payments WHERE staff_id = ? AND id != ?"
+    ).get(staffId, excludePaymentId)
+    : db.prepare(
+      "SELECT COALESCE(SUM(amount), 0) as paid_total FROM staff_salary_payments WHERE staff_id = ?"
+    ).get(staffId);
+  return Number(row?.paid_total || 0);
+};
+
 const normalizeFingerprintId = (value) => {
   const safe = String(value || "").trim();
   return safe || null;
@@ -886,12 +914,91 @@ const parsePaymentAmount = (details) => {
   return Number.isNaN(value) ? 0 : value;
 };
 
+const parsePaymentMetric = (details, key) => {
+  const pattern = new RegExp(`${String(key || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}=([0-9.]+)`, "i");
+  const match = String(details || "").match(pattern);
+  if (!match) return null;
+  const value = Number(match[1]);
+  return Number.isNaN(value) ? null : value;
+};
+
+const parsePaymentTransition = (details, key) => {
+  const pattern = new RegExp(`${String(key || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}:\\s*([0-9.]+)\\s*->\\s*([0-9.]+)`, "i");
+  const match = String(details || "").match(pattern);
+  if (!match) return null;
+  const from = Number(match[1]);
+  const to = Number(match[2]);
+  if (Number.isNaN(from) || Number.isNaN(to)) return null;
+  return { from, to };
+};
+
 const parsePaymentMethodFromDetails = (details) => {
   const match = String(details || "").match(/method=([A-Z_]+)/i);
   if (!match) return "CASH";
   const raw = String(match[1] || "").toUpperCase();
   if (raw === "MIXED") return "MIXED";
   return normalizePaymentMethod(raw);
+};
+
+const parseReceiptFromDetails = (details) => {
+  const match = String(details || "").match(/receipt=([A-Z0-9-]+)/i);
+  return match ? String(match[1]).trim() : "";
+};
+
+const parseKeyValueDetails = (details) => {
+  const map = {};
+  String(details || "")
+    .split(/[;,]/)
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .forEach((part) => {
+      const idx = part.indexOf("=");
+      if (idx <= 0) return;
+      const key = part.slice(0, idx).trim().toLowerCase();
+      const value = part.slice(idx + 1).trim();
+      if (!key) return;
+      map[key] = value;
+    });
+  return map;
+};
+
+const getPaymentMethodLabel = (method, t) => {
+  if (method === "BANK") return t("methodBank");
+  if (method === "E_WALLET") return t("methodEWallet");
+  if (method === "MIXED") return t("methodMixed");
+  return t("methodCash");
+};
+
+const buildPaymentHistorySummary = (details, t) => {
+  const amount = parsePaymentAmount(details);
+  const method = parsePaymentMethodFromDetails(details);
+  const methodLabel = getPaymentMethodLabel(method, t);
+  const paidTransition = parsePaymentTransition(details, "paid_amount");
+  const creditTransition = parsePaymentTransition(details, "credit_amount");
+  const cashAmount = parsePaymentMetric(details, "cash");
+  const bankAmount = parsePaymentMetric(details, "bank");
+  const walletAmount = parsePaymentMetric(details, "ewallet");
+
+  const lines = [
+    `${t("paymentAmount")}: ${amount || 0}`,
+    `${t("paymentMethodLabel")}: ${methodLabel}`
+  ];
+
+  const splitParts = [];
+  if (cashAmount && cashAmount > 0) splitParts.push(`${t("methodCash")}: ${cashAmount}`);
+  if (bankAmount && bankAmount > 0) splitParts.push(`${t("methodBank")}: ${bankAmount}`);
+  if (walletAmount && walletAmount > 0) splitParts.push(`${t("methodEWallet")}: ${walletAmount}`);
+  if (splitParts.length > 1) {
+    lines.push(splitParts.join(" | "));
+  }
+  if (paidTransition) {
+    lines.push(`${t("paidAmount")}: ${paidTransition.from} -> ${paidTransition.to}`);
+  }
+  if (creditTransition) {
+    lines.push(`${t("remainingAmount")}: ${creditTransition.from} -> ${creditTransition.to}`);
+  }
+
+  return lines.join(" • ");
 };
 
 const buildCreditsListUrl = (params = {}) => {
@@ -1207,9 +1314,10 @@ const insertCreditPayment = ({ creditId, amount, note, paidAt, userId, paymentMe
   if (!creditId || Number.isNaN(numericAmount) || numericAmount === 0) return;
   const timestamp = paidAt || dayjs().format("YYYY-MM-DD HH:mm:ss");
   const method = normalizePaymentMethod(paymentMethod);
-  db.prepare(
+  const paymentId = db.prepare(
     "INSERT INTO credit_payments (credit_id, amount, payment_method, note, created_by, paid_at) VALUES (?, ?, ?, ?, ?, ?)"
-  ).run(creditId, numericAmount, method, note || null, userId || null, timestamp);
+  ).run(creditId, numericAmount, method, note || null, userId || null, timestamp).lastInsertRowid;
+  ensurePaymentReceiptNo("credit_payments", paymentId, String(timestamp).slice(0, 10));
 };
 
 const getUserAttendancePayload = (userId) => {
@@ -1243,6 +1351,25 @@ const logActivity = ({ userId, action, entityType, entityId, details }) => {
   db.prepare(
     "INSERT INTO activity_logs (user_id, action, entity_type, entity_id, details) VALUES (?, ?, ?, ?, ?)"
   ).run(userId || null, action, entityType, entityId ? String(entityId) : null, details || null);
+};
+
+const paymentReceiptTableMap = {
+  credit_payments: { prefix: "CPY" },
+  import_payments: { prefix: "IMP" },
+  company_purchase_payments: { prefix: "CPP" },
+  vehicle_expense_payments: { prefix: "VEP" },
+  jar_sale_payments: { prefix: "JRP" }
+};
+
+const ensurePaymentReceiptNo = (tableName, id, dateText) => {
+  const config = paymentReceiptTableMap[tableName];
+  if (!config || !id) return "";
+  const row = db.prepare(`SELECT receipt_no FROM ${tableName} WHERE id = ?`).get(id);
+  const existing = String(row?.receipt_no || "").trim();
+  if (existing) return existing;
+  const receiptNo = createReceiptNo(db, config.prefix, dateText || dayjs().format("YYYY-MM-DD"));
+  db.prepare(`UPDATE ${tableName} SET receipt_no = ? WHERE id = ?`).run(receiptNo, id);
+  return receiptNo;
 };
 
 const formatDiffValue = (value) => {
@@ -1393,7 +1520,57 @@ const getCombinedCredits = ({ from, to, q }) => {
   return { rows, totals };
 };
 
+const modulePathAccessMap = [
+  { prefix: "/exports", moduleKey: "exports" },
+  { prefix: "/credits", moduleKey: "credits" },
+  { prefix: "/imports", moduleKey: "imports" },
+  { prefix: "/customer-invoice", moduleKey: "invoices" },
+  { prefix: "/vehicle-invoice", moduleKey: "invoices" },
+  { prefix: "/jar-sales", moduleKey: "jar_sales" },
+  { prefix: "/rentals", moduleKey: "rentals" },
+  { prefix: "/company-purchases", moduleKey: "company_expenses" },
+  { prefix: "/vehicle-expenses", moduleKey: "vehicle_expenses" },
+  { prefix: "/vehicle-compliance", moduleKey: "vehicle_expenses" },
+  { prefix: "/payment-ledger", moduleKey: "payment_ledger" },
+  { prefix: "/vendor-aging", moduleKey: "vendor_aging" },
+  { prefix: "/savings", moduleKey: "savings" },
+  { prefix: "/reconciliation", moduleKey: "reconciliation" },
+  { prefix: "/water-tests", moduleKey: "water_tests" },
+  { prefix: "/vehicles", moduleKey: "vehicles" },
+  { prefix: "/staffs", moduleKey: "staffs" },
+  { prefix: "/staff-attendance", moduleKey: "attendance" },
+  { prefix: "/attendance", moduleKey: "attendance" },
+  { prefix: "/history", moduleKey: "history" }
+];
+
+const getModuleByPath = (pathText) => {
+  const safePath = String(pathText || "").trim();
+  if (!safePath) return null;
+  const hit = modulePathAccessMap.find((row) => safePath === row.prefix || safePath.startsWith(`${row.prefix}/`));
+  return hit ? hit.moduleKey : null;
+};
+
+const getModuleActionByRequest = (req) => {
+  const method = String(req.method || "GET").toUpperCase();
+  if (method !== "GET" && method !== "HEAD") return "edit";
+  const pathText = String(req.path || "").toLowerCase();
+  if (/\/(new|edit)\b/.test(pathText)) return "edit";
+  if (pathText.includes("/pay-credit")) return "edit";
+  if (/\/exports\/daily-credit/.test(pathText)) return "edit";
+  return "view";
+};
+
 router.use(requireRole(["SUPER_ADMIN", "ADMIN", "WORKER"]));
+router.use((req, res, next) => {
+  const currentUser = res.locals.currentUser;
+  if (!currentUser) return res.redirect("/login");
+  if (currentUser.role === "SUPER_ADMIN") return next();
+  const moduleKey = getModuleByPath(req.path);
+  if (!moduleKey) return next();
+  const action = getModuleActionByRequest(req);
+  if (!req.canModuleAccess || req.canModuleAccess(moduleKey, action)) return next();
+  return res.status(403).render("unauthorized", { title: req.t("notAllowedTitle") });
+});
 router.use((req, res, next) => {
   if (req.method !== "POST") return next();
   const currentUser = res.locals.currentUser;
@@ -1981,6 +2158,40 @@ router.get("/exports", (req, res) => {
      HAVING total_remaining > 0
      ORDER BY total_remaining DESC, vehicles.vehicle_number ASC`
   ).all(...cumulativeVehicleParams);
+  const vehicleCumulativeDetailRows = db.prepare(
+    `SELECT exports.vehicle_id,
+            exports.id,
+            exports.export_date,
+            exports.receipt_no,
+            exports.jar_count,
+            exports.return_jar_count,
+            exports.leakage_jar_count,
+            exports.total_amount,
+            exports.paid_amount,
+            ROUND(CASE
+              WHEN (exports.total_amount - exports.paid_amount) > 0 THEN (exports.total_amount - exports.paid_amount)
+              ELSE 0
+            END, 2) AS remaining_amount
+     FROM exports
+     JOIN vehicles ON exports.vehicle_id = vehicles.id
+     WHERE vehicles.is_company = 0
+       AND exports.export_date BETWEEN ? AND ?
+       AND (exports.total_amount - exports.paid_amount) > 0
+     ${cumulativeVehicleSearchClause}
+     ORDER BY exports.export_date DESC, exports.id DESC`
+  ).all(...cumulativeVehicleParams);
+  const vehicleCumulativeDetailsByVehicle = vehicleCumulativeDetailRows.reduce((acc, row) => {
+    const key = String(row.vehicle_id);
+    if (!acc[key]) acc[key] = [];
+    const jarCount = Number(row.jar_count || 0);
+    const returned = Number(row.return_jar_count || 0);
+    const leakage = Number(row.leakage_jar_count || 0);
+    acc[key].push({
+      ...row,
+      net_jars: Math.max(0, jarCount - returned - leakage)
+    });
+    return acc;
+  }, {});
   const vehicleCumulativeTotals = vehicleCumulativeCredits.reduce(
     (acc, row) => {
       acc.vehicle_count += 1;
@@ -2066,6 +2277,7 @@ router.get("/exports", (req, res) => {
     tripVehicles,
     tripVehicleId,
     vehicleCumulativeCredits,
+    vehicleCumulativeDetailsByVehicle,
     vehicleCumulativeTotals,
     vehicleCumulativeAllTime: Number(vehicleCumulativeAllTime?.total_remaining || 0),
     vehicleCreditFrom,
@@ -2153,8 +2365,19 @@ router.post("/exports/daily-credit", (req, res) => {
   }
 
   const paymentParsed = parsePaymentBreakdownFromBody(req.body, {
-    maxTotal: totalRemaining
+    maxTotal: totalRemaining,
+    strictMax: true
   });
+  if (paymentParsed.isOverLimit) {
+    return res.render("records/export_daily_credit", {
+      title: req.t("dayCreditTitle"),
+      date,
+      vehicle,
+      trips,
+      totalRemaining,
+      error: req.t("paidMoreThanDue")
+    });
+  }
   if (paymentParsed.total <= 0) {
     return res.render("records/export_daily_credit", {
       title: req.t("dayCreditTitle"),
@@ -2224,12 +2447,13 @@ router.post("/exports/daily-credit", (req, res) => {
 
   const appliedTotal = sumPaymentBreakdown(appliedByMethod);
   const appliedMethodLabel = getPaymentMethodFromBreakdown(appliedByMethod, paymentParsed.primaryMethod, true);
+  const dayPaymentReceiptNo = createReceiptNo(db, "EPM", date);
   logActivity({
     userId: req.session.userId,
     action: "payment",
     entityType: "export_day_credit",
     entityId: `${vehicleId}:${date}`,
-    details: `date=${date}, vehicle_id=${vehicleId}, payment=${appliedTotal}, method=${appliedMethodLabel}, cash=${appliedByMethod.cash}, bank=${appliedByMethod.bank}, ewallet=${appliedByMethod.eWallet}`
+    details: `receipt=${dayPaymentReceiptNo}, date=${date}, vehicle_id=${vehicleId}, payment=${appliedTotal}, method=${appliedMethodLabel}, cash=${appliedByMethod.cash}, bank=${appliedByMethod.bank}, ewallet=${appliedByMethod.eWallet}`
   });
 
   return res.redirect(`/records/exports?from=${date}&to=${date}&status=day_credit_paid`);
@@ -2273,8 +2497,12 @@ router.post("/exports/vehicle-credits/pay", (req, res) => {
     return parseMoneyValue(sum + remaining);
   }, 0);
   const paymentParsed = parsePaymentBreakdownFromBody(req.body, {
-    maxTotal: totalRemaining
+    maxTotal: totalRemaining,
+    strictMax: true
   });
+  if (paymentParsed.isOverLimit) {
+    return res.redirect(buildExportsListUrl({ ...req.body, error: "paidMoreThanDue" }));
+  }
   if (paymentParsed.total <= 0) {
     return res.redirect(buildExportsListUrl({ ...req.body, error: "vehicleCumulativePaymentInvalid" }));
   }
@@ -2344,12 +2572,13 @@ router.post("/exports/vehicle-credits/pay", (req, res) => {
 
   const applied = sumPaymentBreakdown(appliedByMethod);
   const methodLabel = getPaymentMethodFromBreakdown(appliedByMethod, paymentParsed.primaryMethod, true);
+  const vehicleSettlementReceiptNo = createReceiptNo(db, "EPM", vehicleCreditTo || dayjs().format("YYYY-MM-DD"));
   logActivity({
     userId: req.session.userId,
     action: "payment",
     entityType: "export_vehicle_cumulative_settlement",
     entityId: vehicleId,
-    details: `vehicle=${vehicle.owner_name} • ${vehicle.vehicle_number}; payment=${applied}; method=${methodLabel}; cash=${appliedByMethod.cash}; bank=${appliedByMethod.bank}; ewallet=${appliedByMethod.eWallet}; trips=${tripCount}`
+    details: `receipt=${vehicleSettlementReceiptNo}; vehicle=${vehicle.owner_name} • ${vehicle.vehicle_number}; payment=${applied}; method=${methodLabel}; cash=${appliedByMethod.cash}; bank=${appliedByMethod.bank}; ewallet=${appliedByMethod.eWallet}; trips=${tripCount}`
   });
 
   return res.redirect(buildExportsListUrl({ ...req.body, status: "vehicle_cumulative_paid" }));
@@ -2370,27 +2599,29 @@ router.get("/exports/payment-history", (req, res) => {
   }
 
   const tripPayments = db.prepare(
-    `SELECT activity_logs.created_at, activity_logs.details,
+    `SELECT activity_logs.id as log_id, activity_logs.created_at, activity_logs.details,
             exports.export_date, exports.receipt_no, exports.id as export_id
      FROM activity_logs
      JOIN exports ON exports.id = CAST(activity_logs.entity_id AS INTEGER)
      WHERE activity_logs.action = 'payment'
        AND activity_logs.entity_type = 'export'
        AND exports.export_date BETWEEN ? AND ?
-       AND exports.vehicle_id = ?
+      AND exports.vehicle_id = ?
      ORDER BY activity_logs.created_at DESC`
   ).all(from, to, vehicleId).map((row) => ({
+    log_id: row.log_id,
     created_at: row.created_at,
     export_date: row.export_date,
     receipt_no: row.receipt_no || `#${row.export_id}`,
+    payment_receipt_no: parseReceiptFromDetails(row.details),
     payment_amount: parsePaymentAmount(row.details),
     payment_method: parsePaymentMethodFromDetails(row.details),
-    details: row.details,
+    summary: buildPaymentHistorySummary(row.details, req.t),
     source: "trip"
   }));
 
   const dayLogs = db.prepare(
-    `SELECT created_at, details, entity_id
+    `SELECT id as log_id, created_at, details, entity_id
      FROM activity_logs
      WHERE action = 'payment'
        AND entity_type = 'export_day_credit'
@@ -2404,12 +2635,14 @@ router.get("/exports/payment-history", (req, res) => {
     if (logVehicleId !== vehicleId) return null;
     if (logDate < from || logDate > to) return null;
     return {
+      log_id: row.log_id,
       created_at: row.created_at,
       export_date: logDate,
       receipt_no: logDate,
+      payment_receipt_no: parseReceiptFromDetails(row.details),
       payment_amount: parsePaymentAmount(row.details),
       payment_method: parsePaymentMethodFromDetails(row.details),
-      details: row.details,
+      summary: buildPaymentHistorySummary(row.details, req.t),
       source: "day"
     };
   }).filter(Boolean);
@@ -2426,6 +2659,165 @@ router.get("/exports/payment-history", (req, res) => {
     vehicle,
     payments,
     totalPaid
+  });
+});
+
+router.get("/exports/payment-history/print", (req, res) => {
+  const from = req.query.from || dayjs().subtract(7, "day").format("YYYY-MM-DD");
+  const to = req.query.to || dayjs().format("YYYY-MM-DD");
+  const autoPrint = req.query.autoprint === "1";
+  const vehicleId = Number(req.query.vehicle_id || 0);
+  if (!vehicleId) {
+    return res.redirect(`/records/exports?from=${from}&to=${to}&error=dayCreditSelectVehicle`);
+  }
+  const vehicle = db.prepare(
+    "SELECT id, vehicle_number, owner_name, is_company FROM vehicles WHERE id = ?"
+  ).get(vehicleId);
+  if (!vehicle) {
+    return res.redirect(`/records/exports?from=${from}&to=${to}`);
+  }
+
+  const tripPayments = db.prepare(
+    `SELECT activity_logs.id as log_id, activity_logs.created_at, activity_logs.details,
+            exports.export_date, exports.receipt_no, exports.id as export_id
+     FROM activity_logs
+     JOIN exports ON exports.id = CAST(activity_logs.entity_id AS INTEGER)
+     WHERE activity_logs.action = 'payment'
+       AND activity_logs.entity_type = 'export'
+       AND exports.export_date BETWEEN ? AND ?
+       AND exports.vehicle_id = ?
+     ORDER BY activity_logs.created_at DESC`
+  ).all(from, to, vehicleId).map((row) => ({
+    log_id: row.log_id,
+    created_at: row.created_at,
+    export_date: row.export_date,
+    receipt_no: row.receipt_no || `#${row.export_id}`,
+    payment_receipt_no: parseReceiptFromDetails(row.details),
+    payment_amount: parsePaymentAmount(row.details),
+    payment_method: parsePaymentMethodFromDetails(row.details),
+    summary: buildPaymentHistorySummary(row.details, req.t),
+    source: "trip"
+  }));
+
+  const dayLogs = db.prepare(
+    `SELECT id as log_id, created_at, details, entity_id
+     FROM activity_logs
+     WHERE action = 'payment'
+       AND entity_type = 'export_day_credit'
+     ORDER BY created_at DESC`
+  ).all();
+
+  const dayPayments = dayLogs.map((row) => {
+    const [logVehicleIdRaw, logDate] = String(row.entity_id || "").split(":");
+    const logVehicleId = Number(logVehicleIdRaw || 0);
+    if (!logVehicleId || !logDate) return null;
+    if (logVehicleId !== vehicleId) return null;
+    if (logDate < from || logDate > to) return null;
+    return {
+      log_id: row.log_id,
+      created_at: row.created_at,
+      export_date: logDate,
+      receipt_no: logDate,
+      payment_receipt_no: parseReceiptFromDetails(row.details),
+      payment_amount: parsePaymentAmount(row.details),
+      payment_method: parsePaymentMethodFromDetails(row.details),
+      summary: buildPaymentHistorySummary(row.details, req.t),
+      source: "day"
+    };
+  }).filter(Boolean);
+
+  const payments = [...tripPayments, ...dayPayments].sort((a, b) => {
+    return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+  });
+  const totalPaid = payments.reduce((sum, row) => sum + Number(row.payment_amount || 0), 0);
+
+  return res.render("records/export_payment_history_print", {
+    title: req.t("exportPaymentHistoryTitle"),
+    from,
+    to,
+    vehicle,
+    payments,
+    totalPaid,
+    printedAt: dayjs().format("YYYY-MM-DD HH:mm"),
+    autoPrint
+  });
+});
+
+router.get("/exports/payment-history/receipt/:id/print", (req, res) => {
+  const log = db.prepare(
+    "SELECT id, created_at, entity_type, entity_id, details FROM activity_logs WHERE id = ? AND action = 'payment'"
+  ).get(req.params.id);
+  if (!log) return res.redirect("/records/exports");
+
+  const detailsMap = parseKeyValueDetails(log.details);
+  let vehicle = null;
+  let referenceNo = "";
+  let paymentDate = "";
+  if (log.entity_type === "export") {
+    const exportRow = db.prepare(
+      `SELECT exports.export_date, exports.receipt_no, vehicles.vehicle_number, vehicles.owner_name
+       FROM exports
+       JOIN vehicles ON vehicles.id = exports.vehicle_id
+       WHERE exports.id = ?`
+    ).get(log.entity_id);
+    if (!exportRow) return res.redirect("/records/exports");
+    vehicle = {
+      owner_name: exportRow.owner_name,
+      vehicle_number: exportRow.vehicle_number
+    };
+    referenceNo = exportRow.receipt_no || `#${log.entity_id}`;
+    paymentDate = exportRow.export_date;
+  } else if (log.entity_type === "export_day_credit") {
+    const [vehicleIdRaw, creditDay] = String(log.entity_id || "").split(":");
+    const vehicleId = Number(vehicleIdRaw || 0);
+    if (!vehicleId || !creditDay) return res.redirect("/records/exports");
+    const vehicleRow = db.prepare(
+      "SELECT owner_name, vehicle_number FROM vehicles WHERE id = ?"
+    ).get(vehicleId);
+    if (!vehicleRow) return res.redirect("/records/exports");
+    vehicle = vehicleRow;
+    referenceNo = creditDay;
+    paymentDate = creditDay;
+  } else if (log.entity_type === "export_vehicle_cumulative_settlement") {
+    const vehicleId = Number(log.entity_id || 0);
+    if (!vehicleId) return res.redirect("/records/exports");
+    const vehicleRow = db.prepare(
+      "SELECT owner_name, vehicle_number FROM vehicles WHERE id = ?"
+    ).get(vehicleId);
+    if (!vehicleRow) return res.redirect("/records/exports");
+    vehicle = vehicleRow;
+    referenceNo = detailsMap.receipt || `#${log.id}`;
+    paymentDate = dayjs(log.created_at).format("YYYY-MM-DD");
+  } else {
+    return res.redirect("/records/exports");
+  }
+
+  const receiptNo = detailsMap.receipt || createReceiptNo(db, "EPM", paymentDate || dayjs(log.created_at).format("YYYY-MM-DD"));
+  if (!detailsMap.receipt) {
+    const nextDetails = `receipt=${receiptNo}; ${String(log.details || "").trim()}`.trim();
+    db.prepare("UPDATE activity_logs SET details = ? WHERE id = ?").run(nextDetails, log.id);
+  }
+
+  const paymentMethod = parsePaymentMethodFromDetails(log.details);
+  const amount = parsePaymentAmount(log.details);
+  const summary = buildPaymentHistorySummary(log.details, req.t);
+
+  return res.render("records/payment_receipt_print", {
+    title: req.t("paymentReceiptTitle"),
+    autoPrint: req.query.autoprint === "1",
+    receiptNo,
+    paymentDate: paymentDate || dayjs(log.created_at).format("YYYY-MM-DD"),
+    createdAt: log.created_at,
+    amount,
+    paymentMethodLabel: getPaymentMethodLabel(paymentMethod, req.t),
+    paymentSourceLabel: log.entity_type === "export_day_credit"
+      ? req.t("paymentSourceDay")
+      : req.t("paymentSourceTrip"),
+    referenceNo,
+    partyName: vehicle ? `${vehicle.owner_name} • ${vehicle.vehicle_number}` : "-",
+    note: summary,
+    moduleLabel: req.t("exportsTitle"),
+    printSubtitle: req.t("paymentReceiptTitle")
   });
 });
 
@@ -2494,6 +2886,68 @@ router.get("/exports/print", (req, res) => {
   });
 });
 
+router.get("/exports/vehicle-credits/print", (req, res) => {
+  const vehicleId = Number(req.query.vehicle_id || 0);
+  const from = req.query.vehicle_credit_from || req.query.from || dayjs().subtract(30, "day").format("YYYY-MM-DD");
+  const to = req.query.vehicle_credit_to || req.query.to || dayjs().format("YYYY-MM-DD");
+  if (!vehicleId) {
+    return res.redirect(`/records/exports?from=${from}&to=${to}&error=dayCreditSelectVehicle`);
+  }
+
+  const vehicle = db.prepare(
+    "SELECT id, vehicle_number, owner_name, is_company FROM vehicles WHERE id = ?"
+  ).get(vehicleId);
+  if (!vehicle || Number(vehicle.is_company) === 1) {
+    return res.redirect(`/records/exports?from=${from}&to=${to}&error=companyVehicleNoCredit`);
+  }
+
+  const rows = db.prepare(
+    `SELECT exports.id,
+            exports.export_date,
+            exports.receipt_no,
+            exports.jar_count,
+            exports.return_jar_count,
+            exports.leakage_jar_count,
+            exports.total_amount,
+            exports.paid_amount,
+            ROUND(CASE
+              WHEN (exports.total_amount - exports.paid_amount) > 0 THEN (exports.total_amount - exports.paid_amount)
+              ELSE 0
+            END, 2) AS remaining_amount
+     FROM exports
+     WHERE exports.vehicle_id = ?
+       AND exports.export_date BETWEEN ? AND ?
+       AND (exports.total_amount - exports.paid_amount) > 0
+     ORDER BY exports.export_date DESC, exports.id DESC`
+  ).all(vehicleId, from, to).map((row) => ({
+    ...row,
+    net_jars: Math.max(0, Number(row.jar_count || 0) - Number(row.return_jar_count || 0) - Number(row.leakage_jar_count || 0))
+  }));
+
+  const totals = rows.reduce(
+    (acc, row) => {
+      acc.trip_count += 1;
+      acc.total_jars += Number(row.jar_count || 0);
+      acc.total_net_jars += Number(row.net_jars || 0);
+      acc.total_amount = parseMoneyValue(acc.total_amount + Number(row.total_amount || 0));
+      acc.total_paid = parseMoneyValue(acc.total_paid + Number(row.paid_amount || 0));
+      acc.total_remaining = parseMoneyValue(acc.total_remaining + Number(row.remaining_amount || 0));
+      return acc;
+    },
+    { trip_count: 0, total_jars: 0, total_net_jars: 0, total_amount: 0, total_paid: 0, total_remaining: 0 }
+  );
+
+  res.render("records/export_vehicle_credits_print", {
+    title: req.t("vehicleCumulativeCreditsTitle"),
+    vehicle,
+    from,
+    to,
+    rows,
+    totals,
+    printedAt: dayjs().format("YYYY-MM-DD HH:mm")
+  });
+});
+
 router.get("/exports/new", (req, res) => {
   const vehicles = db.prepare("SELECT id, vehicle_number, owner_name, is_company FROM vehicles ORDER BY vehicle_number").all();
   const staffOptions = getExportStaffOptions();
@@ -2544,8 +2998,7 @@ router.post("/exports", (req, res) => {
     payment_method,
     route,
     checked_by_staff_name,
-    force_wash_staff_name,
-    allow_duplicate_entry
+    force_wash_staff_name
   } = req.body;
   const vehicles = db.prepare("SELECT id, vehicle_number, owner_name, is_company FROM vehicles ORDER BY vehicle_number").all();
   const staffOptions = getExportStaffOptions();
@@ -2557,7 +3010,6 @@ router.post("/exports", (req, res) => {
   const externalOwnerNameRaw = String(external_owner_name || "").trim();
   const externalPhoneRaw = String(external_phone || "").trim();
   const externalOrganizationRaw = String(external_organization || "").trim();
-  const allowDuplicateEntry = parseCheckbox(allow_duplicate_entry);
   if (!export_date) {
     return res.render("records/export_form", {
       title: req.t("addExportTitle"),
@@ -2700,8 +3152,29 @@ router.post("/exports", (req, res) => {
     ewalletField: "paid_ewallet_amount",
     amountField: "paid_amount",
     methodField: "payment_method",
-    maxTotal: isCompany ? collectionAmount : totalAmount
+    maxTotal: isCompany ? collectionAmount : totalAmount,
+    strictMax: true
   });
+  if (paymentParsed.isOverLimit) {
+    return res.render("records/export_form", {
+      title: req.t("addExportTitle"),
+      record: null,
+      vehicles,
+      staffOptions,
+      nameSuggestions,
+      formValues: req.body,
+      error: req.t("paidMoreThanTotal"),
+      defaultDate: export_date || dayjs().format("YYYY-MM-DD"),
+      selectedVehicleId: vehicle_id || "",
+      checkedByStaffName: checkedByStaffNameRaw,
+      forceWashStaffName: forceWashStaffNameRaw,
+      useExternalVehicle: useExternalVehicleRaw,
+      externalVehicleNumber: externalVehicleNumberRaw,
+      externalOwnerName: externalOwnerNameRaw,
+      externalPhone: externalPhoneRaw,
+      externalOrganization: externalOrganizationRaw
+    });
+  }
   const paidBreakdown = isCompany
     ? { cash: parseMoneyValue(collectionAmount), bank: 0, eWallet: 0 }
     : paymentParsed.breakdown;
@@ -2726,7 +3199,7 @@ router.post("/exports", (req, res) => {
     totalAmount,
     excludeId: null
   });
-  if (duplicateEntries.length > 0 && !allowDuplicateEntry) {
+  if (duplicateEntries.length > 0) {
     return res.render("records/export_form", {
       title: req.t("addExportTitle"),
       record: null,
@@ -2734,7 +3207,7 @@ router.post("/exports", (req, res) => {
       staffOptions,
       nameSuggestions,
       formValues: req.body,
-      error: null,
+      error: req.t("duplicateExportBlocked"),
       duplicateWarning: {
         type: "export",
         rows: duplicateEntries,
@@ -2750,16 +3223,6 @@ router.post("/exports", (req, res) => {
       externalOwnerName: externalOwnerNameRaw,
       externalPhone: externalPhoneRaw,
       externalOrganization: externalOrganizationRaw
-    });
-  }
-  if (duplicateEntries.length > 0 && allowDuplicateEntry) {
-    const duplicateIds = duplicateEntries.map((row) => row.id).join(",");
-    logActivity({
-      userId: req.session.userId,
-      action: "duplicate_override",
-      entityType: "export",
-      entityId: `vehicle:${resolvedVehicleId}`,
-      details: `duplicate_ids=${duplicateIds}, date=${export_date}, amount=${totalAmount}`
     });
   }
 
@@ -2871,8 +3334,17 @@ router.post("/exports/:id/pay-credit", (req, res) => {
   }
 
   const paymentParsed = parsePaymentBreakdownFromBody(req.body, {
-    maxTotal: remaining
+    maxTotal: remaining,
+    strictMax: true
   });
+  if (paymentParsed.isOverLimit) {
+    return res.render("records/export_credit_payment", {
+      title: req.t("payExportCreditTitle"),
+      record,
+      remaining,
+      error: req.t("paidMoreThanDue")
+    });
+  }
   if (paymentParsed.total <= 0) {
     return res.render("records/export_credit_payment", {
       title: req.t("payExportCreditTitle"),
@@ -2882,8 +3354,7 @@ router.post("/exports/:id/pay-credit", (req, res) => {
     });
   }
 
-  const safeRemaining = computeRemainingMoney(record.total_amount || 0, record.paid_amount || 0);
-  const appliedPayment = parseMoneyValue(Math.min(paymentParsed.total, safeRemaining));
+  const appliedPayment = parseMoneyValue(paymentParsed.total);
   const newPaidAmount = parseMoneyValue(Math.min(
     parseMoneyValue(record.total_amount || 0),
     parseMoneyValue(record.paid_amount || 0) + appliedPayment
@@ -2913,7 +3384,7 @@ router.post("/exports/:id/pay-credit", (req, res) => {
     action: "payment",
     entityType: "export",
     entityId: req.params.id,
-    details: `payment=${appliedPayment}; method=${getPaymentMethodFromBreakdown(paymentParsed.breakdown, paymentParsed.primaryMethod, true)}; cash=${paymentParsed.breakdown.cash || 0}; bank=${paymentParsed.breakdown.bank || 0}; ewallet=${paymentParsed.breakdown.eWallet || 0}; paid_amount: ${formatDiffValue(record.paid_amount)} -> ${formatDiffValue(newPaidAmount)}; credit_amount: ${formatDiffValue(record.credit_amount)} -> ${formatDiffValue(newCreditAmount)}`
+    details: `receipt=${createReceiptNo(db, "EPM", record.export_date)}; payment=${appliedPayment}; method=${getPaymentMethodFromBreakdown(paymentParsed.breakdown, paymentParsed.primaryMethod, true)}; cash=${paymentParsed.breakdown.cash || 0}; bank=${paymentParsed.breakdown.bank || 0}; ewallet=${paymentParsed.breakdown.eWallet || 0}; paid_amount: ${formatDiffValue(record.paid_amount)} -> ${formatDiffValue(newPaidAmount)}; credit_amount: ${formatDiffValue(record.credit_amount)} -> ${formatDiffValue(newCreditAmount)}`
   });
 
   return res.redirect(`/records/exports?from=${record.export_date}&to=${record.export_date}&status=credit_paid`);
@@ -3146,8 +3617,29 @@ router.post("/exports/:id", (req, res) => {
     ewalletField: "paid_ewallet_amount",
     amountField: "paid_amount",
     methodField: "payment_method",
-    maxTotal: isCompany ? collectionAmount : totalAmount
+    maxTotal: isCompany ? collectionAmount : totalAmount,
+    strictMax: true
   });
+  if (paymentParsed.isOverLimit) {
+    return res.render("records/export_form", {
+      title: req.t("editExportTitle"),
+      record,
+      vehicles,
+      staffOptions,
+      nameSuggestions,
+      formValues: req.body,
+      error: req.t("paidMoreThanTotal"),
+      defaultDate: export_date || record.export_date,
+      selectedVehicleId: vehicle_id || record.vehicle_id,
+      checkedByStaffName: checkedByStaffNameRaw,
+      forceWashStaffName: forceWashStaffNameRaw,
+      useExternalVehicle: useExternalVehicleRaw,
+      externalVehicleNumber: externalVehicleNumberRaw,
+      externalOwnerName: externalOwnerNameRaw,
+      externalPhone: externalPhoneRaw,
+      externalOrganization: externalOrganizationRaw
+    });
+  }
   const paidBreakdown = isCompany
     ? { cash: parseMoneyValue(collectionAmount), bank: 0, eWallet: 0 }
     : paymentParsed.breakdown;
@@ -3166,6 +3658,38 @@ router.post("/exports/:id", (req, res) => {
     externalOrganization: externalOrganizationRaw
   });
   const noteValue = mergeNoteWithExternalVehicle(note, externalVehicleNote);
+  const duplicateEntries = findDuplicateExportEntries({
+    vehicleId: resolvedVehicleId,
+    exportDate: export_date,
+    totalAmount,
+    excludeId: req.params.id
+  });
+  if (duplicateEntries.length > 0) {
+    return res.render("records/export_form", {
+      title: req.t("editExportTitle"),
+      record,
+      vehicles,
+      staffOptions,
+      nameSuggestions,
+      formValues: req.body,
+      error: req.t("duplicateExportBlocked"),
+      duplicateWarning: {
+        type: "export",
+        rows: duplicateEntries,
+        exportDate: export_date,
+        amount: totalAmount
+      },
+      defaultDate: export_date || record.export_date,
+      selectedVehicleId: vehicle_id || record.vehicle_id,
+      checkedByStaffName: checkedByStaffNameRaw,
+      forceWashStaffName: forceWashStaffNameRaw,
+      useExternalVehicle: useExternalVehicleRaw,
+      externalVehicleNumber: externalVehicleNumberRaw,
+      externalOwnerName: externalOwnerNameRaw,
+      externalPhone: externalPhoneRaw,
+      externalOrganization: externalOrganizationRaw
+    });
+  }
 
   db.prepare(
     "UPDATE exports SET vehicle_id = ?, export_date = ?, jar_count = ?, bottle_case_count = ?, dispenser_count = ?, jar_unit_price = ?, bottle_case_unit_price = ?, dispenser_unit_price = ?, return_jar_count = ?, return_bottle_case_count = ?, leakage_jar_count = ?, sold_jar_count = ?, sold_jar_price = ?, sold_jar_amount = ?, collection_amount = ?, expense_amount = ?, expense_note = ?, total_amount = ?, paid_amount = ?, paid_cash_amount = ?, paid_bank_amount = ?, paid_ewallet_amount = ?, payment_method = ?, credit_amount = ?, note = ?, route = ?, checked_by_staff_id = ?, checked_by_staff_name = ?, force_wash_required = ?, force_wash_staff_name = ? WHERE id = ?"
@@ -3585,7 +4109,9 @@ router.post("/imports", (req, res) => {
     paid_amount,
     is_credit,
     payment_method,
-    payment_source
+    payment_source,
+    due_date,
+    reminder_days
   } = req.body;
   const itemRow = getImportItemTypeByCode(item_type);
   if (!item_type || !entry_date || !itemRow || Number(itemRow.is_active) !== 1) {
@@ -3629,8 +4155,17 @@ router.post("/imports", (req, res) => {
   if (qty <= 0) {
     return res.redirect("/records/imports");
   }
+  if (entryDirection === "OUT") {
+    const available = Number(getImportItemDirectionalBalance(item_type) || 0);
+    if (qty > available) {
+      return res.redirect(`/records/imports?from=${entry_date}&to=${entry_date}&error=itemOutInsufficient`);
+    }
+  }
 
   const sellerName = String(seller_name || "").trim();
+  const dueDate = parseOptionalDate(due_date);
+  const reminderDaysRaw = Number(reminder_days || 0);
+  const reminderDays = Number.isNaN(reminderDaysRaw) ? 0 : Math.max(0, Math.min(365, Math.floor(reminderDaysRaw)));
   const paymentMethod = normalizePaymentMethod(payment_method);
   const paymentSource = normalizeSalaryPaymentSource(payment_source);
   let totalAmount = parseMoneyValue(total_amount);
@@ -3654,8 +4189,8 @@ router.post("/imports", (req, res) => {
   const entryId = db.prepare(
     `INSERT INTO import_entries (
       item_type, quantity, direction, jar_type_id, jar_cap_type_id, entry_date,
-      seller_name, total_amount, paid_amount, is_credit, note, created_by
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      seller_name, total_amount, paid_amount, is_credit, due_date, reminder_days, note, created_by
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
     item_type,
     qty,
@@ -3667,12 +4202,14 @@ router.post("/imports", (req, res) => {
     totalAmount,
     paidAmount,
     isCreditFinal,
+    dueDate,
+    reminderDays,
     note || null,
     req.session.userId
   ).lastInsertRowid;
 
   if (paidAmount > 0) {
-    db.prepare(
+    const paymentId = db.prepare(
       "INSERT INTO import_payments (import_entry_id, payment_date, amount, payment_method, payment_source, note, created_by) VALUES (?, ?, ?, ?, ?, ?, ?)"
     ).run(
       entryId,
@@ -3682,7 +4219,8 @@ router.post("/imports", (req, res) => {
       paymentSource,
       req.t("openingPaymentNote"),
       req.session.userId || null
-    );
+    ).lastInsertRowid;
+    ensurePaymentReceiptNo("import_payments", paymentId, entry_date);
   }
 
   logActivity({
@@ -3690,7 +4228,7 @@ router.post("/imports", (req, res) => {
     action: "create",
     entityType: "import_entry",
     entityId: `${entryId}`,
-    details: `direction=${entryDirection}, qty=${qty}, total=${totalAmount}, paid=${paidAmount}, method=${paymentMethod}, source=${paymentSource}`
+    details: `direction=${entryDirection}, qty=${qty}, total=${totalAmount}, paid=${paidAmount}, due_date=${dueDate || ""}, reminder_days=${reminderDays}, method=${paymentMethod}, source=${paymentSource}`
   });
 
   res.redirect(`/records/imports?from=${entry_date}&to=${entry_date}`);
@@ -3787,7 +4325,9 @@ router.post("/imports/:id", (req, res) => {
     total_amount,
     is_credit,
     payment_method,
-    payment_source
+    payment_source,
+    due_date,
+    reminder_days
   } = req.body;
   const itemRow = getImportItemTypeByCode(item_type);
   if (!item_type || !entry_date || !itemRow) {
@@ -3831,8 +4371,17 @@ router.post("/imports/:id", (req, res) => {
   if (qty <= 0) {
     return res.redirect(`/records/imports/${req.params.id}/edit`);
   }
+  if (entryDirection === "OUT") {
+    const available = Number(getImportItemDirectionalBalance(item_type, { excludeEntryId: req.params.id }) || 0);
+    if (qty > available) {
+      return res.redirect(`/records/imports/${req.params.id}/edit?error=itemOutInsufficient`);
+    }
+  }
 
   const sellerName = String(seller_name || "").trim();
+  const dueDate = parseOptionalDate(due_date);
+  const reminderDaysRaw = Number(reminder_days || 0);
+  const reminderDays = Number.isNaN(reminderDaysRaw) ? 0 : Math.max(0, Math.min(365, Math.floor(reminderDaysRaw)));
   const paymentMethod = normalizePaymentMethod(payment_method);
   const paymentSource = normalizeSalaryPaymentSource(payment_source);
   let totalAmount = parseMoneyValue(total_amount);
@@ -3860,6 +4409,10 @@ router.post("/imports/:id", (req, res) => {
         req.t("autoSettledOnEdit"),
         req.session.userId || null
       );
+      const latestPayment = db.prepare("SELECT id FROM import_payments WHERE import_entry_id = ? ORDER BY id DESC LIMIT 1").get(req.params.id);
+      if (latestPayment?.id) {
+        ensurePaymentReceiptNo("import_payments", latestPayment.id, entry_date);
+      }
       finalPaidAmount = parseMoneyValue(existingPaid + remaining);
     }
   }
@@ -3871,7 +4424,7 @@ router.post("/imports/:id", (req, res) => {
   db.prepare(
     `UPDATE import_entries
      SET item_type = ?, quantity = ?, direction = ?, jar_type_id = ?, jar_cap_type_id = ?, entry_date = ?,
-         seller_name = ?, total_amount = ?, paid_amount = ?, is_credit = ?, note = ?
+         seller_name = ?, total_amount = ?, paid_amount = ?, is_credit = ?, due_date = ?, reminder_days = ?, note = ?
      WHERE id = ?`
   ).run(
     item_type,
@@ -3884,6 +4437,8 @@ router.post("/imports/:id", (req, res) => {
     totalAmount,
     finalPaidAmount,
     isCreditFinal,
+    dueDate,
+    reminderDays,
     note || null,
     req.params.id
   );
@@ -3906,6 +4461,8 @@ router.post("/imports/:id", (req, res) => {
         total_amount: totalAmount,
         paid_amount: finalPaidAmount,
         is_credit: isCreditFinal,
+        due_date: dueDate,
+        reminder_days: reminderDays,
         note: note || null
       },
       [
@@ -3919,6 +4476,8 @@ router.post("/imports/:id", (req, res) => {
         "total_amount",
         "paid_amount",
         "is_credit",
+        "due_date",
+        "reminder_days",
         "note"
       ]
     )
@@ -3959,6 +4518,7 @@ router.post("/imports/:id/payments", (req, res) => {
     note || null,
     req.session.userId || null
   ).lastInsertRowid;
+  const receiptNo = ensurePaymentReceiptNo("import_payments", paymentId, paymentDate);
 
   const updatedPaid = parseMoneyValue(paidAmount + amount);
   const updatedCredit = updatedPaid < totalAmount ? 1 : 0;
@@ -3973,7 +4533,7 @@ router.post("/imports/:id/payments", (req, res) => {
     action: "create",
     entityType: "import_payment",
     entityId: paymentId,
-    details: `entry=${req.params.id}, amount=${amount}, date=${paymentDate}, method=${paymentMethod}, source=${paymentSource}`
+    details: `receipt=${receiptNo}, entry=${req.params.id}, amount=${amount}, date=${paymentDate}, method=${paymentMethod}, source=${paymentSource}`
   });
 
   return res.redirect(`/records/imports/${req.params.id}/edit?status=payment_saved#payment-history`);
@@ -4009,6 +4569,38 @@ router.post("/imports/payments/:id/delete", (req, res) => {
   });
 
   return res.redirect(`/records/imports/${payment.import_entry_id}/edit?status=payment_deleted#payment-history`);
+});
+
+router.get("/imports/payments/:id/print", (req, res) => {
+  const payment = db.prepare(
+    `SELECT import_payments.*, import_entries.entry_date, import_entries.item_type, import_entries.seller_name
+     FROM import_payments
+     JOIN import_entries ON import_entries.id = import_payments.import_entry_id
+     WHERE import_payments.id = ?`
+  ).get(req.params.id);
+  if (!payment) return res.redirect("/records/imports");
+  const receiptNo = ensurePaymentReceiptNo("import_payments", req.params.id, payment.payment_date || payment.entry_date);
+  const methodLabel = getPaymentMethodLabel(payment.payment_method, req.t);
+  const sourceLabel = payment.payment_source === "OWNER_PERSONAL"
+    ? req.t("sourceOwnerPersonal")
+    : payment.payment_source === "BANK_OTHER"
+      ? req.t("sourceBankOther")
+      : req.t("sourceDailyCollection");
+  return res.render("records/payment_receipt_print", {
+    title: req.t("paymentReceiptTitle"),
+    printSubtitle: req.t("paymentReceiptTitle"),
+    moduleLabel: req.t("importsTitle"),
+    autoPrint: req.query.autoprint === "1",
+    receiptNo,
+    paymentDate: payment.payment_date || payment.entry_date,
+    createdAt: payment.created_at || payment.payment_date,
+    amount: Number(payment.amount || 0),
+    paymentMethodLabel: methodLabel,
+    paymentSourceLabel: sourceLabel,
+    referenceNo: `${payment.item_type || "-"} • #${payment.import_entry_id}`,
+    partyName: payment.seller_name || "-",
+    note: payment.note || "-"
+  });
 });
 
 router.post("/imports/:id/delete", (req, res) => {
@@ -4235,6 +4827,8 @@ router.get("/staffs/:id", (req, res) => {
        AND status = 'ABSENT'
      ORDER BY attendance_date DESC`
   ).all(req.params.id).map((row) => row.attendance_date);
+  const errorKey = String(req.query.error || "").trim();
+  const error = errorKey ? req.t(errorKey) : null;
 
   res.render("admin/staff_detail", {
     title: req.t("staffDetailTitle"),
@@ -4246,6 +4840,7 @@ router.get("/staffs/:id", (req, res) => {
     todayDate,
     attendanceSummary,
     absentDates,
+    error,
     basePath: "/records/staffs"
   });
 });
@@ -4471,6 +5066,13 @@ router.post("/staffs/:id/payments", (req, res) => {
   }
   const type = payment_type === "ADVANCE" ? "ADVANCE" : "SALARY";
   const source = normalizeSalaryPaymentSource(payment_source);
+  if (type === "SALARY") {
+    const paidTotal = getStaffPaidTotal(req.params.id);
+    const due = computeSalaryDue(staff, paidTotal, payment_date || dayjs().format("YYYY-MM-DD"));
+    if (amt > parseMoneyValue(due) + 0.01) {
+      return res.redirect(`/records/staffs/${req.params.id}?error=salaryOverpaymentBlocked`);
+    }
+  }
 
   const paymentResult = db.prepare(
     "INSERT INTO staff_salary_payments (staff_id, payment_date, amount, payment_type, payment_source, note, created_by) VALUES (?, ?, ?, ?, ?, ?, ?)"
@@ -4501,10 +5103,13 @@ router.get("/staffs/payments/:id/edit", (req, res) => {
      WHERE staff_salary_payments.id = ?`
   ).get(req.params.id);
   if (!payment) return res.redirect("/records/staffs");
+  const errorKey = String(req.query.error || "").trim();
+  const error = errorKey ? req.t(errorKey) : null;
   res.render("admin/staff_payment_form", {
     title: req.t("editSalaryPaymentTitle"),
     payment,
     staff: { id: payment.staff_id, full_name: payment.full_name },
+    error,
     basePath: "/records/staffs"
   });
 });
@@ -4512,6 +5117,8 @@ router.get("/staffs/payments/:id/edit", (req, res) => {
 router.post("/staffs/payments/:id", (req, res) => {
   const payment = db.prepare("SELECT * FROM staff_salary_payments WHERE id = ?").get(req.params.id);
   if (!payment) return res.redirect("/records/staffs");
+  const staff = db.prepare("SELECT * FROM staff WHERE id = ?").get(payment.staff_id);
+  if (!staff) return res.redirect("/records/staffs");
   const { payment_date, amount, payment_type, payment_source, note, print } = req.body;
   const amt = Number(amount || 0);
   if (!payment_date || Number.isNaN(amt) || amt <= 0) {
@@ -4519,6 +5126,13 @@ router.post("/staffs/payments/:id", (req, res) => {
   }
   const type = payment_type === "ADVANCE" ? "ADVANCE" : "SALARY";
   const source = normalizeSalaryPaymentSource(payment_source);
+  if (type === "SALARY") {
+    const paidTotal = getStaffPaidTotal(payment.staff_id, { excludePaymentId: req.params.id });
+    const due = computeSalaryDue(staff, paidTotal, payment_date || dayjs().format("YYYY-MM-DD"));
+    if (amt > parseMoneyValue(due) + 0.01) {
+      return res.redirect(`/records/staffs/payments/${req.params.id}/edit?error=salaryOverpaymentBlocked`);
+    }
+  }
 
   db.prepare(
     "UPDATE staff_salary_payments SET payment_date = ?, amount = ?, payment_type = ?, payment_source = ?, note = ? WHERE id = ?"
@@ -4891,6 +5505,8 @@ router.post("/company-purchases", (req, res) => {
     is_credit,
     payment_method,
     payment_source,
+    due_date,
+    reminder_days,
     is_machinery,
     machinery_name,
     technician_name,
@@ -4902,6 +5518,9 @@ router.post("/company-purchases", (req, res) => {
   const amountNum = parseMoneyValue(amount);
   const paymentMethod = normalizePaymentMethod(payment_method);
   const paymentSource = normalizeSalaryPaymentSource(payment_source);
+  const dueDate = parseOptionalDate(due_date);
+  const reminderDaysRaw = Number(reminder_days || 0);
+  const reminderDays = Number.isNaN(reminderDaysRaw) ? 0 : Math.max(0, Math.min(365, Math.floor(reminderDaysRaw)));
   const isMachinery = is_machinery === "1" || is_machinery === "on";
   const sellerName = String(seller_name || "").trim();
   let paidAmount = parseMoneyValue(paid_amount);
@@ -4926,8 +5545,8 @@ router.post("/company-purchases", (req, res) => {
   const purchaseId = db.prepare(
     `INSERT INTO company_purchases (
        purchase_date, item_name, seller_name, amount, paid_amount, is_credit, is_machinery, machinery_name, technician_name,
-       technician_phone, work_details, note, created_by
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+       technician_phone, work_details, due_date, reminder_days, note, created_by
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
     purchase_date,
     String(item_name).trim(),
@@ -4940,12 +5559,14 @@ router.post("/company-purchases", (req, res) => {
     isMachinery ? String(technician_name).trim() : null,
     isMachinery ? (technician_phone ? String(technician_phone).trim() : null) : null,
     isMachinery ? (work_details ? String(work_details).trim() : null) : null,
+    dueDate,
+    reminderDays,
     note ? String(note).trim() : null,
     req.session.userId || null
   ).lastInsertRowid;
 
   if (paidAmount > 0) {
-    db.prepare(
+    const openingPaymentId = db.prepare(
       `INSERT INTO company_purchase_payments (company_purchase_id, payment_date, amount, payment_method, payment_source, note, created_by)
        VALUES (?, ?, ?, ?, ?, ?, ?)`
     ).run(
@@ -4956,7 +5577,8 @@ router.post("/company-purchases", (req, res) => {
       paymentSource,
       req.t("openingPaymentNote"),
       req.session.userId || null
-    );
+    ).lastInsertRowid;
+    ensurePaymentReceiptNo("company_purchase_payments", openingPaymentId, purchase_date);
   }
 
   logActivity({
@@ -4964,7 +5586,7 @@ router.post("/company-purchases", (req, res) => {
     action: "create",
     entityType: "company_purchase",
     entityId: purchaseId,
-    details: `item=${String(item_name).trim()}, amount=${amountNum}, paid=${paidAmount}, method=${paymentMethod}, source=${paymentSource}, machinery=${isMachinery ? 1 : 0}`
+    details: `item=${String(item_name).trim()}, amount=${amountNum}, paid=${paidAmount}, due_date=${dueDate || ""}, reminder_days=${reminderDays}, method=${paymentMethod}, source=${paymentSource}, machinery=${isMachinery ? 1 : 0}`
   });
 
   res.redirect(`/records/company-purchases?from=${purchase_date}&to=${purchase_date}&status=saved`);
@@ -5018,6 +5640,8 @@ router.post("/company-purchases/:id", (req, res) => {
     is_credit,
     payment_method,
     payment_source,
+    due_date,
+    reminder_days,
     is_machinery,
     machinery_name,
     technician_name,
@@ -5028,6 +5652,9 @@ router.post("/company-purchases/:id", (req, res) => {
   const amountNum = parseMoneyValue(amount);
   const paymentMethod = normalizePaymentMethod(payment_method);
   const paymentSource = normalizeSalaryPaymentSource(payment_source);
+  const dueDate = parseOptionalDate(due_date);
+  const reminderDaysRaw = Number(reminder_days || 0);
+  const reminderDays = Number.isNaN(reminderDaysRaw) ? 0 : Math.max(0, Math.min(365, Math.floor(reminderDaysRaw)));
   const isMachinery = is_machinery === "1" || is_machinery === "on";
   const sellerName = String(seller_name || "").trim();
   const wantsCredit = parseCheckbox(is_credit);
@@ -5061,6 +5688,10 @@ router.post("/company-purchases/:id", (req, res) => {
         req.t("autoSettledOnEdit"),
         req.session.userId || null
       );
+      const latestPayment = db.prepare("SELECT id FROM company_purchase_payments WHERE company_purchase_id = ? ORDER BY id DESC LIMIT 1").get(req.params.id);
+      if (latestPayment?.id) {
+        ensurePaymentReceiptNo("company_purchase_payments", latestPayment.id, purchase_date);
+      }
       finalPaidAmount = parseMoneyValue(existingPaid + remaining);
     }
   }
@@ -5072,7 +5703,7 @@ router.post("/company-purchases/:id", (req, res) => {
   db.prepare(
     `UPDATE company_purchases
      SET purchase_date = ?, item_name = ?, seller_name = ?, amount = ?, paid_amount = ?, is_credit = ?, is_machinery = ?, machinery_name = ?, technician_name = ?,
-         technician_phone = ?, work_details = ?, note = ?, updated_at = datetime('now')
+         technician_phone = ?, work_details = ?, due_date = ?, reminder_days = ?, note = ?, updated_at = datetime('now')
      WHERE id = ?`
   ).run(
     purchase_date,
@@ -5086,6 +5717,8 @@ router.post("/company-purchases/:id", (req, res) => {
     isMachinery ? String(technician_name).trim() : null,
     isMachinery ? (technician_phone ? String(technician_phone).trim() : null) : null,
     isMachinery ? (work_details ? String(work_details).trim() : null) : null,
+    dueDate,
+    reminderDays,
     note ? String(note).trim() : null,
     req.params.id
   );
@@ -5109,6 +5742,8 @@ router.post("/company-purchases/:id", (req, res) => {
         technician_name: isMachinery ? String(technician_name).trim() : null,
         technician_phone: isMachinery ? (technician_phone ? String(technician_phone).trim() : null) : null,
         work_details: isMachinery ? (work_details ? String(work_details).trim() : null) : null,
+        due_date: dueDate,
+        reminder_days: reminderDays,
         note: note ? String(note).trim() : null
       },
       [
@@ -5123,6 +5758,8 @@ router.post("/company-purchases/:id", (req, res) => {
         "technician_name",
         "technician_phone",
         "work_details",
+        "due_date",
+        "reminder_days",
         "note"
       ]
     )
@@ -5163,6 +5800,7 @@ router.post("/company-purchases/:id/payments", (req, res) => {
     note || null,
     req.session.userId || null
   ).lastInsertRowid;
+  const receiptNo = ensurePaymentReceiptNo("company_purchase_payments", paymentId, paymentDate);
   const updatedPaid = parseMoneyValue(paidAmount + amount);
   const updatedCredit = updatedPaid < totalAmount ? 1 : 0;
   db.prepare("UPDATE company_purchases SET paid_amount = ?, is_credit = ? WHERE id = ?").run(
@@ -5175,7 +5813,7 @@ router.post("/company-purchases/:id/payments", (req, res) => {
     action: "create",
     entityType: "company_purchase_payment",
     entityId: paymentId,
-    details: `purchase=${req.params.id}, amount=${amount}, date=${paymentDate}, method=${paymentMethod}, source=${paymentSource}`
+    details: `receipt=${receiptNo}, purchase=${req.params.id}, amount=${amount}, date=${paymentDate}, method=${paymentMethod}, source=${paymentSource}`
   });
   return res.redirect(`/records/company-purchases/${req.params.id}/edit?status=payment_saved`);
 });
@@ -5210,6 +5848,38 @@ router.post("/company-purchases/payments/:id/delete", (req, res) => {
   });
 
   return res.redirect(`/records/company-purchases/${payment.company_purchase_id}/edit?status=payment_deleted`);
+});
+
+router.get("/company-purchases/payments/:id/print", (req, res) => {
+  const payment = db.prepare(
+    `SELECT company_purchase_payments.*, company_purchases.purchase_date, company_purchases.item_name, company_purchases.seller_name
+     FROM company_purchase_payments
+     JOIN company_purchases ON company_purchases.id = company_purchase_payments.company_purchase_id
+     WHERE company_purchase_payments.id = ?`
+  ).get(req.params.id);
+  if (!payment) return res.redirect("/records/company-purchases");
+  const receiptNo = ensurePaymentReceiptNo("company_purchase_payments", req.params.id, payment.payment_date || payment.purchase_date);
+  const methodLabel = getPaymentMethodLabel(payment.payment_method, req.t);
+  const sourceLabel = payment.payment_source === "OWNER_PERSONAL"
+    ? req.t("sourceOwnerPersonal")
+    : payment.payment_source === "BANK_OTHER"
+      ? req.t("sourceBankOther")
+      : req.t("sourceDailyCollection");
+  return res.render("records/payment_receipt_print", {
+    title: req.t("paymentReceiptTitle"),
+    printSubtitle: req.t("paymentReceiptTitle"),
+    moduleLabel: req.t("companyPurchasesTitle"),
+    autoPrint: req.query.autoprint === "1",
+    receiptNo,
+    paymentDate: payment.payment_date || payment.purchase_date,
+    createdAt: payment.created_at || payment.payment_date,
+    amount: Number(payment.amount || 0),
+    paymentMethodLabel: methodLabel,
+    paymentSourceLabel: sourceLabel,
+    referenceNo: `${payment.item_name || "-"} • #${payment.company_purchase_id}`,
+    partyName: payment.seller_name || "-",
+    note: payment.note || "-"
+  });
 });
 
 router.post("/company-purchases/:id/delete", (req, res) => {
@@ -5556,7 +6226,7 @@ router.post("/vehicle-expenses", (req, res) => {
     ).lastInsertRowid;
 
     if (paidAmountNum > 0) {
-      db.prepare(
+      const openingPaymentId = db.prepare(
         `INSERT INTO vehicle_expense_payments (vehicle_expense_id, payment_date, amount, payment_method, payment_source, note, created_by)
          VALUES (?, ?, ?, ?, ?, ?, ?)`
       ).run(
@@ -5567,7 +6237,8 @@ router.post("/vehicle-expenses", (req, res) => {
         paymentSource,
         payment_note ? String(payment_note).trim() : req.t("openingPaymentNote"),
         req.session.userId || null
-      );
+      ).lastInsertRowid;
+      ensurePaymentReceiptNo("vehicle_expense_payments", openingPaymentId, expense_date);
     }
     db.exec("COMMIT;");
   } catch (err) {
@@ -5653,12 +6324,14 @@ router.post("/vehicle-expenses/:id/payments", (req, res) => {
   const applied = parseMoneyValue(amount);
   const newPaid = parseMoneyValue(parseMoneyValue(record.paid_amount || 0) + applied);
   const newDue = computeRemainingMoney(record.amount || 0, newPaid);
+  let receiptNo = "";
 
   db.exec("BEGIN;");
   try {
-    db.prepare(
+    const paymentId = db.prepare(
       "INSERT INTO vehicle_expense_payments (vehicle_expense_id, payment_date, amount, payment_method, payment_source, note, created_by) VALUES (?, ?, ?, ?, ?, ?, ?)"
-    ).run(req.params.id, paymentDate, applied, paymentMethod, paymentSource, note || null, req.session.userId || null);
+    ).run(req.params.id, paymentDate, applied, paymentMethod, paymentSource, note || null, req.session.userId || null).lastInsertRowid;
+    receiptNo = ensurePaymentReceiptNo("vehicle_expense_payments", paymentId, paymentDate);
     db.prepare("UPDATE vehicle_expenses SET paid_amount = ?, is_credit = ? WHERE id = ?").run(
       newPaid,
       newDue > 0 ? 1 : 0,
@@ -5675,7 +6348,7 @@ router.post("/vehicle-expenses/:id/payments", (req, res) => {
     action: "payment",
     entityType: "vehicle_expense",
     entityId: req.params.id,
-    details: `payment=${applied}; method=${paymentMethod}; source=${paymentSource}; paid_amount=${newPaid}; due=${newDue}`
+    details: `receipt=${receiptNo}; payment=${applied}; method=${paymentMethod}; source=${paymentSource}; paid_amount=${newPaid}; due=${newDue}`
   });
 
   return res.redirect(`/records/vehicle-expenses/${req.params.id}/payments?status=payment_saved`);
@@ -5719,6 +6392,40 @@ router.post("/vehicle-expenses/payments/:id/delete", (req, res) => {
   });
 
   return res.redirect(`/records/vehicle-expenses/${record.id}/payments?status=payment_deleted`);
+});
+
+router.get("/vehicle-expenses/payments/:id/print", (req, res) => {
+  const payment = db.prepare(
+    `SELECT vehicle_expense_payments.*, vehicle_expenses.expense_date, vehicle_expenses.expense_type,
+            vehicles.vehicle_number, vehicles.owner_name
+     FROM vehicle_expense_payments
+     JOIN vehicle_expenses ON vehicle_expenses.id = vehicle_expense_payments.vehicle_expense_id
+     JOIN vehicles ON vehicles.id = vehicle_expenses.vehicle_id
+     WHERE vehicle_expense_payments.id = ?`
+  ).get(req.params.id);
+  if (!payment) return res.redirect("/records/vehicle-expenses");
+  const receiptNo = ensurePaymentReceiptNo("vehicle_expense_payments", req.params.id, payment.payment_date || payment.expense_date);
+  const methodLabel = getPaymentMethodLabel(payment.payment_method, req.t);
+  const sourceLabel = payment.payment_source === "OWNER_PERSONAL"
+    ? req.t("sourceOwnerPersonal")
+    : payment.payment_source === "BANK_OTHER"
+      ? req.t("sourceBankOther")
+      : req.t("sourceDailyCollection");
+  return res.render("records/payment_receipt_print", {
+    title: req.t("paymentReceiptTitle"),
+    printSubtitle: req.t("paymentReceiptTitle"),
+    moduleLabel: req.t("vehicleExpensesTitle"),
+    autoPrint: req.query.autoprint === "1",
+    receiptNo,
+    paymentDate: payment.payment_date || payment.expense_date,
+    createdAt: payment.created_at || payment.payment_date,
+    amount: Number(payment.amount || 0),
+    paymentMethodLabel: methodLabel,
+    paymentSourceLabel: sourceLabel,
+    referenceNo: `${payment.expense_type || "-"} • #${payment.vehicle_expense_id}`,
+    partyName: `${payment.owner_name || "-"} • ${payment.vehicle_number || "-"}`,
+    note: payment.note || "-"
+  });
 });
 
 router.post("/vehicle-expenses/:id/delete", (req, res) => {
@@ -6064,6 +6771,8 @@ router.get("/vendor-aging", (req, res) => {
             import_entries.entry_date as bill_date,
             import_entries.seller_name as vendor_name,
             import_entries.item_type as item_name,
+            import_entries.due_date as due_date,
+            import_entries.reminder_days as reminder_days,
             import_entries.total_amount as total_amount,
             import_entries.paid_amount as paid_amount,
             CASE WHEN import_entries.total_amount - import_entries.paid_amount < 0 THEN 0
@@ -6080,6 +6789,8 @@ router.get("/vendor-aging", (req, res) => {
             company_purchases.purchase_date as bill_date,
             company_purchases.seller_name as vendor_name,
             company_purchases.item_name as item_name,
+            company_purchases.due_date as due_date,
+            company_purchases.reminder_days as reminder_days,
             company_purchases.amount as total_amount,
             company_purchases.paid_amount as paid_amount,
             CASE WHEN company_purchases.amount - company_purchases.paid_amount < 0 THEN 0
@@ -6093,15 +6804,31 @@ router.get("/vendor-aging", (req, res) => {
   ).all(...(q ? [from, to, like] : [from, to]));
 
   const detailRows = [...imports, ...purchases].map((row) => {
-    const days = Math.max(0, dayjs(today).diff(dayjs(row.bill_date), "day"));
+    const dueDate = row.due_date || row.bill_date;
+    const dueMoment = dayjs(dueDate);
+    const dueDiff = dueMoment.isValid() ? dayjs(today).diff(dueMoment, "day") : dayjs(today).diff(dayjs(row.bill_date), "day");
+    const days = Math.max(0, dueDiff);
+    const reminderDays = Math.max(0, Number(row.reminder_days || 0));
+    const daysUntilDue = dueMoment.isValid() ? dueMoment.diff(dayjs(today), "day") : 0;
+    const dueStatus = days > 0
+      ? "OVERDUE"
+      : (daysUntilDue >= 0 && daysUntilDue <= reminderDays ? "DUE_SOON" : "ON_TRACK");
     return {
       ...row,
+      due_date: dueDate,
+      reminder_days: reminderDays,
       vendor_name: String(row.vendor_name || "").trim(),
       due_amount: parseMoneyValue(row.due_amount || 0),
       days_overdue: days,
-      bucket: getVendorAgingBucket(days)
+      bucket: getVendorAgingBucket(days),
+      due_status: dueStatus,
+      days_until_due: daysUntilDue
     };
-  }).sort((a, b) => b.days_overdue - a.days_overdue || b.due_amount - a.due_amount);
+  }).sort((a, b) => {
+    const rankA = a.due_status === "OVERDUE" ? 1 : a.due_status === "DUE_SOON" ? 2 : 3;
+    const rankB = b.due_status === "OVERDUE" ? 1 : b.due_status === "DUE_SOON" ? 2 : 3;
+    return rankA - rankB || b.days_overdue - a.days_overdue || b.due_amount - a.due_amount;
+  });
 
   const vendorMap = new Map();
   detailRows.forEach((row) => {
@@ -6113,13 +6840,17 @@ router.get("/vendor-aging", (req, res) => {
         bucket_8_30: 0,
         bucket_30_plus: 0,
         record_count: 0,
-        oldest_days: 0
+        oldest_days: 0,
+        overdue_count: 0,
+        due_soon_count: 0
       });
     }
     const vendor = vendorMap.get(row.vendor_name);
     vendor.total_due = parseMoneyValue(vendor.total_due + row.due_amount);
     vendor.record_count += 1;
     vendor.oldest_days = Math.max(vendor.oldest_days, row.days_overdue);
+    if (row.due_status === "OVERDUE") vendor.overdue_count += 1;
+    if (row.due_status === "DUE_SOON") vendor.due_soon_count += 1;
     if (row.bucket === "0_7") vendor.bucket_0_7 = parseMoneyValue(vendor.bucket_0_7 + row.due_amount);
     if (row.bucket === "8_30") vendor.bucket_8_30 = parseMoneyValue(vendor.bucket_8_30 + row.due_amount);
     if (row.bucket === "30_plus") vendor.bucket_30_plus = parseMoneyValue(vendor.bucket_30_plus + row.due_amount);
@@ -6127,8 +6858,8 @@ router.get("/vendor-aging", (req, res) => {
 
   const vendorRows = Array.from(vendorMap.values()).map((row) => {
     let priority = "LOW";
-    if (row.bucket_30_plus > 0) priority = "HIGH";
-    else if (row.bucket_8_30 > 0) priority = "MEDIUM";
+    if (row.overdue_count > 0 || row.bucket_30_plus > 0) priority = "HIGH";
+    else if (row.due_soon_count > 0 || row.bucket_8_30 > 0) priority = "MEDIUM";
     return {
       ...row,
       priority,
@@ -6144,6 +6875,11 @@ router.get("/vendor-aging", (req, res) => {
     acc.vendor_count += 1;
     return acc;
   }, { total_due: 0, bucket_0_7: 0, bucket_8_30: 0, bucket_30_plus: 0, vendor_count: 0 });
+  const dueSummary = detailRows.reduce((acc, row) => {
+    if (row.due_status === "OVERDUE") acc.overdue += 1;
+    if (row.due_status === "DUE_SOON") acc.dueSoon += 1;
+    return acc;
+  }, { overdue: 0, dueSoon: 0 });
 
   return res.render("records/vendor_aging", {
     title: req.t("vendorAgingTitle"),
@@ -6153,7 +6889,8 @@ router.get("/vendor-aging", (req, res) => {
     today,
     vendorRows,
     detailRows,
-    totals
+    totals,
+    dueSummary
   });
 });
 
@@ -6166,6 +6903,8 @@ router.get("/vendor-aging/export", (req, res) => {
     `SELECT import_entries.entry_date as bill_date,
             import_entries.seller_name as vendor_name,
             import_entries.item_type as item_name,
+            import_entries.due_date as due_date,
+            import_entries.reminder_days as reminder_days,
             CASE WHEN import_entries.total_amount - import_entries.paid_amount < 0 THEN 0
                  ELSE import_entries.total_amount - import_entries.paid_amount END as due_amount,
             'IMPORT' as source
@@ -6179,6 +6918,8 @@ router.get("/vendor-aging/export", (req, res) => {
     `SELECT company_purchases.purchase_date as bill_date,
             company_purchases.seller_name as vendor_name,
             company_purchases.item_name as item_name,
+            company_purchases.due_date as due_date,
+            company_purchases.reminder_days as reminder_days,
             CASE WHEN company_purchases.amount - company_purchases.paid_amount < 0 THEN 0
                  ELSE company_purchases.amount - company_purchases.paid_amount END as due_amount,
             'PURCHASE' as source
@@ -6190,15 +6931,24 @@ router.get("/vendor-aging/export", (req, res) => {
   ).all(...(q ? [from, to, like] : [from, to]));
 
   const rows = [...imports, ...purchases].map((row) => {
-    const days = Math.max(0, dayjs().diff(dayjs(row.bill_date), "day"));
+    const dueDate = row.due_date || row.bill_date;
+    const dueMoment = dayjs(dueDate);
+    const days = Math.max(0, (dueMoment.isValid() ? dayjs().diff(dueMoment, "day") : dayjs().diff(dayjs(row.bill_date), "day")));
+    const reminderDays = Math.max(0, Number(row.reminder_days || 0));
+    const daysUntilDue = dueMoment.isValid() ? dueMoment.diff(dayjs(), "day") : 0;
+    const dueStatus = days > 0
+      ? "OVERDUE"
+      : (daysUntilDue >= 0 && daysUntilDue <= reminderDays ? "DUE_SOON" : "ON_TRACK");
     return {
       ...row,
+      due_date: dueDate,
       due_amount: parseMoneyValue(row.due_amount || 0),
       days,
-      bucket: getVendorAgingBucket(days)
+      bucket: getVendorAgingBucket(days),
+      due_status: dueStatus
     };
   });
-  const header = ["Vendor", "Source", "Date", "Item", "Due Amount", "Days Outstanding", "Bucket"];
+  const header = ["Vendor", "Source", "Bill Date", "Item", "Due Amount", "Days Outstanding", "Bucket"];
   const lines = rows.map((row) => ([
     row.vendor_name,
     row.source,
@@ -6710,9 +7460,10 @@ router.post("/jar-sales/:id/payments", (req, res) => {
   const newCredit = computeRemainingMoney(record.total_amount || 0, newPaid);
   db.exec("BEGIN;");
   try {
-    db.prepare(
+    const paymentId = db.prepare(
       "INSERT INTO jar_sale_payments (jar_sale_id, payment_date, amount, note, created_by) VALUES (?, ?, ?, ?, ?)"
-    ).run(req.params.id, paymentDate, amount, note || null, req.session.userId || null);
+    ).run(req.params.id, paymentDate, amount, note || null, req.session.userId || null).lastInsertRowid;
+    const receiptNo = ensurePaymentReceiptNo("jar_sale_payments", paymentId, paymentDate);
     db.prepare("UPDATE jar_sales SET paid_amount = ?, credit_amount = ? WHERE id = ?").run(
       newPaid,
       newCredit,
@@ -6729,7 +7480,7 @@ router.post("/jar-sales/:id/payments", (req, res) => {
     action: "payment",
     entityType: "jar_sale",
     entityId: req.params.id,
-    details: `payment=${amount}; paid_amount=${newPaid}; credit_amount=${newCredit}`
+    details: `receipt=${receiptNo}; payment=${amount}; paid_amount=${newPaid}; credit_amount=${newCredit}`
   });
 
   return res.redirect(`/records/jar-sales/${req.params.id}/payments?status=payment_saved`);
@@ -6765,6 +7516,37 @@ router.post("/jar-sales/payments/:id/delete", (req, res) => {
   });
 
   return res.redirect(`/records/jar-sales/${record.id}/payments?status=payment_deleted`);
+});
+
+router.get("/jar-sales/payments/:id/print", (req, res) => {
+  const payment = db.prepare(
+    `SELECT jar_sale_payments.*, jar_sales.sale_date, jar_sales.customer_name, jar_sales.vehicle_number,
+            jar_sales.vehicle_id, jar_types.name as jar_name, vehicles.owner_name
+     FROM jar_sale_payments
+     JOIN jar_sales ON jar_sales.id = jar_sale_payments.jar_sale_id
+     JOIN jar_types ON jar_types.id = jar_sales.jar_type_id
+     LEFT JOIN vehicles ON vehicles.id = jar_sales.vehicle_id
+     WHERE jar_sale_payments.id = ?`
+  ).get(req.params.id);
+  if (!payment) return res.redirect("/records/jar-sales");
+  const receiptNo = ensurePaymentReceiptNo("jar_sale_payments", req.params.id, payment.payment_date || payment.sale_date);
+  const vehicleNo = payment.vehicle_number || "-";
+  const ownerName = payment.owner_name || payment.customer_name || "-";
+  return res.render("records/payment_receipt_print", {
+    title: req.t("paymentReceiptTitle"),
+    printSubtitle: req.t("paymentReceiptTitle"),
+    moduleLabel: req.t("jarSalesTitle"),
+    autoPrint: req.query.autoprint === "1",
+    receiptNo,
+    paymentDate: payment.payment_date || payment.sale_date,
+    createdAt: payment.created_at || payment.payment_date,
+    amount: Number(payment.amount || 0),
+    paymentMethodLabel: req.t("methodCash"),
+    paymentSourceLabel: req.t("paymentSourceTrip"),
+    referenceNo: `${payment.jar_name || "-"} • #${payment.jar_sale_id}`,
+    partyName: `${ownerName} • ${vehicleNo}`,
+    note: payment.note || "-"
+  });
 });
 
 router.get("/jar-sales/new", (req, res) => {
@@ -6899,7 +7681,17 @@ router.post("/jar-sales", (req, res) => {
   const totalAmount = qty * unitPrice;
   let paidAmount = Number(paid_amount || 0);
   if (Number.isNaN(paidAmount) || paidAmount < 0) paidAmount = 0;
-  if (paidAmount > totalAmount) paidAmount = totalAmount;
+  if (paidAmount > totalAmount) {
+    return res.render("records/jar_sale_form", {
+      title: req.t("addJarSaleTitle"),
+      record: null,
+      jarTypes,
+      vehicles,
+      jarTypeBalances,
+      error: req.t("paidMoreThanTotal"),
+      defaultDate: sale_date || dayjs().format("YYYY-MM-DD")
+    });
+  }
   if (isCompany) paidAmount = 0;
   const creditAmount = totalAmount - paidAmount;
   const vehicleNumberValue = vehicleRow ? vehicleRow.vehicle_number : (vehicle_number ? vehicle_number.trim() : null);
@@ -7073,7 +7865,17 @@ router.post("/jar-sales/:id", (req, res) => {
   const totalAmount = qty * unitPrice;
   let paidAmount = Number(paid_amount || 0);
   if (Number.isNaN(paidAmount) || paidAmount < 0) paidAmount = 0;
-  if (paidAmount > totalAmount) paidAmount = totalAmount;
+  if (paidAmount > totalAmount) {
+    return res.render("records/jar_sale_form", {
+      title: req.t("editJarSaleTitle"),
+      record,
+      jarTypes,
+      vehicles,
+      jarTypeBalances,
+      error: req.t("paidMoreThanTotal"),
+      defaultDate: sale_date || record.sale_date
+    });
+  }
   if (isCompany) paidAmount = 0;
   const creditAmount = totalAmount - paidAmount;
   const vehicleNumberValue = vehicleRow ? vehicleRow.vehicle_number : (vehicle_number ? vehicle_number.trim() : null);
@@ -7310,6 +8112,38 @@ router.get("/credits", (req, res) => {
      GROUP BY credits.customer_name
      ORDER BY total_remaining DESC, credits.customer_name ASC`
   ).all(...customerCumulativeParams);
+  const customerCumulativeDetailRows = db.prepare(
+    `SELECT credits.id,
+            credits.customer_name,
+            credits.credit_date,
+            COALESCE(credits.trip_date, linked_export.export_date) AS trip_date,
+            credits.credit_jars,
+            credits.amount,
+            credits.paid_amount,
+            ROUND(CASE
+              WHEN credits.amount - credits.paid_amount < 0 THEN 0
+              ELSE credits.amount - credits.paid_amount
+            END, 2) AS remaining_amount,
+            vehicles.vehicle_number,
+            vehicles.owner_name,
+            linked_export.receipt_no AS trip_receipt_no
+     FROM credits
+     JOIN vehicles ON credits.vehicle_id = vehicles.id
+     LEFT JOIN exports AS linked_export ON linked_export.id = credits.export_id
+     WHERE vehicles.is_company = 0
+       AND credits.credit_date BETWEEN ? AND ?
+       ${statusClause}
+       ${customerCumulativeSearchClause}
+       AND (credits.amount - credits.paid_amount) > 0
+     ORDER BY credits.credit_date DESC, credits.id DESC`
+  ).all(...customerCumulativeParams);
+  const customerCumulativeDetailsByCustomer = customerCumulativeDetailRows.reduce((acc, row) => {
+    const key = String(row.customer_name || "").trim().toLowerCase();
+    if (!key) return acc;
+    if (!acc[key]) acc[key] = [];
+    acc[key].push(row);
+    return acc;
+  }, {});
   const customerCumulativeSummary = customerCumulativeTotals.reduce(
     (acc, row) => {
       acc.customer_count += 1;
@@ -7348,6 +8182,7 @@ router.get("/credits", (req, res) => {
     error,
     creditsRows,
     customerCumulativeTotals,
+    customerCumulativeDetailsByCustomer,
     customerCumulativeSummary,
     customerCumulativeAllTime: Number(customerCumulativeAllTimeRow?.total_remaining || 0),
     customerCreditFrom,
@@ -7367,10 +8202,6 @@ router.post("/credits/pay/customer-total", (req, res) => {
   if (!customerName) {
     return res.redirect(buildCreditsListUrl({ ...req.body, error: "creditSettlementCustomerRequired" }));
   }
-  const paymentParsed = parsePaymentBreakdownFromBody(req.body);
-  if (paymentParsed.total <= 0) {
-    return res.redirect(buildCreditsListUrl({ ...req.body, error: "creditSettlementInvalid" }));
-  }
 
   const rangeClause = hasCustomerRange ? "AND credits.credit_date BETWEEN ? AND ?" : "";
   const rowParams = hasCustomerRange
@@ -7389,6 +8220,20 @@ router.post("/credits/pay/customer-total", (req, res) => {
 
   if (!rows.length) {
     return res.redirect(buildCreditsListUrl({ ...req.body, error: "creditSettlementNoOutstandingCustomer" }));
+  }
+  const totalRemaining = rows.reduce((sum, row) => {
+    const remaining = computeRemainingMoney(row.amount || 0, row.paid_amount || 0);
+    return parseMoneyValue(sum + remaining);
+  }, 0);
+  const paymentParsed = parsePaymentBreakdownFromBody(req.body, {
+    maxTotal: totalRemaining,
+    strictMax: true
+  });
+  if (paymentParsed.isOverLimit) {
+    return res.redirect(buildCreditsListUrl({ ...req.body, error: "paidMoreThanDue" }));
+  }
+  if (paymentParsed.total <= 0) {
+    return res.redirect(buildCreditsListUrl({ ...req.body, error: "creditSettlementInvalid" }));
   }
 
   const result = applyCreditSettlementPayment({
@@ -7430,6 +8275,332 @@ router.get("/credits/all", (req, res) => {
   });
 });
 
+router.get("/customer-invoice", (req, res) => {
+  const from = req.query.from || dayjs().startOf("month").format("YYYY-MM-DD");
+  const to = req.query.to || dayjs().format("YYYY-MM-DD");
+  const customer = (req.query.customer || "").trim();
+  const customers = db.prepare("SELECT DISTINCT customer_name FROM credits ORDER BY customer_name").all()
+    .map((row) => row.customer_name);
+
+  let rows = [];
+  let totals = { total_amount: 0, total_paid: 0, total_remaining: 0 };
+  if (customer) {
+    rows = db.prepare(
+      `SELECT credits.*, vehicles.vehicle_number, vehicles.owner_name
+       FROM credits
+       JOIN vehicles ON credits.vehicle_id = vehicles.id
+       WHERE credits.customer_name = ?
+         AND credits.credit_date BETWEEN ? AND ?
+       ORDER BY credits.credit_date ASC`
+    ).all(customer, from, to);
+    totals = rows.reduce(
+      (acc, row) => {
+        const amount = Number(row.amount || 0);
+        const paidAmount = Number(row.paid_amount || 0);
+        const remaining = Math.max(0, amount - paidAmount);
+        acc.total_amount += amount;
+        acc.total_paid += paidAmount;
+        acc.total_remaining += remaining;
+        return acc;
+      },
+      { total_amount: 0, total_paid: 0, total_remaining: 0 }
+    );
+  }
+
+  res.render("admin/report_customer_invoice", {
+    title: req.t("customerInvoiceTitle"),
+    from,
+    to,
+    customer,
+    customers,
+    rows,
+    totals,
+    reportBasePath: "/records/customer-invoice"
+  });
+});
+
+router.get("/customer-invoice/print", (req, res) => {
+  const from = req.query.from || dayjs().startOf("month").format("YYYY-MM-DD");
+  const to = req.query.to || dayjs().format("YYYY-MM-DD");
+  const autoPrint = req.query.autoprint === "1";
+  const customer = (req.query.customer || "").trim();
+  if (!customer) {
+    return res.redirect("/records/customer-invoice");
+  }
+
+  const rows = db.prepare(
+    `SELECT credits.*, vehicles.vehicle_number, vehicles.owner_name, vehicles.phone
+     FROM credits
+     JOIN vehicles ON credits.vehicle_id = vehicles.id
+     WHERE credits.customer_name = ?
+       AND credits.credit_date BETWEEN ? AND ?
+     ORDER BY credits.credit_date ASC`
+  ).all(customer, from, to);
+
+  const totals = rows.reduce(
+    (acc, row) => {
+      const amount = Number(row.amount || 0);
+      const paidAmount = Number(row.paid_amount || 0);
+      const remaining = Math.max(0, amount - paidAmount);
+      acc.total_amount += amount;
+      acc.total_paid += paidAmount;
+      acc.total_remaining += remaining;
+      return acc;
+    },
+    { total_amount: 0, total_paid: 0, total_remaining: 0 }
+  );
+
+  let invoiceNo = String(req.query.invoice_no || "").trim();
+  if (!invoiceNo) {
+    invoiceNo = createInvoiceNo(db, to);
+    logActivity({
+      userId: req.session.userId,
+      action: "create",
+      entityType: "invoice",
+      entityId: customer,
+      details: `invoice=${invoiceNo}, from=${from}, to=${to}`
+    });
+  }
+
+  res.render("admin/report_customer_invoice_print", {
+    title: req.t("customerInvoiceTitle"),
+    from,
+    to,
+    customer,
+    invoiceNo,
+    autoPrint,
+    rows,
+    totals
+  });
+});
+
+router.get("/customer-invoice/export", (req, res) => {
+  const from = req.query.from || dayjs().startOf("month").format("YYYY-MM-DD");
+  const to = req.query.to || dayjs().format("YYYY-MM-DD");
+  const customer = String(req.query.customer || "").trim();
+  if (!customer) return res.redirect(`/records/customer-invoice?from=${from}&to=${to}`);
+
+  const rows = db.prepare(
+    `SELECT credits.credit_date, vehicles.vehicle_number, vehicles.owner_name,
+            credits.amount, credits.paid_amount
+     FROM credits
+     JOIN vehicles ON credits.vehicle_id = vehicles.id
+     WHERE credits.customer_name = ?
+       AND credits.credit_date BETWEEN ? AND ?
+     ORDER BY credits.credit_date ASC`
+  ).all(customer, from, to);
+
+  const header = ["Date (AD)", "Date (BS)", "Vehicle Number", "Owner Name", "Amount", "Paid Amount", "Remaining Amount"];
+  const lines = rows.map((row) => {
+    const amount = Number(row.amount || 0);
+    const paid = Number(row.paid_amount || 0);
+    const remaining = Math.max(0, amount - paid);
+    return [
+      row.credit_date,
+      adToBs(row.credit_date) || "",
+      row.vehicle_number || "",
+      row.owner_name || "",
+      amount,
+      paid,
+      remaining
+    ].map((value) => `"${String(value ?? "").replace(/"/g, '""')}"`).join(",");
+  });
+  res.setHeader("Content-Type", "text/csv");
+  res.setHeader("Content-Disposition", `attachment; filename="customer_invoice_${customer.replace(/[^a-zA-Z0-9_-]/g, "_")}_${from}_to_${to}.csv"`);
+  return res.send([header.join(","), ...lines].join("\n"));
+});
+
+router.get("/vehicle-invoice", (req, res) => {
+  const from = req.query.from || dayjs().startOf("month").format("YYYY-MM-DD");
+  const to = req.query.to || dayjs().format("YYYY-MM-DD");
+  const vehicleId = Number(req.query.vehicle_id || 0);
+  const vehicles = db.prepare(
+    "SELECT id, vehicle_number, owner_name, phone FROM vehicles WHERE is_company = 0 ORDER BY vehicle_number"
+  ).all();
+
+  let vehicle = null;
+  let rows = [];
+  let totals = {
+    total_trips: 0,
+    total_jars: 0,
+    total_net_jars: 0,
+    total_amount: 0,
+    total_paid: 0,
+    total_remaining: 0
+  };
+  if (vehicleId) {
+    vehicle = db.prepare(
+      "SELECT id, vehicle_number, owner_name, phone FROM vehicles WHERE id = ? AND is_company = 0"
+    ).get(vehicleId);
+    if (vehicle) {
+      rows = db.prepare(
+        `SELECT id, export_date, receipt_no, jar_count, return_jar_count, leakage_jar_count, total_amount, paid_amount
+         FROM exports
+         WHERE vehicle_id = ?
+           AND export_date BETWEEN ? AND ?
+         ORDER BY export_date ASC, id ASC`
+      ).all(vehicleId, from, to).map((row) => {
+        const jarCount = Number(row.jar_count || 0);
+        const returned = Number(row.return_jar_count || 0);
+        const leakage = Number(row.leakage_jar_count || 0);
+        const totalAmount = Number(row.total_amount || 0);
+        const paidAmount = Number(row.paid_amount || 0);
+        return {
+          ...row,
+          net_jars: Math.max(0, jarCount - returned - leakage),
+          remaining_amount: Math.max(0, totalAmount - paidAmount)
+        };
+      });
+      totals = rows.reduce(
+        (acc, row) => {
+          acc.total_trips += 1;
+          acc.total_jars += Number(row.jar_count || 0);
+          acc.total_net_jars += Number(row.net_jars || 0);
+          acc.total_amount += Number(row.total_amount || 0);
+          acc.total_paid += Number(row.paid_amount || 0);
+          acc.total_remaining += Number(row.remaining_amount || 0);
+          return acc;
+        },
+        totals
+      );
+    }
+  }
+
+  res.render("records/vehicle_invoice", {
+    title: req.t("vehicleInvoiceTitle"),
+    from,
+    to,
+    vehicleId,
+    vehicle,
+    vehicles,
+    rows,
+    totals
+  });
+});
+
+router.get("/vehicle-invoice/print", (req, res) => {
+  const from = req.query.from || dayjs().startOf("month").format("YYYY-MM-DD");
+  const to = req.query.to || dayjs().format("YYYY-MM-DD");
+  const autoPrint = req.query.autoprint === "1";
+  const vehicleId = Number(req.query.vehicle_id || 0);
+  if (!vehicleId) {
+    return res.redirect("/records/vehicle-invoice");
+  }
+  const vehicle = db.prepare(
+    "SELECT id, vehicle_number, owner_name, phone FROM vehicles WHERE id = ? AND is_company = 0"
+  ).get(vehicleId);
+  if (!vehicle) {
+    return res.redirect("/records/vehicle-invoice");
+  }
+
+  const rows = db.prepare(
+    `SELECT id, export_date, receipt_no, jar_count, return_jar_count, leakage_jar_count, total_amount, paid_amount
+     FROM exports
+     WHERE vehicle_id = ?
+       AND export_date BETWEEN ? AND ?
+     ORDER BY export_date ASC, id ASC`
+  ).all(vehicleId, from, to).map((row) => {
+    const jarCount = Number(row.jar_count || 0);
+    const returned = Number(row.return_jar_count || 0);
+    const leakage = Number(row.leakage_jar_count || 0);
+    const totalAmount = Number(row.total_amount || 0);
+    const paidAmount = Number(row.paid_amount || 0);
+    return {
+      ...row,
+      net_jars: Math.max(0, jarCount - returned - leakage),
+      remaining_amount: Math.max(0, totalAmount - paidAmount)
+    };
+  });
+
+  const totals = rows.reduce(
+    (acc, row) => {
+      acc.total_trips += 1;
+      acc.total_jars += Number(row.jar_count || 0);
+      acc.total_net_jars += Number(row.net_jars || 0);
+      acc.total_amount += Number(row.total_amount || 0);
+      acc.total_paid += Number(row.paid_amount || 0);
+      acc.total_remaining += Number(row.remaining_amount || 0);
+      return acc;
+    },
+    {
+      total_trips: 0,
+      total_jars: 0,
+      total_net_jars: 0,
+      total_amount: 0,
+      total_paid: 0,
+      total_remaining: 0
+    }
+  );
+
+  let invoiceNo = String(req.query.invoice_no || "").trim();
+  if (!invoiceNo) {
+    invoiceNo = createInvoiceNo(db, to);
+    logActivity({
+      userId: req.session.userId,
+      action: "create",
+      entityType: "invoice",
+      entityId: String(vehicle.id),
+      details: `vehicle=${vehicle.vehicle_number}; invoice=${invoiceNo}, from=${from}, to=${to}`
+    });
+  }
+
+  res.render("records/vehicle_invoice_print", {
+    title: req.t("vehicleInvoiceTitle"),
+    from,
+    to,
+    vehicle,
+    invoiceNo,
+    autoPrint,
+    rows,
+    totals
+  });
+});
+
+router.get("/vehicle-invoice/export", (req, res) => {
+  const from = req.query.from || dayjs().startOf("month").format("YYYY-MM-DD");
+  const to = req.query.to || dayjs().format("YYYY-MM-DD");
+  const vehicleId = Number(req.query.vehicle_id || 0);
+  if (!vehicleId) return res.redirect(`/records/vehicle-invoice?from=${from}&to=${to}`);
+  const vehicle = db.prepare(
+    "SELECT id, vehicle_number, owner_name FROM vehicles WHERE id = ? AND is_company = 0"
+  ).get(vehicleId);
+  if (!vehicle) return res.redirect(`/records/vehicle-invoice?from=${from}&to=${to}`);
+
+  const rows = db.prepare(
+    `SELECT export_date, receipt_no, jar_count, return_jar_count, leakage_jar_count, total_amount, paid_amount
+     FROM exports
+     WHERE vehicle_id = ?
+       AND export_date BETWEEN ? AND ?
+     ORDER BY export_date ASC, id ASC`
+  ).all(vehicleId, from, to);
+
+  const header = ["Date (AD)", "Date (BS)", "Receipt No", "Jars", "Returned Jars", "Leakage Jars", "Net Jars", "Total Amount", "Paid Amount", "Remaining Amount"];
+  const lines = rows.map((row) => {
+    const jars = Number(row.jar_count || 0);
+    const returned = Number(row.return_jar_count || 0);
+    const leakage = Number(row.leakage_jar_count || 0);
+    const net = Math.max(0, jars - returned - leakage);
+    const total = Number(row.total_amount || 0);
+    const paid = Number(row.paid_amount || 0);
+    const remaining = Math.max(0, total - paid);
+    return [
+      row.export_date,
+      adToBs(row.export_date) || "",
+      row.receipt_no || "",
+      jars,
+      returned,
+      leakage,
+      net,
+      total,
+      paid,
+      remaining
+    ].map((value) => `"${String(value ?? "").replace(/"/g, '""')}"`).join(",");
+  });
+  res.setHeader("Content-Type", "text/csv");
+  res.setHeader("Content-Disposition", `attachment; filename="vehicle_invoice_${vehicle.vehicle_number.replace(/[^a-zA-Z0-9_-]/g, "_")}_${from}_to_${to}.csv"`);
+  return res.send([header.join(","), ...lines].join("\n"));
+});
+
 router.get("/credits/all/export", (req, res) => {
   const from = req.query.from || dayjs().subtract(30, "day").format("YYYY-MM-DD");
   const to = req.query.to || dayjs().format("YYYY-MM-DD");
@@ -7465,6 +8636,61 @@ router.get("/credits/all/print", (req, res) => {
     from,
     to,
     q,
+    rows,
+    totals,
+    printedAt: dayjs().format("YYYY-MM-DD HH:mm")
+  });
+});
+
+router.get("/credits/customer-cumulative/print", (req, res) => {
+  const customerName = String(req.query.customer_name || "").trim();
+  const from = req.query.customer_credit_from || req.query.from || dayjs().subtract(30, "day").format("YYYY-MM-DD");
+  const to = req.query.customer_credit_to || req.query.to || dayjs().format("YYYY-MM-DD");
+  if (!customerName) {
+    return res.redirect(`/records/credits?from=${from}&to=${to}&error=creditSettlementCustomerRequired`);
+  }
+
+  const rows = db.prepare(
+    `SELECT credits.id,
+            credits.credit_date,
+            COALESCE(credits.trip_date, linked_export.export_date) AS trip_date,
+            credits.credit_jars,
+            credits.amount,
+            credits.paid_amount,
+            ROUND(CASE
+              WHEN credits.amount - credits.paid_amount < 0 THEN 0
+              ELSE credits.amount - credits.paid_amount
+            END, 2) AS remaining_amount,
+            vehicles.vehicle_number,
+            vehicles.owner_name,
+            linked_export.receipt_no AS trip_receipt_no
+     FROM credits
+     JOIN vehicles ON credits.vehicle_id = vehicles.id
+     LEFT JOIN exports AS linked_export ON linked_export.id = credits.export_id
+     WHERE vehicles.is_company = 0
+       AND lower(trim(credits.customer_name)) = lower(trim(?))
+       AND credits.credit_date BETWEEN ? AND ?
+       AND (credits.amount - credits.paid_amount) > 0
+     ORDER BY credits.credit_date DESC, credits.id DESC`
+  ).all(customerName, from, to);
+
+  const totals = rows.reduce(
+    (acc, row) => {
+      acc.entry_count += 1;
+      acc.total_jars += Number(row.credit_jars || 0);
+      acc.total_amount = parseMoneyValue(acc.total_amount + Number(row.amount || 0));
+      acc.total_paid = parseMoneyValue(acc.total_paid + Number(row.paid_amount || 0));
+      acc.total_remaining = parseMoneyValue(acc.total_remaining + Number(row.remaining_amount || 0));
+      return acc;
+    },
+    { entry_count: 0, total_jars: 0, total_amount: 0, total_paid: 0, total_remaining: 0 }
+  );
+
+  res.render("records/customer_cumulative_credits_print", {
+    title: req.t("customerCumulativeCreditsTitle"),
+    customerName,
+    from,
+    to,
     rows,
     totals,
     printedAt: dayjs().format("YYYY-MM-DD HH:mm")
@@ -7523,8 +8749,7 @@ router.post("/credits", (req, res) => {
     force_wash_required,
     paid,
     paid_amount,
-    payment_method,
-    allow_duplicate_entry
+    payment_method
   } = req.body;
   const vehicles = getCreditVehicles();
   const staffOptions = getStaffOptions();
@@ -7532,7 +8757,6 @@ router.post("/credits", (req, res) => {
   const tripDateValue = parseOptionalDate(trip_date);
   const selectedStaffId = parseOptionalId(checked_by_staff_id);
   const forceWashDefault = force_wash_required === "on";
-  const allowDuplicateEntry = parseCheckbox(allow_duplicate_entry);
   if (!vehicle_id || !customer_name || !credit_date) {
     return res.render("records/credit_form", {
       title: req.t("addCreditTitle"),
@@ -7628,8 +8852,25 @@ router.post("/credits", (req, res) => {
     ewalletField: "paid_ewallet_amount",
     amountField: "paid_amount",
     methodField: "payment_method",
-    maxTotal: amountNum
+    maxTotal: amountNum,
+    strictMax: true
   });
+  if (paymentParsed.isOverLimit) {
+    return res.render("records/credit_form", {
+      title: req.t("addCreditTitle"),
+      record: null,
+      formValues: req.body,
+      vehicles,
+      staffOptions,
+      customers: db.prepare("SELECT DISTINCT customer_name FROM credits ORDER BY customer_name").all().map((row) => row.customer_name),
+      error: req.t("paidMoreThanTotal"),
+      defaultDate: credit_date || dayjs().format("YYYY-MM-DD"),
+      selectedVehicleId: vehicle_id || null,
+      defaultTripDate: tripDateValue || "",
+      selectedStaffId,
+      forceWashDefault
+    });
+  }
   let openingBreakdown = paymentParsed.breakdown;
   if (typeof paid !== "undefined") {
     const markMethod = normalizePaymentMethod(payment_method);
@@ -7649,7 +8890,7 @@ router.post("/credits", (req, res) => {
     amount: amountNum,
     excludeId: null
   });
-  if (duplicateCredits.length > 0 && !allowDuplicateEntry) {
+  if (duplicateCredits.length > 0) {
     return res.render("records/credit_form", {
       title: req.t("addCreditTitle"),
       record: null,
@@ -7657,7 +8898,7 @@ router.post("/credits", (req, res) => {
       vehicles,
       staffOptions,
       customers: db.prepare("SELECT DISTINCT customer_name FROM credits ORDER BY customer_name").all().map((row) => row.customer_name),
-      error: null,
+      error: req.t("duplicateCreditBlocked"),
       duplicateWarning: {
         type: "credit",
         rows: duplicateCredits,
@@ -7669,16 +8910,6 @@ router.post("/credits", (req, res) => {
       defaultTripDate: tripDateValue || "",
       selectedStaffId,
       forceWashDefault
-    });
-  }
-  if (duplicateCredits.length > 0 && allowDuplicateEntry) {
-    const duplicateIds = duplicateCredits.map((row) => row.id).join(",");
-    logActivity({
-      userId: req.session.userId,
-      action: "duplicate_override",
-      entityType: "credit",
-      entityId: `vehicle:${vehicle_id}`,
-      details: `duplicate_ids=${duplicateIds}, customer=${customer_name.trim()}, date=${credit_date}, amount=${amountNum}`
     });
   }
 
@@ -7881,8 +9112,24 @@ router.post("/credits/:id", (req, res) => {
     ewalletField: "paid_ewallet_amount",
     amountField: "paid_amount",
     methodField: "payment_method",
-    maxTotal: amountNum
+    maxTotal: amountNum,
+    strictMax: true
   });
+  if (paymentParsed.isOverLimit) {
+    return res.render("records/credit_form", {
+      title: req.t("editCreditTitle"),
+      record,
+      formValues: req.body,
+      vehicles,
+      staffOptions,
+      customers: db.prepare("SELECT DISTINCT customer_name FROM credits ORDER BY customer_name").all().map((row) => row.customer_name),
+      error: req.t("paidMoreThanTotal"),
+      defaultDate: credit_date || record.credit_date,
+      defaultTripDate: tripDateValue || (record.trip_date || ""),
+      selectedStaffId,
+      forceWashDefault
+    });
+  }
   let openingBreakdown = paymentParsed.breakdown;
   if (typeof paid !== "undefined") {
     const markMethod = normalizePaymentMethod(payment_method);
@@ -7895,6 +9142,34 @@ router.post("/credits/:id", (req, res) => {
   const paidAmount = sumPaymentBreakdown(openingBreakdown);
   const paymentMethod = getPrimaryMethodFromBreakdown(openingBreakdown, normalizePaymentMethod(payment_method));
   const paidFlag = amountNum === 0 ? 1 : paidAmount >= amountNum ? 1 : 0;
+  const duplicateCredits = findDuplicateCreditEntries({
+    vehicleId: vehicle_id,
+    creditDate: credit_date,
+    customerName: customer_name,
+    amount: amountNum,
+    excludeId: req.params.id
+  });
+  if (duplicateCredits.length > 0) {
+    return res.render("records/credit_form", {
+      title: req.t("editCreditTitle"),
+      record,
+      formValues: req.body,
+      vehicles,
+      staffOptions,
+      customers: db.prepare("SELECT DISTINCT customer_name FROM credits ORDER BY customer_name").all().map((row) => row.customer_name),
+      error: req.t("duplicateCreditBlocked"),
+      duplicateWarning: {
+        type: "credit",
+        rows: duplicateCredits,
+        creditDate: credit_date,
+        amount: amountNum
+      },
+      defaultDate: credit_date || record.credit_date,
+      defaultTripDate: tripDateValue || (record.trip_date || ""),
+      selectedStaffId,
+      forceWashDefault
+    });
+  }
 
   db.prepare(
     "UPDATE credits SET vehicle_id = ?, export_id = ?, customer_name = ?, amount = ?, paid_amount = ?, payment_method = ?, credit_jars = ?, credit_bottle_cases = ?, credit_dispensers = ?, credit_jar_containers = ?, jar_price = ?, bottle_case_price = ?, dispenser_price = ?, jar_container_price = ?, credit_date = ?, trip_date = ?, checked_by_staff_id = ?, force_wash_required = ?, paid = ? WHERE id = ?"
@@ -8047,13 +9322,18 @@ router.post("/credits/:id/paid", (req, res) => {
 router.post("/credits/:id/pay", (req, res) => {
   const record = db.prepare("SELECT id, amount, paid_amount, payment_method FROM credits WHERE id = ?").get(req.params.id);
   if (!record) return res.redirect("/records/credits");
-  const paymentParsed = parsePaymentBreakdownFromBody(req.body);
+  const remaining = Math.max(0, Number(record.amount || 0) - Number(record.paid_amount || 0));
+  const paymentParsed = parsePaymentBreakdownFromBody(req.body, {
+    maxTotal: remaining,
+    strictMax: true
+  });
+  if (paymentParsed.isOverLimit) {
+    return res.redirect("/records/credits?error=paidMoreThanDue");
+  }
   if (paymentParsed.total <= 0) {
     return res.redirect(req.get("Referrer") || "/records/credits");
   }
-  const remaining = Math.max(0, Number(record.amount || 0) - Number(record.paid_amount || 0));
-  const cappedBreakdown = clampBreakdownToTotal(paymentParsed.breakdown, remaining);
-  const appliedPayment = sumPaymentBreakdown(cappedBreakdown);
+  const appliedPayment = sumPaymentBreakdown(paymentParsed.breakdown);
   if (appliedPayment <= 0) {
     return res.redirect(req.get("Referrer") || "/records/credits");
   }
@@ -8061,7 +9341,7 @@ router.post("/credits/:id/pay", (req, res) => {
   if (newPaidAmount > Number(record.amount || 0)) newPaidAmount = Number(record.amount || 0);
   const paidFlag = Number(record.amount || 0) === 0 ? 1 : newPaidAmount >= Number(record.amount || 0) ? 1 : 0;
   paymentBreakdownOrder.forEach((key) => {
-    const amount = parseMoneyValue(cappedBreakdown[key] || 0);
+    const amount = parseMoneyValue(paymentParsed.breakdown[key] || 0);
     if (amount <= 0) return;
     insertCreditPayment({
       creditId: req.params.id,
@@ -8073,14 +9353,14 @@ router.post("/credits/:id/pay", (req, res) => {
   });
   const nextMethod = Number(record.paid_amount || 0) > 0
     ? record.payment_method
-    : getPrimaryMethodFromBreakdown(cappedBreakdown, paymentParsed.primaryMethod);
+    : getPrimaryMethodFromBreakdown(paymentParsed.breakdown, paymentParsed.primaryMethod);
   db.prepare("UPDATE credits SET paid_amount = ?, paid = ?, payment_method = ? WHERE id = ?").run(newPaidAmount, paidFlag, nextMethod, req.params.id);
   logActivity({
     userId: req.session.userId,
     action: "payment",
     entityType: "credit",
     entityId: req.params.id,
-    details: `payment=${appliedPayment}; method=${paymentParsed.splitEntered ? 'MIXED' : paymentParsed.primaryMethod}; cash=${cappedBreakdown.cash || 0}; bank=${cappedBreakdown.bank || 0}; ewallet=${cappedBreakdown.eWallet || 0}; paid_amount: ${formatDiffValue(record.paid_amount)} -> ${formatDiffValue(newPaidAmount)}`
+    details: `payment=${appliedPayment}; method=${paymentParsed.splitEntered ? 'MIXED' : paymentParsed.primaryMethod}; cash=${paymentParsed.breakdown.cash || 0}; bank=${paymentParsed.breakdown.bank || 0}; ewallet=${paymentParsed.breakdown.eWallet || 0}; paid_amount: ${formatDiffValue(record.paid_amount)} -> ${formatDiffValue(newPaidAmount)}`
   });
   res.redirect(req.get("Referrer") || "/records/credits");
 });
@@ -8157,6 +9437,36 @@ router.get("/credits/:id/payments", (req, res) => {
     record,
     payments,
     paymentTotals
+  });
+});
+
+router.get("/credits/payments/:id/print", (req, res) => {
+  const payment = db.prepare(
+    `SELECT credit_payments.*, credits.credit_date, credits.customer_name,
+            credits.receipt_no as credit_receipt_no,
+            vehicles.vehicle_number, vehicles.owner_name
+     FROM credit_payments
+     JOIN credits ON credits.id = credit_payments.credit_id
+     JOIN vehicles ON vehicles.id = credits.vehicle_id
+     WHERE credit_payments.id = ?`
+  ).get(req.params.id);
+  if (!payment) return res.redirect("/records/credits");
+  const receiptNo = ensurePaymentReceiptNo("credit_payments", req.params.id, String(payment.paid_at || payment.credit_date).slice(0, 10));
+  const methodLabel = getPaymentMethodLabel(payment.payment_method, req.t);
+  return res.render("records/payment_receipt_print", {
+    title: req.t("paymentReceiptTitle"),
+    printSubtitle: req.t("paymentReceiptTitle"),
+    moduleLabel: req.t("creditsTitle"),
+    autoPrint: req.query.autoprint === "1",
+    receiptNo,
+    paymentDate: String(payment.paid_at || "").slice(0, 10) || payment.credit_date,
+    createdAt: payment.paid_at,
+    amount: Number(payment.amount || 0),
+    paymentMethodLabel: methodLabel,
+    paymentSourceLabel: req.t("paymentSourceTrip"),
+    referenceNo: payment.credit_receipt_no || `#${payment.credit_id}`,
+    partyName: `${payment.customer_name || "-"} • ${payment.owner_name || "-"} (${payment.vehicle_number || "-"})`,
+    note: payment.note || "-"
   });
 });
 

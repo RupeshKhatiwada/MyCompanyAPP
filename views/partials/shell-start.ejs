@@ -63,6 +63,47 @@
       background: rgba(241, 245, 249, 0.98);
       z-index: 3;
     }
+    .table-scroll-region {
+      position: relative;
+      overflow-x: auto;
+      overflow-y: auto !important;
+      max-height: min(72vh, calc(100dvh - 220px));
+      scrollbar-gutter: stable both-edges;
+    }
+    .table-scroll-region.is-collapsed {
+      max-height: var(--table-collapsed-height, 286px);
+    }
+    .table-scroll-region[data-menu-open="1"] {
+      overflow: visible !important;
+      max-height: none !important;
+    }
+    .table-scroll-controls {
+      margin-bottom: 0.5rem;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      justify-content: flex-end;
+      align-items: center;
+    }
+    .table-scroll-note {
+      font-size: 0.78rem;
+      color: #64748b;
+    }
+    .table-scroll-toggle {
+      border: 1px solid rgba(148, 163, 184, 0.65);
+      background: #fff;
+      color: #0f172a;
+      border-radius: 0.75rem;
+      padding: 0.35rem 0.7rem;
+      font-size: 0.78rem;
+      font-weight: 600;
+      line-height: 1.1;
+      cursor: pointer;
+    }
+    .table-scroll-toggle:hover {
+      background: #f8fafc;
+      border-color: rgba(100, 116, 139, 0.7);
+    }
     @media print {
       .print-only { display: block !important; }
       .print-hidden { display: none !important; }
@@ -101,11 +142,32 @@
         panel.style.display = "";
       }
 
+      function setMenuHostLayer(menu, active) {
+        if (!(menu instanceof HTMLElement)) return;
+        var host = menu.closest(".table-action-sticky");
+        if (!(host instanceof HTMLElement)) return;
+        var scrollRegion = host.closest(".table-scroll-region");
+        if (active) {
+          host.dataset.menuLayer = "active";
+          host.style.zIndex = "13020";
+          if (scrollRegion instanceof HTMLElement) {
+            scrollRegion.dataset.menuOpen = "1";
+          }
+        } else {
+          host.dataset.menuLayer = "";
+          host.style.zIndex = "";
+          if (scrollRegion instanceof HTMLElement) {
+            scrollRegion.dataset.menuOpen = "";
+          }
+        }
+      }
+
       function closeAll(except) {
         var menus = document.querySelectorAll(selector + "[open]");
         for (var i = 0; i < menus.length; i += 1) {
           if (!except || menus[i] !== except) {
             resetPanelPosition(menus[i]);
+            setMenuHostLayer(menus[i], false);
             menus[i].classList.remove("action-menu-up");
             menus[i].open = false;
           }
@@ -171,9 +233,11 @@
         if (!target.matches(selector)) return;
         if (target.open) {
           closeAll(target);
+          setMenuHostLayer(target, true);
           placeMenu(target);
         } else {
           resetPanelPosition(target);
+          setMenuHostLayer(target, false);
           target.classList.remove("action-menu-up");
         }
       }, true);
@@ -199,6 +263,94 @@
         var openMenus = document.querySelectorAll(selector + "[open]");
         for (var i = 0; i < openMenus.length; i += 1) {
           placeMenu(openMenus[i]);
+        }
+      });
+    })();
+    (function () {
+      var rowLimit = 4;
+      var expandLabel = <%- JSON.stringify(t('maximizeList')) %>;
+      var collapseLabel = <%- JSON.stringify(t('showLess')) %>;
+      var noteLabel = <%- JSON.stringify(t('showFirstRows')) %>;
+
+      function closestTableRegion(table) {
+        if (!(table instanceof HTMLElement)) return null;
+        var region = table.closest(".overflow-x-auto");
+        if (region && region.contains(table)) return region;
+        return null;
+      }
+
+      function getRowHeight(row, fallback) {
+        if (!(row instanceof HTMLElement)) return fallback;
+        var h = Math.round(row.getBoundingClientRect().height || 0);
+        return h > 0 ? h : fallback;
+      }
+
+      function computeCollapsedHeight(table) {
+        var header = table.querySelector("thead");
+        var headerHeight = Math.round((header && header.getBoundingClientRect().height) || 0);
+        if (headerHeight <= 0) headerHeight = 46;
+        var rows = Array.prototype.slice.call(table.querySelectorAll("tbody tr"), 0, rowLimit);
+        var rowHeightFallback = 52;
+        var rowsHeight = rows.reduce(function (sum, row) {
+          return sum + getRowHeight(row, rowHeightFallback);
+        }, 0);
+        return Math.max(220, headerHeight + rowsHeight + 10);
+      }
+
+      function setExpanded(region, button, expanded) {
+        if (!(region instanceof HTMLElement)) return;
+        if (expanded) {
+          region.classList.remove("is-collapsed");
+          region.dataset.expanded = "1";
+          if (button) button.textContent = collapseLabel;
+        } else {
+          region.classList.add("is-collapsed");
+          region.dataset.expanded = "0";
+          if (button) button.textContent = expandLabel;
+        }
+      }
+
+      function attachControls(table) {
+        if (!(table instanceof HTMLElement)) return;
+        if (table.dataset.scrollReady === "1") return;
+        var region = closestTableRegion(table);
+        if (!region) return;
+        region.classList.add("table-scroll-region");
+        var bodyRows = table.querySelectorAll("tbody tr");
+        if (!bodyRows || bodyRows.length <= rowLimit) {
+          table.dataset.scrollReady = "1";
+          return;
+        }
+
+        region.style.setProperty("--table-collapsed-height", computeCollapsedHeight(table) + "px");
+
+        var controls = document.createElement("div");
+        controls.className = "table-scroll-controls";
+        var note = document.createElement("span");
+        note.className = "table-scroll-note";
+        note.textContent = noteLabel;
+        var button = document.createElement("button");
+        button.type = "button";
+        button.className = "table-scroll-toggle";
+        button.textContent = expandLabel;
+        button.setAttribute("aria-expanded", "false");
+        button.addEventListener("click", function () {
+          var expandNow = region.dataset.expanded !== "1";
+          setExpanded(region, button, expandNow);
+          button.setAttribute("aria-expanded", expandNow ? "true" : "false");
+        });
+        controls.appendChild(note);
+        controls.appendChild(button);
+        region.parentNode.insertBefore(controls, region);
+
+        setExpanded(region, button, false);
+        table.dataset.scrollReady = "1";
+      }
+
+      document.addEventListener("DOMContentLoaded", function () {
+        var tables = document.querySelectorAll("table.table-base");
+        for (var i = 0; i < tables.length; i += 1) {
+          attachControls(tables[i]);
         }
       });
     })();

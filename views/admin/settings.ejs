@@ -116,6 +116,48 @@
         </div>
         <p class="mt-2 text-xs text-slate-500"><%= t('customThresholdHint') %></p>
       </div>
+      <% const canManagePermissions = currentUser && currentUser.role === 'SUPER_ADMIN'; %>
+      <div class="rounded-xl border border-slate-200 bg-slate-50 p-4">
+        <h3 class="text-sm font-semibold"><%= t('permissionMatrixTitle') %></h3>
+        <p class="mt-1 text-xs text-slate-600"><%= t('permissionMatrixSubtitle') %></p>
+        <% if (!canManagePermissions) { %>
+          <p class="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800"><%= t('permissionMatrixSuperOnly') %></p>
+        <% } %>
+        <div class="mt-3 overflow-x-auto">
+          <table class="table-base text-sm">
+            <thead class="table-head">
+              <tr>
+                <th class="px-3 py-2"><%= t('module') %></th>
+                <th class="px-3 py-2"><%= t('roleAdmin') %> - <%= t('permissionView') %></th>
+                <th class="px-3 py-2"><%= t('roleAdmin') %> - <%= t('permissionEdit') %></th>
+                <th class="px-3 py-2"><%= t('workersTitle') %> - <%= t('permissionView') %></th>
+                <th class="px-3 py-2"><%= t('workersTitle') %> - <%= t('permissionEdit') %></th>
+              </tr>
+            </thead>
+            <tbody>
+              <% (modulePermissionItems || []).forEach((item) => { %>
+                <% const adminPerm = rolePermissionValues && rolePermissionValues.ADMIN && rolePermissionValues.ADMIN[item.key] ? rolePermissionValues.ADMIN[item.key] : { view: true, edit: true }; %>
+                <% const workerPerm = rolePermissionValues && rolePermissionValues.WORKER && rolePermissionValues.WORKER[item.key] ? rolePermissionValues.WORKER[item.key] : { view: true, edit: true }; %>
+                <tr class="table-row">
+                  <td class="px-3 py-2 font-medium"><%= t(item.labelKey) %></td>
+                  <td class="px-3 py-2 text-center">
+                    <input type="checkbox" name="perm_ADMIN_<%= item.key %>_view" <%= adminPerm.view ? 'checked' : '' %> <%= canManagePermissions ? '' : 'disabled' %> />
+                  </td>
+                  <td class="px-3 py-2 text-center">
+                    <input type="checkbox" name="perm_ADMIN_<%= item.key %>_edit" <%= adminPerm.edit ? 'checked' : '' %> <%= canManagePermissions ? '' : 'disabled' %> />
+                  </td>
+                  <td class="px-3 py-2 text-center">
+                    <input type="checkbox" name="perm_WORKER_<%= item.key %>_view" <%= workerPerm.view ? 'checked' : '' %> <%= canManagePermissions ? '' : 'disabled' %> />
+                  </td>
+                  <td class="px-3 py-2 text-center">
+                    <input type="checkbox" name="perm_WORKER_<%= item.key %>_edit" <%= workerPerm.edit ? 'checked' : '' %> <%= canManagePermissions ? '' : 'disabled' %> />
+                  </td>
+                </tr>
+              <% }) %>
+            </tbody>
+          </table>
+        </div>
+      </div>
       <div class="rounded-xl border border-slate-200 bg-slate-50 p-4">
         <h3 class="text-sm font-semibold"><%= t('iotAttendanceTitle') %></h3>
         <p class="mt-1 text-xs text-slate-600"><%= t('iotAttendanceSubtitle') %></p>
