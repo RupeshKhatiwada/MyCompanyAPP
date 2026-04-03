@@ -381,6 +381,8 @@ CREATE TABLE IF NOT EXISTS credits (
   vehicle_id INTEGER NOT NULL,
   export_id INTEGER,
   customer_name TEXT NOT NULL,
+  customer_phone TEXT,
+  customer_location TEXT,
   amount REAL NOT NULL DEFAULT 0,
   paid_amount REAL NOT NULL DEFAULT 0,
   payment_method TEXT NOT NULL DEFAULT 'CASH',
@@ -1083,6 +1085,12 @@ if (!creditColumns.has("dispenser_price")) {
 }
 if (!creditColumns.has("jar_container_price")) {
   db.exec("ALTER TABLE credits ADD COLUMN jar_container_price REAL NOT NULL DEFAULT 0;");
+}
+if (!creditColumns.has("customer_phone")) {
+  db.exec("ALTER TABLE credits ADD COLUMN customer_phone TEXT;");
+}
+if (!creditColumns.has("customer_location")) {
+  db.exec("ALTER TABLE credits ADD COLUMN customer_location TEXT;");
 }
 db.exec("UPDATE credits SET payment_method = 'CASH' WHERE payment_method IS NULL OR TRIM(payment_method) = '';");
 db.exec("UPDATE credits SET payment_method = 'CASH' WHERE payment_method NOT IN ('CASH','BANK','E_WALLET');");

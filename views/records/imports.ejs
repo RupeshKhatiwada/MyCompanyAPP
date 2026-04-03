@@ -21,7 +21,6 @@
   <% const safeItemTypes = typeof itemTypes !== 'undefined' ? itemTypes : []; %>
   <% const safeQ = typeof q !== 'undefined' ? q : ''; %>
   <% const safeJarTypes = typeof jarTypes !== 'undefined' ? jarTypes : []; %>
-  <% const safeJarCapTypes = typeof jarCapTypes !== 'undefined' ? jarCapTypes : []; %>
   <% const safeTotals = typeof totals !== 'undefined' ? totals : { total: 0, incoming: 0, outgoing: 0, byItem: {} }; %>
   <% const safePayableTotals = typeof payableTotals !== 'undefined' ? payableTotals : { total: 0, paid: 0, due: 0, open_count: 0 }; %>
   <% const safeJarTypeBalances = typeof jarTypeBalances !== 'undefined' ? jarTypeBalances : {}; %>
@@ -82,15 +81,6 @@
         <select class="input" name="jar_type_id" id="jarTypeSelect">
           <option value=""><%= t('selectJarContainerType') %></option>
           <% safeJarTypes.forEach((type) => { %>
-            <option value="<%= type.id %>" data-default-qty="<%= type.default_qty || 0 %>"><%= type.name %></option>
-          <% }) %>
-        </select>
-      </div>
-      <div class="sm:col-span-2" id="jarCapTypeWrap" style="display: none;">
-        <label class="label"><%= t('jarCapType') %></label>
-        <select class="input" name="jar_cap_type_id" id="jarCapTypeSelect">
-          <option value=""><%= t('selectJarCapType') %></option>
-          <% safeJarCapTypes.forEach((type) => { %>
             <option value="<%= type.id %>" data-default-qty="<%= type.default_qty || 0 %>"><%= type.name %></option>
           <% }) %>
         </select>
@@ -297,7 +287,7 @@
             <% const rowTotal = Number(row.total_amount || 0); %>
             <% const rowPaid = Number(row.paid_amount || 0); %>
             <% const rowDue = Math.max(0, rowTotal - rowPaid); %>
-            <% const rowDetails = row.item_type === 'JAR_CONTAINER' ? (row.jar_type_name || '-') : row.item_type === 'JAR_CAP' ? (row.jar_cap_type_name || '-') : '-'; %>
+            <% const rowDetails = row.item_type === 'JAR_CONTAINER' ? (row.jar_type_name || '-') : '-'; %>
             <% const rowSettled = rowDue <= 0; %>
             <tr class="table-row">
               <td class="px-4 py-3"><%= row.entry_date %></td>
@@ -396,8 +386,6 @@
     const directionSelect = document.querySelector('[data-direction]');
     const jarTypeWrap = document.getElementById('jarTypeWrap');
     const jarTypeSelect = document.getElementById('jarTypeSelect');
-    const jarCapTypeWrap = document.getElementById('jarCapTypeWrap');
-    const jarCapTypeSelect = document.getElementById('jarCapTypeSelect');
     const quantityLabel = document.getElementById('quantityLabel');
     const quantityInput = document.querySelector('input[name="quantity"]');
     if (!itemSelect || !quantityLabel) return;
@@ -435,28 +423,10 @@
           }
         }
       }
-      if (jarCapTypeWrap && jarCapTypeSelect) {
-        const isJarCap = itemSelect.value === "JAR_CAP";
-        jarCapTypeWrap.style.display = isJarCap ? "" : "none";
-        if (!isJarCap) {
-          jarCapTypeSelect.value = "";
-          jarCapTypeSelect.required = false;
-        } else {
-          jarCapTypeSelect.required = true;
-          const selected = jarCapTypeSelect.selectedOptions[0];
-          const defaultQty = Number(selected?.dataset?.defaultQty || 0);
-          if (quantityInput && defaultQty > 0 && Number(quantityInput.value || 0) <= 0) {
-            quantityInput.value = defaultQty;
-          }
-        }
-      }
     };
     itemSelect.addEventListener('change', updateLabel);
     if (jarTypeSelect) {
       jarTypeSelect.addEventListener('change', updateLabel);
-    }
-    if (jarCapTypeSelect) {
-      jarCapTypeSelect.addEventListener('change', updateLabel);
     }
     updateLabel();
   })();

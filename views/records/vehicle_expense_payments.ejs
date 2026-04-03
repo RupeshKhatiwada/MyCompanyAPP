@@ -34,42 +34,46 @@
     </div>
   </div>
 
-  <div class="mt-6 card p-6">
-    <h2 class="text-lg font-semibold"><%= t('addPayment') %></h2>
-    <form class="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4" method="post" action="/records/vehicle-expenses/<%= record.id %>/payments">
-      <div>
-        <label class="label"><%= t('date') %></label>
-        <input class="input" type="date" name="payment_date" value="<%= record.expense_date %>" required />
-      </div>
-      <div>
-        <label class="label"><%= t('amount') %></label>
-        <input class="input" type="number" name="amount" min="0.01" max="<%= dueAmount %>" step="0.01" value="<%= dueAmount %>" required />
-      </div>
-      <div>
-        <label class="label"><%= t('paymentMethodLabel') %></label>
-        <select class="input" name="payment_method">
-          <option value="CASH"><%= t('methodCash') %></option>
-          <option value="BANK"><%= t('methodBank') %></option>
-          <option value="E_WALLET"><%= t('methodEWallet') %></option>
-        </select>
-      </div>
-      <div>
-        <label class="label"><%= t('paymentSourceLabel') %></label>
-        <select class="input" name="payment_source">
-          <option value="DAILY_COLLECTION"><%= t('sourceDailyCollection') %></option>
-          <option value="OWNER_PERSONAL"><%= t('sourceOwnerPersonal') %></option>
-          <option value="BANK_OTHER"><%= t('sourceBankOther') %></option>
-        </select>
-      </div>
-      <div class="sm:col-span-2 lg:col-span-4">
-        <label class="label"><%= t('note') %></label>
-        <input class="input" type="text" name="note" />
-      </div>
-      <div class="sm:col-span-2 lg:col-span-4">
-        <button class="btn-primary" type="submit"><%= t('savePayment') %></button>
-      </div>
-    </form>
-  </div>
+  <% if (Number(dueAmount || 0) > 0) { %>
+    <div class="mt-6 card p-6">
+      <h2 class="text-lg font-semibold"><%= t('addPayment') %></h2>
+      <form class="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4" method="post" action="/records/vehicle-expenses/<%= record.id %>/payments">
+        <div>
+          <label class="label"><%= t('date') %></label>
+          <input class="input" type="date" name="payment_date" value="<%= record.expense_date %>" required />
+        </div>
+        <div>
+          <label class="label"><%= t('amount') %></label>
+          <input class="input" type="number" name="amount" min="0.01" max="<%= dueAmount %>" step="0.01" value="<%= dueAmount %>" required />
+        </div>
+        <div>
+          <label class="label"><%= t('paymentMethodLabel') %></label>
+          <select class="input" name="payment_method">
+            <option value="CASH"><%= t('methodCash') %></option>
+            <option value="BANK"><%= t('methodBank') %></option>
+            <option value="E_WALLET"><%= t('methodEWallet') %></option>
+          </select>
+        </div>
+        <div>
+          <label class="label"><%= t('paymentSourceLabel') %></label>
+          <select class="input" name="payment_source">
+            <option value="DAILY_COLLECTION"><%= t('sourceDailyCollection') %></option>
+            <option value="OWNER_PERSONAL"><%= t('sourceOwnerPersonal') %></option>
+            <option value="BANK_OTHER"><%= t('sourceBankOther') %></option>
+          </select>
+        </div>
+        <div class="sm:col-span-2 lg:col-span-4">
+          <label class="label"><%= t('note') %></label>
+          <input class="input" type="text" name="note" />
+        </div>
+        <div class="sm:col-span-2 lg:col-span-4">
+          <button class="btn-primary" type="submit"><%= t('savePayment') %></button>
+        </div>
+      </form>
+    </div>
+  <% } else { %>
+    <div class="mt-6 rounded-lg bg-slate-50 px-4 py-3 text-sm text-slate-600"><%= t('noBalanceDue') %></div>
+  <% } %>
 
   <div class="mt-6 card overflow-hidden">
     <div class="overflow-x-auto">

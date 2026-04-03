@@ -109,8 +109,23 @@
               <td class="px-4 py-3"><%= record.credit_date %></td>
               <td class="px-4 py-3"><%= record.receipt_no || (`#${record.id}`) %></td>
               <td class="px-4 py-3"><%= record.trip_date || '-' %></td>
-              <td class="px-4 py-3 font-medium"><%= `${record.owner_name} • ${record.vehicle_number}` %></td>
-              <td class="px-4 py-3"><%= record.customer_name %></td>
+              <td class="px-4 py-3 font-medium">
+                <div><%= `${record.owner_name} • ${record.vehicle_number}` %></div>
+                <% if (Number(record.is_company || 0) === 1) { %>
+                  <div class="text-xs text-slate-500"><%= t('companyVehicle') %></div>
+                <% } %>
+              </td>
+              <td class="px-4 py-3">
+                <div><%= record.customer_name %></div>
+                <% if (record.customer_phone || record.customer_location) { %>
+                  <div class="text-xs text-slate-500">
+                    <%= record.customer_phone || '-' %>
+                    <% if (record.customer_location) { %>
+                      • <%= record.customer_location %>
+                    <% } %>
+                  </div>
+                <% } %>
+              </td>
               <td class="px-4 py-3"><%= record.amount %></td>
               <td class="px-4 py-3">
                 <div><%= record.paid_amount %></div>

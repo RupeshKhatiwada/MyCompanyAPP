@@ -2,7 +2,6 @@
 <section class="py-8">
   <% const safeItemTypes = typeof itemTypes !== 'undefined' ? itemTypes : []; %>
   <% const safeJarTypes = typeof jarTypes !== 'undefined' ? jarTypes : []; %>
-  <% const safeJarCapTypes = typeof jarCapTypes !== 'undefined' ? jarCapTypes : []; %>
   <% const safeEntry = typeof entry !== 'undefined' ? entry : { id: '', item_type: '', jar_type_id: '', jar_cap_type_id: '', direction: 'IN', quantity: 1, entry_date: '', seller_name: '', total_amount: 0, paid_amount: 0, is_credit: 0, note: '' }; %>
   <% const safePayments = typeof payments !== 'undefined' ? payments : []; %>
   <% const safePaymentTotals = typeof paymentTotals !== 'undefined' ? paymentTotals : { paid: 0 }; %>
@@ -60,15 +59,6 @@
           <option value=""><%= t('selectJarContainerType') %></option>
           <% safeJarTypes.forEach((type) => { %>
             <option value="<%= type.id %>" data-default-qty="<%= type.default_qty || 0 %>" <%= String(safeEntry.jar_type_id) === String(type.id) ? 'selected' : '' %>><%= type.name %></option>
-          <% }) %>
-        </select>
-      </div>
-      <div class="sm:col-span-2" id="jarCapTypeWrap" style="display: none;">
-        <label class="label"><%= t('jarCapType') %></label>
-        <select class="input" name="jar_cap_type_id" id="jarCapTypeSelect">
-          <option value=""><%= t('selectJarCapType') %></option>
-          <% safeJarCapTypes.forEach((type) => { %>
-            <option value="<%= type.id %>" data-default-qty="<%= type.default_qty || 0 %>" <%= String(safeEntry.jar_cap_type_id) === String(type.id) ? 'selected' : '' %>><%= type.name %></option>
           <% }) %>
         </select>
       </div>
@@ -228,8 +218,6 @@
     const directionSelect = document.querySelector('[data-direction]');
     const jarTypeWrap = document.getElementById('jarTypeWrap');
     const jarTypeSelect = document.getElementById('jarTypeSelect');
-    const jarCapTypeWrap = document.getElementById('jarCapTypeWrap');
-    const jarCapTypeSelect = document.getElementById('jarCapTypeSelect');
     const quantityLabel = document.getElementById('quantityLabel');
     const quantityInput = document.querySelector('input[name="quantity"]');
     if (!itemSelect || !quantityLabel) return;
@@ -267,25 +255,9 @@
           }
         }
       }
-      if (jarCapTypeWrap && jarCapTypeSelect) {
-        const isJarCap = itemSelect.value === "JAR_CAP";
-        jarCapTypeWrap.style.display = isJarCap ? "" : "none";
-        if (!isJarCap) {
-          jarCapTypeSelect.value = "";
-          jarCapTypeSelect.required = false;
-        } else {
-          jarCapTypeSelect.required = true;
-          const selected = jarCapTypeSelect.selectedOptions[0];
-          const defaultQty = Number(selected?.dataset?.defaultQty || 0);
-          if (quantityInput && defaultQty > 0 && Number(quantityInput.value || 0) <= 0) {
-            quantityInput.value = defaultQty;
-          }
-        }
-      }
     };
     itemSelect.addEventListener('change', updateLabel);
     if (jarTypeSelect) jarTypeSelect.addEventListener('change', updateLabel);
-    if (jarCapTypeSelect) jarCapTypeSelect.addEventListener('change', updateLabel);
     updateLabel();
   })();
 </script>

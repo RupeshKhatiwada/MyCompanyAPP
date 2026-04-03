@@ -1283,7 +1283,21 @@ const getImportItemsForUi = (t, includeInactive = false) => {
 };
 
 const getCreditVehicles = () => db.prepare(
-  "SELECT id, vehicle_number, owner_name, is_company FROM vehicles WHERE is_company = 0 ORDER BY vehicle_number"
+  "SELECT id, vehicle_number, owner_name, is_company FROM vehicles ORDER BY vehicle_number"
+).all();
+
+const getCreditCustomerDirectory = () => db.prepare(
+  `SELECT credits.customer_name,
+          COALESCE(credits.customer_phone, '') as customer_phone,
+          COALESCE(credits.customer_location, '') as customer_location
+   FROM credits
+   JOIN (
+     SELECT MAX(id) as latest_id
+     FROM credits
+     WHERE TRIM(customer_name) <> ''
+     GROUP BY lower(trim(customer_name))
+   ) latest ON latest.latest_id = credits.id
+   ORDER BY credits.customer_name COLLATE NOCASE ASC`
 ).all();
 
 const getCreditTripRows = () => {
@@ -1291,8 +1305,7 @@ const getCreditTripRows = () => {
   return db.prepare(
     `SELECT exports.id, exports.vehicle_id, exports.export_date, exports.receipt_no, exports.total_amount
      FROM exports
-     JOIN vehicles ON exports.vehicle_id = vehicles.id
-     WHERE exports.export_date >= ? AND vehicles.is_company = 0
+     WHERE exports.export_date >= ?
      ORDER BY exports.export_date DESC, exports.id DESC`
   ).all(from);
 };
@@ -3975,7 +3988,6 @@ router.get("/imports", (req, res) => {
   );
 
   const jarTypes = db.prepare("SELECT id, name, default_qty FROM jar_types WHERE active = 1 ORDER BY name").all();
-  const jarCapTypes = db.prepare("SELECT id, name, default_qty FROM jar_cap_types WHERE active = 1 ORDER BY name").all();
   const jarImportTotals = db.prepare(
     `SELECT jar_type_id, COALESCE(SUM(quantity), 0) as qty
      FROM import_entries
@@ -4091,7 +4103,7 @@ router.get("/imports", (req, res) => {
     resolveImportItemLabel,
     resolveImportItemUnit,
     jarTypes,
-    jarCapTypes
+    jarCapTypes: []
   });
 });
 
@@ -4103,7 +4115,6 @@ router.post("/imports", (req, res) => {
     note,
     direction,
     jar_type_id,
-    jar_cap_type_id,
     seller_name,
     total_amount,
     paid_amount,
@@ -4133,19 +4144,6 @@ router.post("/imports", (req, res) => {
     }
     const defaultQty = Number(typeRow.default_qty || 0);
     if (defaultQty > 0) {
-      qty = defaultQty;
-    }
-  }
-  if (item_type === "JAR_CAP") {
-    if (!jar_cap_type_id) {
-      return res.redirect("/records/imports");
-    }
-    const capRow = db.prepare("SELECT default_qty FROM jar_cap_types WHERE id = ?").get(jar_cap_type_id);
-    if (!capRow) {
-      return res.redirect("/records/imports");
-    }
-    const defaultQty = Number(capRow.default_qty || 0);
-    if (qty <= 0 && defaultQty > 0) {
       qty = defaultQty;
     }
   }
@@ -4196,7 +4194,7 @@ router.post("/imports", (req, res) => {
     qty,
     entryDirection,
     item_type === "JAR_CONTAINER" ? jar_type_id : null,
-    item_type === "JAR_CAP" ? jar_cap_type_id : null,
+    null,
     entry_date,
     sellerName || null,
     totalAmount,
@@ -4265,7 +4263,6 @@ router.get("/imports/:id/edit", (req, res) => {
     return acc;
   }, {});
   const jarTypes = db.prepare("SELECT id, name, default_qty FROM jar_types WHERE active = 1 ORDER BY name").all();
-  const jarCapTypes = db.prepare("SELECT id, name, default_qty FROM jar_cap_types WHERE active = 1 ORDER BY name").all();
   const payments = db.prepare(
     `SELECT import_payments.*, users.full_name as recorded_by
      FROM import_payments
@@ -4299,7 +4296,7 @@ router.get("/imports/:id/edit", (req, res) => {
     resolveImportItemLabel,
     resolveImportItemUnit,
     jarTypes,
-    jarCapTypes,
+    jarCapTypes: [],
     payments,
     paymentTotals,
     dueAmount,
@@ -4320,7 +4317,6 @@ router.post("/imports/:id", (req, res) => {
     note,
     direction,
     jar_type_id,
-    jar_cap_type_id,
     seller_name,
     total_amount,
     is_credit,
@@ -4349,19 +4345,6 @@ router.post("/imports/:id", (req, res) => {
     }
     const defaultQty = Number(typeRow.default_qty || 0);
     if (defaultQty > 0 && qty <= 0) {
-      qty = defaultQty;
-    }
-  }
-  if (item_type === "JAR_CAP") {
-    if (!jar_cap_type_id) {
-      return res.redirect(`/records/imports/${req.params.id}/edit`);
-    }
-    const capRow = db.prepare("SELECT default_qty FROM jar_cap_types WHERE id = ?").get(jar_cap_type_id);
-    if (!capRow) {
-      return res.redirect(`/records/imports/${req.params.id}/edit`);
-    }
-    const defaultQty = Number(capRow.default_qty || 0);
-    if (qty <= 0 && defaultQty > 0) {
       qty = defaultQty;
     }
   }
@@ -4431,7 +4414,7 @@ router.post("/imports/:id", (req, res) => {
     qty,
     entryDirection,
     item_type === "JAR_CONTAINER" ? jar_type_id : null,
-    item_type === "JAR_CAP" ? jar_cap_type_id : null,
+    null,
     entry_date,
     sellerName || null,
     totalAmount,
@@ -4455,7 +4438,7 @@ router.post("/imports/:id", (req, res) => {
         quantity: qty,
         direction: entryDirection,
         jar_type_id: item_type === "JAR_CONTAINER" ? Number(jar_type_id) : null,
-        jar_cap_type_id: item_type === "JAR_CAP" ? Number(jar_cap_type_id) : null,
+        jar_cap_type_id: null,
         entry_date,
         seller_name: sellerName || null,
         total_amount: totalAmount,
@@ -6201,6 +6184,9 @@ router.post("/vehicle-expenses", (req, res) => {
   if (Number.isNaN(paidAmountNum) || paidAmountNum < 0 || paidAmountNum > amountNum) {
     return res.redirect(`/records/vehicle-expenses?from=${expense_date}&to=${expense_date}&error=paidMoreThanTotal`);
   }
+  if (paidAmountNum > 0 && paidAmountNum < amountNum) {
+    return res.redirect(`/records/vehicle-expenses?from=${expense_date}&to=${expense_date}&error=vehicleExpensePartialNotAllowed`);
+  }
   const vehicleCompany = db.prepare("SELECT id, is_company FROM vehicles WHERE id = ?").get(vehicleId);
   if (!vehicleCompany || Number(vehicleCompany.is_company) !== 1) {
     return res.redirect("/records/vehicle-expenses?error=vehicleExpenseCompanyOnly");
@@ -6268,6 +6254,9 @@ router.get("/vehicle-expenses/:id/payments", (req, res) => {
   if (Number(record.is_company) !== 1) {
     return res.redirect("/records/vehicle-expenses?error=vehicleExpenseCompanyOnly");
   }
+  if (computeRemainingMoney(record.amount || 0, record.paid_amount || 0) > 0) {
+    return res.redirect("/records/vehicle-expenses?error=vehicleExpensePaymentFullOnly");
+  }
   const payments = db.prepare(
     `SELECT vehicle_expense_payments.*, users.full_name as recorded_by
      FROM vehicle_expense_payments
@@ -6304,6 +6293,9 @@ router.post("/vehicle-expenses/:id/payments", (req, res) => {
   if (!record) return res.redirect("/records/vehicle-expenses");
   if (Number(record.is_company) !== 1) {
     return res.redirect("/records/vehicle-expenses?error=vehicleExpenseCompanyOnly");
+  }
+  if (computeRemainingMoney(record.amount || 0, record.paid_amount || 0) > 0) {
+    return res.redirect("/records/vehicle-expenses?error=vehicleExpensePaymentFullOnly");
   }
   const paymentDate = req.body.payment_date || dayjs().format("YYYY-MM-DD");
   const amount = parseMoneyValue(req.body.amount || 0);
@@ -8042,11 +8034,13 @@ router.get("/credits", (req, res) => {
   if (status === "paid") statusClause = "AND credits.paid_amount >= credits.amount";
   if (status === "unpaid") statusClause = "AND credits.paid_amount <= 0";
   if (status === "partial") statusClause = "AND credits.paid_amount > 0 AND credits.paid_amount < credits.amount";
-  const searchClause = q ? "AND (vehicles.vehicle_number LIKE ? OR credits.customer_name LIKE ?)" : "";
+  const searchClause = q
+    ? "AND (vehicles.vehicle_number LIKE ? OR credits.customer_name LIKE ? OR COALESCE(credits.customer_phone, '') LIKE ? OR COALESCE(credits.customer_location, '') LIKE ?)"
+    : "";
 
-  const creditsParams = q ? [from, to, `%${q}%`, `%${q}%`] : [from, to];
+  const creditsParams = q ? [from, to, `%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`] : [from, to];
   const creditsRows = db.prepare(
-    `SELECT credits.*, vehicles.vehicle_number, vehicles.owner_name,
+    `SELECT credits.*, vehicles.vehicle_number, vehicles.owner_name, vehicles.is_company,
             users.full_name as recorded_by,
             credit_export.receipt_no as trip_receipt_no,
             COALESCE(credits.trip_date, credit_export.export_date) as trip_date,
@@ -8069,7 +8063,6 @@ router.get("/credits", (req, res) => {
        GROUP BY credit_id
      ) as cps ON cps.credit_id = credits.id
      WHERE credit_date BETWEEN ? AND ?
-     AND vehicles.is_company = 0
      ${statusClause}
      ${searchClause}
      ORDER BY ${orderBy}`
@@ -8087,14 +8080,15 @@ router.get("/credits", (req, res) => {
      FROM credits
      JOIN vehicles ON credits.vehicle_id = vehicles.id
      WHERE credit_date BETWEEN ? AND ?
-     AND vehicles.is_company = 0
      ${statusClause}
      ${searchClause}`
   ).get(...creditsParams);
 
-  const customerCumulativeSearchClause = q ? "AND (credits.customer_name LIKE ? OR vehicles.vehicle_number LIKE ?)" : "";
+  const customerCumulativeSearchClause = q
+    ? "AND (credits.customer_name LIKE ? OR vehicles.vehicle_number LIKE ? OR COALESCE(credits.customer_phone, '') LIKE ? OR COALESCE(credits.customer_location, '') LIKE ?)"
+    : "";
   const customerCumulativeParams = q
-    ? [customerCreditFrom, customerCreditTo, `%${q}%`, `%${q}%`]
+    ? [customerCreditFrom, customerCreditTo, `%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`]
     : [customerCreditFrom, customerCreditTo];
   const customerCumulativeTotals = db.prepare(
     `SELECT credits.customer_name,
@@ -8105,7 +8099,7 @@ router.get("/credits", (req, res) => {
             COUNT(*) AS total_entries
      FROM credits
      JOIN vehicles ON credits.vehicle_id = vehicles.id
-     WHERE vehicles.is_company = 0
+     WHERE 1 = 1
      AND credits.credit_date BETWEEN ? AND ?
      ${statusClause}
      ${customerCumulativeSearchClause}
@@ -8130,7 +8124,7 @@ router.get("/credits", (req, res) => {
      FROM credits
      JOIN vehicles ON credits.vehicle_id = vehicles.id
      LEFT JOIN exports AS linked_export ON linked_export.id = credits.export_id
-     WHERE vehicles.is_company = 0
+     WHERE 1 = 1
        AND credits.credit_date BETWEEN ? AND ?
        ${statusClause}
        ${customerCumulativeSearchClause}
@@ -8154,15 +8148,15 @@ router.get("/credits", (req, res) => {
     },
     { customer_count: 0, total_amount: 0, total_paid: 0, total_remaining: 0 }
   );
-  const customerCumulativeAllTimeParams = q ? [`%${q}%`, `%${q}%`] : [];
+  const customerCumulativeAllTimeParams = q ? [`%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`] : [];
   const customerCumulativeAllTimeRow = db.prepare(
     `SELECT COALESCE(SUM(CASE
       WHEN credits.amount - credits.paid_amount < 0 THEN 0
-      ELSE credits.amount - credits.paid_amount
+     ELSE credits.amount - credits.paid_amount
     END), 0) AS total_remaining
      FROM credits
      JOIN vehicles ON credits.vehicle_id = vehicles.id
-     WHERE vehicles.is_company = 0
+     WHERE 1 = 1
      ${statusClause}
      ${customerCumulativeSearchClause}`
   ).get(...customerCumulativeAllTimeParams);
@@ -8212,7 +8206,6 @@ router.post("/credits/pay/customer-total", (req, res) => {
      FROM credits
      JOIN vehicles ON credits.vehicle_id = vehicles.id
      WHERE lower(trim(credits.customer_name)) = lower(trim(?))
-       AND vehicles.is_company = 0
        AND (credits.amount - credits.paid_amount) > 0
        ${rangeClause}
      ORDER BY credits.credit_date ASC, credits.id ASC`
@@ -8667,7 +8660,7 @@ router.get("/credits/customer-cumulative/print", (req, res) => {
      FROM credits
      JOIN vehicles ON credits.vehicle_id = vehicles.id
      LEFT JOIN exports AS linked_export ON linked_export.id = credits.export_id
-     WHERE vehicles.is_company = 0
+     WHERE 1 = 1
        AND lower(trim(credits.customer_name)) = lower(trim(?))
        AND credits.credit_date BETWEEN ? AND ?
        AND (credits.amount - credits.paid_amount) > 0
@@ -8699,15 +8692,15 @@ router.get("/credits/customer-cumulative/print", (req, res) => {
 
 router.get("/credits/new", (req, res) => {
   const vehicles = getCreditVehicles();
-  const customers = db.prepare("SELECT DISTINCT customer_name FROM credits ORDER BY customer_name").all().map((row) => row.customer_name);
+  const customerDirectory = getCreditCustomerDirectory();
+  const customers = customerDirectory.map((row) => row.customer_name);
   const staffOptions = getStaffOptions();
   const requestedExportId = parseOptionalId(req.query.export_id);
   const exportRow = requestedExportId
     ? db.prepare(
       `SELECT exports.id, exports.vehicle_id, exports.export_date
        FROM exports
-       JOIN vehicles ON exports.vehicle_id = vehicles.id
-       WHERE exports.id = ? AND vehicles.is_company = 0`
+       WHERE exports.id = ?`
     ).get(requestedExportId)
     : null;
   const selectedVehicleIdRaw = Number(req.query.vehicle_id || (exportRow ? exportRow.vehicle_id : 0));
@@ -8719,6 +8712,7 @@ router.get("/credits/new", (req, res) => {
     record: null,
     vehicles,
     customers,
+    customerDirectory,
     error: null,
     defaultDate,
     selectedVehicleId,
@@ -8734,6 +8728,8 @@ router.post("/credits", (req, res) => {
     vehicle_id,
     export_id,
     customer_name,
+    customer_phone,
+    customer_location,
     amount,
     credit_jars,
     credit_bottle_cases,
@@ -8752,6 +8748,8 @@ router.post("/credits", (req, res) => {
     payment_method
   } = req.body;
   const vehicles = getCreditVehicles();
+  const customerDirectory = getCreditCustomerDirectory();
+  const customers = customerDirectory.map((row) => row.customer_name);
   const staffOptions = getStaffOptions();
   const selectedExportId = parseOptionalId(export_id);
   const tripDateValue = parseOptionalDate(trip_date);
@@ -8764,7 +8762,8 @@ router.post("/credits", (req, res) => {
       formValues: req.body,
       vehicles,
       staffOptions,
-      customers: db.prepare("SELECT DISTINCT customer_name FROM credits ORDER BY customer_name").all().map((row) => row.customer_name),
+      customers,
+      customerDirectory,
       error: req.t("creditRequired"),
       defaultDate: credit_date || dayjs().format("YYYY-MM-DD"),
       selectedVehicleId: vehicle_id || null,
@@ -8774,15 +8773,16 @@ router.post("/credits", (req, res) => {
     });
   }
   const vehicleRow = db.prepare("SELECT id, is_company FROM vehicles WHERE id = ?").get(vehicle_id);
-  if (!vehicleRow || Number(vehicleRow.is_company) === 1) {
+  if (!vehicleRow) {
     return res.render("records/credit_form", {
       title: req.t("addCreditTitle"),
       record: null,
       formValues: req.body,
       vehicles,
       staffOptions,
-      customers: db.prepare("SELECT DISTINCT customer_name FROM credits ORDER BY customer_name").all().map((row) => row.customer_name),
-      error: req.t("companyVehicleNoCredit"),
+      customers,
+      customerDirectory,
+      error: req.t("creditRequired"),
       defaultDate: credit_date || dayjs().format("YYYY-MM-DD"),
       selectedVehicleId: vehicle_id || null,
       defaultTripDate: tripDateValue || "",
@@ -8800,7 +8800,8 @@ router.post("/credits", (req, res) => {
         formValues: req.body,
         vehicles,
         staffOptions,
-        customers: db.prepare("SELECT DISTINCT customer_name FROM credits ORDER BY customer_name").all().map((row) => row.customer_name),
+        customers,
+        customerDirectory,
         error: req.t("creditTripInvalid"),
         defaultDate: credit_date || dayjs().format("YYYY-MM-DD"),
         selectedVehicleId: vehicle_id || null,
@@ -8862,7 +8863,8 @@ router.post("/credits", (req, res) => {
       formValues: req.body,
       vehicles,
       staffOptions,
-      customers: db.prepare("SELECT DISTINCT customer_name FROM credits ORDER BY customer_name").all().map((row) => row.customer_name),
+      customers,
+      customerDirectory,
       error: req.t("paidMoreThanTotal"),
       defaultDate: credit_date || dayjs().format("YYYY-MM-DD"),
       selectedVehicleId: vehicle_id || null,
@@ -8897,7 +8899,8 @@ router.post("/credits", (req, res) => {
       formValues: req.body,
       vehicles,
       staffOptions,
-      customers: db.prepare("SELECT DISTINCT customer_name FROM credits ORDER BY customer_name").all().map((row) => row.customer_name),
+      customers,
+      customerDirectory,
       error: req.t("duplicateCreditBlocked"),
       duplicateWarning: {
         type: "credit",
@@ -8914,11 +8917,13 @@ router.post("/credits", (req, res) => {
   }
 
   const result = db.prepare(
-    "INSERT INTO credits (vehicle_id, export_id, customer_name, amount, paid_amount, payment_method, credit_jars, credit_bottle_cases, credit_dispensers, credit_jar_containers, jar_price, bottle_case_price, dispenser_price, jar_container_price, credit_date, trip_date, checked_by_staff_id, force_wash_required, paid, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    "INSERT INTO credits (vehicle_id, export_id, customer_name, customer_phone, customer_location, amount, paid_amount, payment_method, credit_jars, credit_bottle_cases, credit_dispensers, credit_jar_containers, jar_price, bottle_case_price, dispenser_price, jar_container_price, credit_date, trip_date, checked_by_staff_id, force_wash_required, paid, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
   ).run(
     vehicle_id,
     linkedExportId,
     customer_name.trim(),
+    String(customer_phone || "").trim() || null,
+    String(customer_location || "").trim() || null,
     amountNum,
     paidAmount,
     paymentMethod,
@@ -8970,13 +8975,15 @@ router.get("/credits/:id/edit", (req, res) => {
   if (!record) return res.redirect("/records/credits");
   const vehicles = getCreditVehicles();
   const staffOptions = getStaffOptions();
-  const customers = db.prepare("SELECT DISTINCT customer_name FROM credits ORDER BY customer_name").all().map((row) => row.customer_name);
+  const customerDirectory = getCreditCustomerDirectory();
+  const customers = customerDirectory.map((row) => row.customer_name);
   res.render("records/credit_form", {
     title: req.t("editCreditTitle"),
     record,
     vehicles,
     staffOptions,
     customers,
+    customerDirectory,
     error: null,
     defaultDate: record.credit_date,
     defaultTripDate: record.trip_date || ""
@@ -8988,6 +8995,8 @@ router.post("/credits/:id", (req, res) => {
     vehicle_id,
     export_id,
     customer_name,
+    customer_phone,
+    customer_location,
     amount,
     credit_jars,
     credit_bottle_cases,
@@ -9015,6 +9024,8 @@ router.post("/credits/:id", (req, res) => {
      WHERE credit_id = ?`
   ).get(req.params.id) || { cash_amount: 0, bank_amount: 0, ewallet_amount: 0 };
   const vehicles = getCreditVehicles();
+  const customerDirectory = getCreditCustomerDirectory();
+  const customers = customerDirectory.map((row) => row.customer_name);
   const staffOptions = getStaffOptions();
   const hasExportIdField = Object.prototype.hasOwnProperty.call(req.body, "export_id");
   const selectedExportId = hasExportIdField ? parseOptionalId(export_id) : parseOptionalId(record ? record.export_id : null);
@@ -9029,7 +9040,8 @@ router.post("/credits/:id", (req, res) => {
       record,
       vehicles,
       staffOptions,
-      customers: db.prepare("SELECT DISTINCT customer_name FROM credits ORDER BY customer_name").all().map((row) => row.customer_name),
+      customers,
+      customerDirectory,
       error: req.t("creditRequired"),
       defaultDate: credit_date || record.credit_date,
       defaultTripDate: tripDateValue || (record.trip_date || ""),
@@ -9038,14 +9050,15 @@ router.post("/credits/:id", (req, res) => {
     });
   }
   const vehicleRow = db.prepare("SELECT id, is_company FROM vehicles WHERE id = ?").get(vehicle_id);
-  if (!vehicleRow || Number(vehicleRow.is_company) === 1) {
+  if (!vehicleRow) {
     return res.render("records/credit_form", {
       title: req.t("editCreditTitle"),
       record,
       vehicles,
       staffOptions,
-      customers: db.prepare("SELECT DISTINCT customer_name FROM credits ORDER BY customer_name").all().map((row) => row.customer_name),
-      error: req.t("companyVehicleNoCredit"),
+      customers,
+      customerDirectory,
+      error: req.t("creditRequired"),
       defaultDate: credit_date || record.credit_date,
       defaultTripDate: tripDateValue || (record.trip_date || ""),
       selectedStaffId,
@@ -9061,7 +9074,8 @@ router.post("/credits/:id", (req, res) => {
         record,
         vehicles,
         staffOptions,
-        customers: db.prepare("SELECT DISTINCT customer_name FROM credits ORDER BY customer_name").all().map((row) => row.customer_name),
+        customers,
+        customerDirectory,
         error: req.t("creditTripInvalid"),
         defaultDate: credit_date || record.credit_date,
         defaultTripDate: tripDateValue || (record.trip_date || ""),
@@ -9122,7 +9136,8 @@ router.post("/credits/:id", (req, res) => {
       formValues: req.body,
       vehicles,
       staffOptions,
-      customers: db.prepare("SELECT DISTINCT customer_name FROM credits ORDER BY customer_name").all().map((row) => row.customer_name),
+      customers,
+      customerDirectory,
       error: req.t("paidMoreThanTotal"),
       defaultDate: credit_date || record.credit_date,
       defaultTripDate: tripDateValue || (record.trip_date || ""),
@@ -9156,7 +9171,8 @@ router.post("/credits/:id", (req, res) => {
       formValues: req.body,
       vehicles,
       staffOptions,
-      customers: db.prepare("SELECT DISTINCT customer_name FROM credits ORDER BY customer_name").all().map((row) => row.customer_name),
+      customers,
+      customerDirectory,
       error: req.t("duplicateCreditBlocked"),
       duplicateWarning: {
         type: "credit",
@@ -9172,11 +9188,13 @@ router.post("/credits/:id", (req, res) => {
   }
 
   db.prepare(
-    "UPDATE credits SET vehicle_id = ?, export_id = ?, customer_name = ?, amount = ?, paid_amount = ?, payment_method = ?, credit_jars = ?, credit_bottle_cases = ?, credit_dispensers = ?, credit_jar_containers = ?, jar_price = ?, bottle_case_price = ?, dispenser_price = ?, jar_container_price = ?, credit_date = ?, trip_date = ?, checked_by_staff_id = ?, force_wash_required = ?, paid = ? WHERE id = ?"
+    "UPDATE credits SET vehicle_id = ?, export_id = ?, customer_name = ?, customer_phone = ?, customer_location = ?, amount = ?, paid_amount = ?, payment_method = ?, credit_jars = ?, credit_bottle_cases = ?, credit_dispensers = ?, credit_jar_containers = ?, jar_price = ?, bottle_case_price = ?, dispenser_price = ?, jar_container_price = ?, credit_date = ?, trip_date = ?, checked_by_staff_id = ?, force_wash_required = ?, paid = ? WHERE id = ?"
   ).run(
     vehicle_id,
     linkedExportId,
     customer_name.trim(),
+    String(customer_phone || "").trim() || null,
+    String(customer_location || "").trim() || null,
     amountNum,
     paidAmount,
     paymentMethod,
@@ -9243,6 +9261,8 @@ router.post("/credits/:id", (req, res) => {
         vehicle_id: Number(vehicle_id),
         export_id: linkedExportId,
         customer_name: customer_name.trim(),
+        customer_phone: String(customer_phone || "").trim() || null,
+        customer_location: String(customer_location || "").trim() || null,
         amount: amountNum,
         paid_amount: paidAmount,
         payment_method: paymentMethod,
@@ -9264,6 +9284,8 @@ router.post("/credits/:id", (req, res) => {
         "vehicle_id",
         "export_id",
         "customer_name",
+        "customer_phone",
+        "customer_location",
         "amount",
         "paid_amount",
         "payment_method",
@@ -9398,8 +9420,7 @@ router.get("/credits/:id/print", (req, res) => {
      JOIN vehicles ON credits.vehicle_id = vehicles.id
      LEFT JOIN exports as credit_export ON credits.export_id = credit_export.id
      LEFT JOIN staff as checked_staff ON credits.checked_by_staff_id = checked_staff.id
-     WHERE credits.id = ?
-       AND vehicles.is_company = 0`
+     WHERE credits.id = ?`
   ).get(req.params.id);
   if (!record) return res.redirect("/records/credits");
   res.render("records/credit_print", { title: req.t("creditsTitle"), record });
@@ -9415,8 +9436,7 @@ router.get("/credits/:id/payments", (req, res) => {
      JOIN vehicles ON credits.vehicle_id = vehicles.id
      LEFT JOIN exports as credit_export ON credits.export_id = credit_export.id
      LEFT JOIN staff as checked_staff ON credits.checked_by_staff_id = checked_staff.id
-     WHERE credits.id = ?
-       AND vehicles.is_company = 0`
+     WHERE credits.id = ?`
   ).get(req.params.id);
   if (!record) return res.redirect("/records/credits");
 
@@ -9498,7 +9518,7 @@ router.get("/credits/export", (req, res) => {
   const params = q ? [from, to, `%${q}%`, `%${q}%`] : [from, to];
 
   const creditsRows = db.prepare(
-    `SELECT credits.credit_date, credits.receipt_no, vehicles.vehicle_number, vehicles.owner_name, credits.customer_name,
+    `SELECT credits.credit_date, credits.receipt_no, vehicles.vehicle_number, vehicles.owner_name, credits.customer_name, credits.customer_phone, credits.customer_location,
             credit_export.receipt_no as trip_receipt_no,
             COALESCE(credits.trip_date, credit_export.export_date) as trip_date,
             credits.amount, credits.paid_amount,
@@ -9509,13 +9529,12 @@ router.get("/credits/export", (req, res) => {
      JOIN vehicles ON credits.vehicle_id = vehicles.id
      LEFT JOIN exports as credit_export ON credits.export_id = credit_export.id
      WHERE credit_date BETWEEN ? AND ?
-     AND vehicles.is_company = 0
      ${statusClause}
      ${searchClause}
      ORDER BY ${orderBy}`
   ).all(...params);
 
-  const header = "Date (AD),Date (BS),Receipt No,Trip Receipt,Trip Date (AD),Trip Date (BS),Vehicle Number,Owner Name,Customer,Amount,Paid Amount,Remaining Amount,Credit Jars,Bottle Cases,Credit Dispensers,Credit Jar Containers,Jar Price,Bottle Case Price,Dispenser Price,Jar Container Price,Status";
+  const header = "Date (AD),Date (BS),Receipt No,Trip Receipt,Trip Date (AD),Trip Date (BS),Vehicle Number,Owner Name,Customer,Customer Phone,Customer Location,Amount,Paid Amount,Remaining Amount,Credit Jars,Bottle Cases,Credit Dispensers,Credit Jar Containers,Jar Price,Bottle Case Price,Dispenser Price,Jar Container Price,Status";
   const lines = creditsRows.map((row) => {
     const statusLabel = row.paid_amount >= row.amount ? "Paid" : row.paid_amount > 0 ? "Partial" : "Unpaid";
     const bsCreditDate = adToBs(row.credit_date) || "";
@@ -9531,6 +9550,8 @@ router.get("/credits/export", (req, res) => {
       row.vehicle_number,
       row.owner_name,
       row.customer_name,
+      row.customer_phone || "",
+      row.customer_location || "",
       row.amount,
       row.paid_amount,
       row.remaining_amount,

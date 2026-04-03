@@ -185,23 +185,23 @@
     </div>
       <div>
         <label class="label"><%= t('totalAmount') %></label>
-        <input class="input" type="number" min="0" step="0.01" name="amount" required />
+        <input class="input" id="vehicleExpenseAmount" type="number" min="0" step="0.01" name="amount" required />
       </div>
       <div>
         <label class="label"><%= t('paidAmount') %></label>
-        <input class="input" type="number" min="0" step="0.01" name="paid_amount" value="0" />
+        <input class="input" id="vehicleExpensePaidAmount" type="number" min="0" step="0.01" name="paid_amount" value="0" />
       </div>
-      <div>
+      <div id="vehicleExpensePaymentMethodWrap">
         <label class="label"><%= t('paymentMethodLabel') %></label>
-        <select class="input" name="payment_method">
+        <select class="input" id="vehicleExpensePaymentMethod" name="payment_method">
           <option value="CASH"><%= t('methodCash') %></option>
           <option value="BANK"><%= t('methodBank') %></option>
           <option value="E_WALLET"><%= t('methodEWallet') %></option>
         </select>
       </div>
-      <div>
+      <div id="vehicleExpensePaymentSourceWrap">
         <label class="label"><%= t('paymentSourceLabel') %></label>
-        <select class="input" name="payment_source">
+        <select class="input" id="vehicleExpensePaymentSource" name="payment_source">
           <option value="DAILY_COLLECTION"><%= t('sourceDailyCollection') %></option>
           <option value="OWNER_PERSONAL"><%= t('sourceOwnerPersonal') %></option>
           <option value="BANK_OTHER"><%= t('sourceBankOther') %></option>
@@ -284,7 +284,9 @@
                 <details class="action-menu">
                   <summary class="btn-outline h-9 w-9 flex items-center justify-center">⋯</summary>
                   <div class="action-menu-panel">
-                    <a class="action-menu-item" href="/records/vehicle-expenses/<%= row.id %>/payments"><%= t('paymentHistory') %></a>
+                    <% if (Number(row.due_amount || 0) <= 0) { %>
+                      <a class="action-menu-item" href="/records/vehicle-expenses/<%= row.id %>/payments"><%= t('paymentHistory') %></a>
+                    <% } %>
                     <form method="post" action="/records/vehicle-expenses/<%= row.id %>/delete" onsubmit="return confirm('<%= t('deleteVehicleExpenseConfirm') %>');">
                       <button class="action-menu-item action-menu-danger" type="submit"><%= t('delete') %></button>
                     </form>
@@ -298,4 +300,35 @@
     </div>
   </div>
 </section>
+<script>
+  (() => {
+    const amountInput = document.getElementById("vehicleExpenseAmount");
+    const paidInput = document.getElementById("vehicleExpensePaidAmount");
+    const methodWrap = document.getElementById("vehicleExpensePaymentMethodWrap");
+    const sourceWrap = document.getElementById("vehicleExpensePaymentSourceWrap");
+    const methodSelect = document.getElementById("vehicleExpensePaymentMethod");
+    const sourceSelect = document.getElementById("vehicleExpensePaymentSource");
+    if (!amountInput || !paidInput || !methodWrap || !sourceWrap || !methodSelect || !sourceSelect) return;
+
+    const toNumber = (value) => {
+      const parsed = Number(value || 0);
+      if (Number.isNaN(parsed) || parsed < 0) return 0;
+      return parsed;
+    };
+
+    const syncPaymentControls = () => {
+      const amount = toNumber(amountInput.value);
+      const paid = toNumber(paidInput.value);
+      const isFull = amount > 0 && Math.abs(paid - amount) < 0.0001;
+      methodWrap.style.display = isFull ? "" : "none";
+      sourceWrap.style.display = isFull ? "" : "none";
+      methodSelect.disabled = !isFull;
+      sourceSelect.disabled = !isFull;
+    };
+
+    amountInput.addEventListener("input", syncPaymentControls);
+    paidInput.addEventListener("input", syncPaymentControls);
+    syncPaymentControls();
+  })();
+</script>
 <%- include('../partials/shell-end') %>

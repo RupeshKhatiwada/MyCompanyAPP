@@ -15,6 +15,7 @@
     <% const duplicateWarningValue = typeof duplicateWarning !== 'undefined' ? duplicateWarning : null; %>
     <%
       const safeFormValues = typeof formValues !== 'undefined' && formValues ? formValues : {};
+      const safeCustomerDirectory = Array.isArray(customerDirectory) ? customerDirectory : [];
       const isEdit = !!(record && record.id);
       const pickValue = (key, fallback = '') => {
         if (Object.prototype.hasOwnProperty.call(safeFormValues, key)) return safeFormValues[key];
@@ -24,6 +25,8 @@
       const selectedVehicleRaw = pickValue('vehicle_id', typeof selectedVehicleId !== 'undefined' ? selectedVehicleId : '');
       const selectedVehicleValue = String(selectedVehicleRaw || '');
       const tripDateValue = pickValue('trip_date', typeof defaultTripDate !== 'undefined' ? defaultTripDate : '');
+      const customerPhoneValue = pickValue('customer_phone', '');
+      const customerLocationValue = pickValue('customer_location', '');
       const fallbackMethod = String(pickValue('payment_method', 'CASH') || 'CASH').toUpperCase();
       const fallbackPaidRaw = Number(pickValue('paid_amount', 0) || 0);
       const fallbackPaid = Number.isNaN(fallbackPaidRaw) || fallbackPaidRaw < 0 ? 0 : fallbackPaidRaw;
@@ -67,7 +70,7 @@
         <select class="input" name="vehicle_id" required>
           <option value=""><%= t('selectVehicle') %></option>
           <% vehicles.forEach((vehicle) => { %>
-            <% const label = `${vehicle.owner_name} • ${vehicle.vehicle_number}`; %>
+            <% const label = `${vehicle.owner_name} • ${vehicle.vehicle_number}${Number(vehicle.is_company || 0) === 1 ? ` (${t('companyVehicle')})` : ''}`; %>
             <% const isSelected = Number(selectedVehicleValue || 0) === Number(vehicle.id); %>
             <option value="<%= vehicle.id %>" <%= isSelected ? 'selected' : '' %>><%= label %></option>
           <% }) %>
@@ -82,16 +85,25 @@
         <label class="label"><%= t('customerName') %></label>
         <select id="savedCustomerSelect" class="input mb-2">
           <option value=""><%= t('selectCustomer') %></option>
-          <% (customers || []).forEach((name) => { %>
+          <% safeCustomerDirectory.forEach((entry) => { %>
+            <% const name = entry.customer_name; %>
             <option value="<%= name %>" <%= pickValue('customer_name', '') === name ? 'selected' : '' %>><%= name %></option>
           <% }) %>
         </select>
         <input id="customerNameInput" class="input" type="text" name="customer_name" list="customerList" value="<%= pickValue('customer_name', '') %>" required />
         <datalist id="customerList">
-          <% (customers || []).forEach((name) => { %>
-            <option value="<%= name %>"></option>
+          <% safeCustomerDirectory.forEach((entry) => { %>
+            <option value="<%= entry.customer_name %>"></option>
           <% }) %>
         </datalist>
+      </div>
+      <div>
+        <label class="label"><%= t('customerPhone') %></label>
+        <input id="customerPhoneInput" class="input" type="text" name="customer_phone" value="<%= customerPhoneValue %>" />
+      </div>
+      <div>
+        <label class="label"><%= t('customerLocation') %></label>
+        <input id="customerLocationInput" class="input" type="text" name="customer_location" value="<%= customerLocationValue %>" />
       </div>
       <div>
         <label class="label"><%= t('date') %></label>
@@ -191,6 +203,17 @@
     var markPaid = document.getElementById('markPaid');
     var savedCustomerSelect = document.getElementById('savedCustomerSelect');
     var customerNameInput = document.getElementById('customerNameInput');
+    var customerPhoneInput = document.getElementById('customerPhoneInput');
+    var customerLocationInput = document.getElementById('customerLocationInput');
+    var customerDirectory = <%- JSON.stringify((Array.isArray(customerDirectory) ? customerDirectory : []).reduce((acc, entry) => {
+      const key = String(entry.customer_name || '').trim().toLowerCase();
+      if (!key) return acc;
+      acc[key] = {
+        phone: String(entry.customer_phone || '').trim(),
+        location: String(entry.customer_location || '').trim()
+      };
+      return acc;
+    }, {})) %>;
     if (!amountInput || !paidInput || !remainingInput) return;
 
     function toNumber(value) {
@@ -259,15 +282,29 @@
       });
     }
     if (savedCustomerSelect && customerNameInput) {
+      var applyCustomerMeta = function (name, force) {
+        var key = String(name || '').trim().toLowerCase();
+        if (!key || !customerDirectory[key]) return;
+        var meta = customerDirectory[key];
+        if (customerPhoneInput && (force || !String(customerPhoneInput.value || '').trim())) {
+          customerPhoneInput.value = meta.phone || '';
+        }
+        if (customerLocationInput && (force || !String(customerLocationInput.value || '').trim())) {
+          customerLocationInput.value = meta.location || '';
+        }
+      };
       savedCustomerSelect.addEventListener('change', function () {
         if (!savedCustomerSelect.value) return;
         customerNameInput.value = savedCustomerSelect.value;
+        applyCustomerMeta(savedCustomerSelect.value, true);
       });
       customerNameInput.addEventListener('input', function () {
         if (!customerNameInput.value || customerNameInput.value !== savedCustomerSelect.value) {
           savedCustomerSelect.value = '';
         }
+        applyCustomerMeta(customerNameInput.value, false);
       });
+      applyCustomerMeta(customerNameInput.value || savedCustomerSelect.value, false);
     }
     syncAmounts();
   })();

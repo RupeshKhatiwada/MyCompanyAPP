@@ -2216,6 +2216,11 @@ router.get("/jar-types", (req, res) => {
   res.render("admin/jar_types", { title: req.t("jarTypesTitle"), types });
 });
 
+// Jar cap type management was deprecated in favor of generic import item types.
+router.all("/jar-cap-types*", (req, res) => {
+  return res.redirect("/admin/import-item-types");
+});
+
 router.get("/jar-cap-types", (req, res) => {
   const types = db.prepare("SELECT * FROM jar_cap_types ORDER BY created_at DESC").all();
   res.render("admin/jar_cap_types", { title: req.t("jarCapTypesTitle"), types });
@@ -2349,14 +2354,12 @@ router.get("/import-item-types", (req, res) => {
     label: resolveImportItemLabel(row.code, row.name, req.t)
   }));
   const jarTypes = db.prepare("SELECT id, name, default_qty, active FROM jar_types ORDER BY name ASC").all();
-  const jarCapTypes = db.prepare("SELECT id, name, default_qty, active FROM jar_cap_types ORDER BY name ASC").all();
   const success = req.query.saved ? req.t("itemTypeSaved") : req.query.deleted ? req.t("itemTypeDeleted") : null;
   const error = req.query.error ? req.t(req.query.error) : null;
   res.render("admin/import_item_types", {
     title: req.t("importItemTypesTitle"),
     types,
     jarTypes,
-    jarCapTypes,
     success,
     error
   });

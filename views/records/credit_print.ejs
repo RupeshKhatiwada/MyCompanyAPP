@@ -183,10 +183,16 @@
           <p class="meta-label"><%= t('customerName') %></p>
           <p class="meta-value"><%= record.customer_name %></p>
         </div>
-        <% if (record.phone) { %>
+        <% if (record.customer_phone) { %>
           <div>
-            <p class="meta-label"><%= t('phone') %></p>
-            <p class="meta-value"><%= record.phone %></p>
+            <p class="meta-label"><%= t('customerPhone') %></p>
+            <p class="meta-value"><%= record.customer_phone %></p>
+          </div>
+        <% } %>
+        <% if (record.customer_location) { %>
+          <div>
+            <p class="meta-label"><%= t('customerLocation') %></p>
+            <p class="meta-value"><%= record.customer_location %></p>
           </div>
         <% } %>
         <% if (record.trip_receipt_no) { %>

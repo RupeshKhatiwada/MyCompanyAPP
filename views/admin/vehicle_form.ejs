@@ -19,8 +19,8 @@
         <input class="input" type="text" name="vehicle_number" value="<%= vehicle ? vehicle.vehicle_number : '' %>" required />
       </div>
       <div>
-        <label class="label"><%= t('ownerName') %></label>
-        <input class="input" type="text" name="owner_name" value="<%= vehicle ? vehicle.owner_name : '' %>" required />
+        <label class="label" for="owner_name" id="ownerNameLabel"><%= vehicle && vehicle.is_company ? t('driverName') : t('ownerName') %></label>
+        <input class="input" type="text" id="owner_name" name="owner_name" value="<%= vehicle ? vehicle.owner_name : '' %>" required />
       </div>
       <div>
         <label class="label"><%= t('phone') %></label>
@@ -41,4 +41,18 @@
     </form>
   </div>
 </section>
+<script>
+  (() => {
+    const companyCheckbox = document.getElementById("is_company");
+    const ownerNameLabel = document.getElementById("ownerNameLabel");
+    if (!companyCheckbox || !ownerNameLabel) return;
+    const ownerText = "<%= t('ownerName') %>";
+    const driverText = "<%= t('driverName') %>";
+    const syncLabel = () => {
+      ownerNameLabel.textContent = companyCheckbox.checked ? driverText : ownerText;
+    };
+    companyCheckbox.addEventListener("change", syncLabel);
+    syncLabel();
+  })();
+</script>
 <%- include('../partials/shell-end') %>

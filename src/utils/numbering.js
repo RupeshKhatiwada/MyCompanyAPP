@@ -39,7 +39,9 @@ const getFiscalYearLabel = (dateText, fiscalStartMonth = 7) => {
 };
 
 const issueSequence = (db, docType, fiscalYear) => {
-  db.exec("BEGIN IMMEDIATE;");
+  // Use savepoints so this works both inside and outside existing transactions.
+  const savepoint = `sp_doc_seq_${Date.now()}_${Math.floor(Math.random() * 100000)}`;
+  db.exec(`SAVEPOINT ${savepoint};`);
   try {
     const existing = db.prepare(
       "SELECT id, next_value FROM doc_number_sequences WHERE doc_type = ? AND fiscal_year = ?"
@@ -57,10 +59,15 @@ const issueSequence = (db, docType, fiscalYear) => {
       ).run(value + 1, existing.id);
     }
 
-    db.exec("COMMIT;");
+    db.exec(`RELEASE ${savepoint};`);
     return value;
   } catch (err) {
-    db.exec("ROLLBACK;");
+    try {
+      db.exec(`ROLLBACK TO ${savepoint};`);
+      db.exec(`RELEASE ${savepoint};`);
+    } catch (_) {
+      // Preserve the original error.
+    }
     throw err;
   }
 };
