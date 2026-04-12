@@ -67,81 +67,168 @@
 
   <div id="quick-import-entry" class="mt-6 card p-6">
     <h2 class="text-lg font-semibold"><%= t('addImportEntry') %></h2>
-    <form class="mt-4 grid gap-3 sm:grid-cols-6" method="post" action="/records/imports">
-      <div class="sm:col-span-2">
-        <label class="label"><%= t('itemType') %></label>
-        <select class="input" name="item_type" required>
-          <% safeItemTypes.forEach((entry) => { %>
-            <option value="<%= entry.code %>"><%= entry.label %></option>
-          <% }) %>
-        </select>
+    <form class="mt-4 space-y-4" method="post" action="/records/imports" data-import-batch-form>
+      <div class="grid gap-3 sm:grid-cols-4">
+        <div>
+          <label class="label"><%= t('date') %></label>
+          <input class="input" type="date" name="entry_date" value="<%= to %>" required />
+        </div>
+        <div>
+          <label class="label"><%= t('sellerName') %></label>
+          <input class="input" type="text" name="seller_name" />
+        </div>
+        <div>
+          <label class="label"><%= t('paymentMethodLabel') %></label>
+          <select class="input" name="payment_method">
+            <option value="CASH"><%= t('methodCash') %></option>
+            <option value="BANK"><%= t('methodBank') %></option>
+            <option value="E_WALLET"><%= t('methodEWallet') %></option>
+          </select>
+        </div>
+        <div>
+          <label class="label"><%= t('paymentSourceLabel') %></label>
+          <select class="input" name="payment_source">
+            <option value="DAILY_COLLECTION"><%= t('sourceDailyCollection') %></option>
+            <option value="OWNER_PERSONAL"><%= t('sourceOwnerPersonal') %></option>
+            <option value="BANK_OTHER"><%= t('sourceBankOther') %></option>
+          </select>
+        </div>
       </div>
-      <div class="sm:col-span-2" id="jarTypeWrap" style="display: none;">
-        <label class="label"><%= t('jarContainerType') %></label>
-        <select class="input" name="jar_type_id" id="jarTypeSelect">
-          <option value=""><%= t('selectJarContainerType') %></option>
-          <% safeJarTypes.forEach((type) => { %>
-            <option value="<%= type.id %>" data-default-qty="<%= type.default_qty || 0 %>"><%= type.name %></option>
-          <% }) %>
-        </select>
+
+      <div class="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h3 class="text-sm font-semibold text-slate-700"><%= t('importItemsTitle') %></h3>
+          <p class="text-xs text-slate-500"><%= t('importsSubtitle') %></p>
+        </div>
+        <button class="btn-outline" type="button" data-add-import-row><%= t('addImportRow') %></button>
       </div>
+
+      <div class="space-y-3" data-import-rows>
+        <div class="rounded-2xl border border-slate-200 bg-slate-50/80 p-4" data-import-row>
+          <div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+            <div>
+              <label class="label"><%= t('itemType') %></label>
+              <select class="input" name="item_type[]" data-item-type required>
+                <% safeItemTypes.forEach((entry) => { %>
+                  <option value="<%= entry.code %>"><%= entry.label %></option>
+                <% }) %>
+              </select>
+            </div>
+            <div data-jar-type-wrap style="display: none;">
+              <label class="label"><%= t('jarContainerType') %></label>
+              <select class="input" name="jar_type_id[]" data-jar-type>
+                <option value=""><%= t('selectJarContainerType') %></option>
+                <% safeJarTypes.forEach((type) => { %>
+                  <option value="<%= type.id %>" data-default-qty="<%= type.default_qty || 0 %>"><%= type.name %></option>
+                <% }) %>
+              </select>
+            </div>
+            <div>
+              <label class="label"><%= t('usageStatus') %></label>
+              <select class="input" name="direction[]" data-direction required>
+                <option value="IN"><%= t('unused') %></option>
+                <option value="OUT"><%= t('used') %></option>
+              </select>
+            </div>
+            <div>
+              <label class="label" data-quantity-label><%= t('quantity') %></label>
+              <input class="input" type="number" min="1" name="quantity[]" value="1" data-quantity required />
+            </div>
+            <div>
+              <label class="label"><%= t('pricePerUnit') %></label>
+              <input class="input" type="number" min="0" step="0.01" name="unit_price[]" value="0" data-unit-price />
+            </div>
+            <div>
+              <label class="label"><%= t('totalAmount') %></label>
+              <input class="input bg-slate-50" type="number" min="0" step="0.01" value="0" data-total-amount readonly />
+            </div>
+            <div>
+              <label class="label"><%= t('paidAmount') %></label>
+              <input class="input" type="number" min="0" step="0.01" name="paid_amount[]" value="0" />
+            </div>
+            <div>
+              <label class="label"><%= t('paymentMode') %></label>
+              <select class="input" name="payment_mode[]">
+                <option value="FULL"><%= t('fullPayment') %></option>
+                <option value="CREDIT"><%= t('purchaseOnCredit') %></option>
+              </select>
+            </div>
+            <div class="xl:col-span-2">
+              <label class="label"><%= t('note') %></label>
+              <input class="input" type="text" name="line_note[]" placeholder="<%= t('optionalNote') %>" />
+            </div>
+          </div>
+          <div class="mt-3 flex justify-end">
+            <button class="btn-outline" type="button" data-remove-import-row><%= t('removeRow') %></button>
+          </div>
+        </div>
+      </div>
+
       <div>
-        <label class="label"><%= t('usageStatus') %></label>
-        <select class="input" name="direction" data-direction required>
-          <option value="IN"><%= t('unused') %></option>
-          <option value="OUT"><%= t('used') %></option>
-        </select>
-      </div>
-      <div>
-        <label class="label" id="quantityLabel"><%= t('quantity') %></label>
-        <input class="input" type="number" min="1" name="quantity" value="1" required />
-      </div>
-      <div>
-        <label class="label"><%= t('date') %></label>
-        <input class="input" type="date" name="entry_date" value="<%= to %>" required />
-      </div>
-      <div class="sm:col-span-2">
-        <label class="label"><%= t('sellerName') %></label>
-        <input class="input" type="text" name="seller_name" />
-      </div>
-      <div>
-        <label class="label"><%= t('totalAmount') %></label>
-        <input class="input" type="number" min="0" step="0.01" name="total_amount" value="0" />
-      </div>
-      <div>
-        <label class="label"><%= t('paidAmount') %></label>
-        <input class="input" type="number" min="0" step="0.01" name="paid_amount" value="0" />
-      </div>
-      <div>
-        <label class="label"><%= t('paymentMethodLabel') %></label>
-        <select class="input" name="payment_method">
-          <option value="CASH"><%= t('methodCash') %></option>
-          <option value="BANK"><%= t('methodBank') %></option>
-          <option value="E_WALLET"><%= t('methodEWallet') %></option>
-        </select>
-      </div>
-      <div>
-        <label class="label"><%= t('paymentSourceLabel') %></label>
-        <select class="input" name="payment_source">
-          <option value="DAILY_COLLECTION"><%= t('sourceDailyCollection') %></option>
-          <option value="OWNER_PERSONAL"><%= t('sourceOwnerPersonal') %></option>
-          <option value="BANK_OTHER"><%= t('sourceBankOther') %></option>
-        </select>
-      </div>
-      <div class="sm:col-span-2">
-        <label class="inline-flex items-center gap-2 text-sm pt-8">
-          <input type="checkbox" name="is_credit" value="1" />
-          <span><%= t('purchaseOnCredit') %></span>
-        </label>
-      </div>
-      <div>
-        <label class="label"><%= t('note') %></label>
-        <input class="input" type="text" name="note" placeholder="<%= t('optionalNote') %>" />
-      </div>
-      <div class="sm:col-span-6">
         <button class="btn-primary" type="submit"><%= t('save') %></button>
       </div>
     </form>
+
+    <template id="import-row-template">
+      <div class="rounded-2xl border border-slate-200 bg-slate-50/80 p-4" data-import-row>
+        <div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+          <div>
+            <label class="label"><%= t('itemType') %></label>
+            <select class="input" name="item_type[]" data-item-type required>
+              <% safeItemTypes.forEach((entry) => { %>
+                <option value="<%= entry.code %>"><%= entry.label %></option>
+              <% }) %>
+            </select>
+          </div>
+          <div data-jar-type-wrap style="display: none;">
+            <label class="label"><%= t('jarContainerType') %></label>
+            <select class="input" name="jar_type_id[]" data-jar-type>
+              <option value=""><%= t('selectJarContainerType') %></option>
+              <% safeJarTypes.forEach((type) => { %>
+                <option value="<%= type.id %>" data-default-qty="<%= type.default_qty || 0 %>"><%= type.name %></option>
+              <% }) %>
+            </select>
+          </div>
+          <div>
+            <label class="label"><%= t('usageStatus') %></label>
+            <select class="input" name="direction[]" data-direction required>
+              <option value="IN"><%= t('unused') %></option>
+              <option value="OUT"><%= t('used') %></option>
+            </select>
+          </div>
+          <div>
+            <label class="label" data-quantity-label><%= t('quantity') %></label>
+            <input class="input" type="number" min="1" name="quantity[]" value="1" data-quantity required />
+          </div>
+          <div>
+            <label class="label"><%= t('pricePerUnit') %></label>
+            <input class="input" type="number" min="0" step="0.01" name="unit_price[]" value="0" data-unit-price />
+          </div>
+          <div>
+            <label class="label"><%= t('totalAmount') %></label>
+            <input class="input bg-slate-50" type="number" min="0" step="0.01" value="0" data-total-amount readonly />
+          </div>
+          <div>
+            <label class="label"><%= t('paidAmount') %></label>
+            <input class="input" type="number" min="0" step="0.01" name="paid_amount[]" value="0" />
+          </div>
+          <div>
+            <label class="label"><%= t('paymentMode') %></label>
+            <select class="input" name="payment_mode[]">
+              <option value="FULL"><%= t('fullPayment') %></option>
+              <option value="CREDIT"><%= t('purchaseOnCredit') %></option>
+            </select>
+          </div>
+          <div class="xl:col-span-2">
+            <label class="label"><%= t('note') %></label>
+            <input class="input" type="text" name="line_note[]" placeholder="<%= t('optionalNote') %>" />
+          </div>
+        </div>
+        <div class="mt-3 flex justify-end">
+          <button class="btn-outline" type="button" data-remove-import-row><%= t('removeRow') %></button>
+        </div>
+      </div>
+    </template>
   </div>
 
   <div class="mt-6 grid gap-4 lg:grid-cols-3">
@@ -269,6 +356,7 @@
             <th class="px-4 py-3"><%= t('details') %></th>
             <th class="px-4 py-3"><%= t('usageStatus') %></th>
             <th class="px-4 py-3"><%= t('quantity') %></th>
+            <th class="px-4 py-3"><%= t('pricePerUnit') %></th>
             <th class="px-4 py-3"><%= t('totalAmount') %></th>
             <th class="px-4 py-3"><%= t('paidAmount') %></th>
             <th class="px-4 py-3"><%= t('remaining') %></th>
@@ -280,7 +368,7 @@
         <tbody>
           <% if (!safeEntries || safeEntries.length === 0) { %>
             <tr>
-              <td class="px-4 py-4 text-slate-500" colspan="12"><%= t('noImports') %></td>
+              <td class="px-4 py-4 text-slate-500" colspan="13"><%= t('noImports') %></td>
             </tr>
           <% } %>
           <% safeEntries.forEach((row) => { %>
@@ -297,6 +385,7 @@
               <% const unit = itemUnitMap[row.item_type] || safeResolveImportItemUnit(row.item_type, row.item_unit_label, t); %>
               <td class="px-4 py-3"><%= row.direction === 'OUT' ? t('used') : t('unused') %></td>
               <td class="px-4 py-3"><%= row.quantity %><%= unit ? ` ${unit}` : '' %></td>
+              <td class="px-4 py-3"><%= Number(row.unit_price || 0) %></td>
               <td class="px-4 py-3"><%= rowTotal %></td>
               <td class="px-4 py-3"><%= rowPaid %></td>
               <td class="px-4 py-3">
@@ -382,36 +471,46 @@
 <script>
   (() => {
     const itemMeta = <%- JSON.stringify(safeItemMetaByCode || {}) %>;
-    const itemSelect = document.querySelector('select[name="item_type"]');
-    const directionSelect = document.querySelector('[data-direction]');
-    const jarTypeWrap = document.getElementById('jarTypeWrap');
-    const jarTypeSelect = document.getElementById('jarTypeSelect');
-    const quantityLabel = document.getElementById('quantityLabel');
-    const quantityInput = document.querySelector('input[name="quantity"]');
-    if (!itemSelect || !quantityLabel) return;
+    const form = document.querySelector('[data-import-batch-form]');
+    const rowsWrap = document.querySelector('[data-import-rows]');
+    const addRowButton = document.querySelector('[data-add-import-row]');
+    const rowTemplate = document.getElementById('import-row-template');
+    if (!form || !rowsWrap || !addRowButton || !rowTemplate) return;
 
-    const updateLabel = () => {
+    const toNumber = (value) => {
+      const parsed = Number(value || 0);
+      if (Number.isNaN(parsed) || parsed < 0) return 0;
+      return parsed;
+    };
+
+    const syncRow = (row) => {
+      const itemSelect = row.querySelector('[data-item-type]');
+      const directionSelect = row.querySelector('[data-direction]');
+      const jarTypeWrap = row.querySelector('[data-jar-type-wrap]');
+      const jarTypeSelect = row.querySelector('[data-jar-type]');
+      const quantityLabel = row.querySelector('[data-quantity-label]');
+      const quantityInput = row.querySelector('[data-quantity]');
+      const unitPriceInput = row.querySelector('[data-unit-price]');
+      const totalAmountInput = row.querySelector('[data-total-amount]');
+      if (!itemSelect || !directionSelect || !quantityLabel || !quantityInput || !unitPriceInput || !totalAmountInput) return;
+
       const meta = itemMeta[itemSelect.value] || { unit: "", usesDirection: true };
       const unit = meta.unit || "";
       quantityLabel.textContent = unit ? `<%= t('quantity') %> (${unit})` : `<%= t('quantity') %>`;
-      if (directionSelect) {
-        const isJarContainer = itemSelect.value === "JAR_CONTAINER";
-        const allowDirection = Boolean(meta.usesDirection) && !isJarContainer;
-        directionSelect.disabled = !allowDirection;
-        if (isJarContainer) {
-          directionSelect.value = "IN";
-        } else if (!allowDirection) {
-          directionSelect.value = "IN";
-        }
+      const isJarContainer = itemSelect.value === "JAR_CONTAINER";
+      const allowDirection = Boolean(meta.usesDirection) && !isJarContainer;
+      directionSelect.disabled = !allowDirection;
+      if (isJarContainer || !allowDirection) {
+        directionSelect.value = "IN";
       }
+
       if (jarTypeWrap && jarTypeSelect) {
-        const isJarContainer = itemSelect.value === "JAR_CONTAINER";
         jarTypeWrap.style.display = isJarContainer ? "" : "none";
         if (!isJarContainer) {
           jarTypeSelect.value = "";
           jarTypeSelect.required = false;
-          if (quantityInput) quantityInput.readOnly = false;
-        } else if (quantityInput) {
+          quantityInput.readOnly = false;
+        } else {
           jarTypeSelect.required = true;
           const selected = jarTypeSelect.selectedOptions[0];
           const defaultQty = Number(selected?.dataset?.defaultQty || 0);
@@ -423,12 +522,66 @@
           }
         }
       }
+
+      const qty = toNumber(quantityInput.value);
+      const unitPrice = toNumber(unitPriceInput.value);
+      totalAmountInput.value = (qty * unitPrice).toFixed(2);
     };
-    itemSelect.addEventListener('change', updateLabel);
-    if (jarTypeSelect) {
-      jarTypeSelect.addEventListener('change', updateLabel);
-    }
-    updateLabel();
+
+    const resetRow = (row) => {
+      const itemSelect = row.querySelector('[data-item-type]');
+      const directionSelect = row.querySelector('[data-direction]');
+      const jarTypeSelect = row.querySelector('[data-jar-type]');
+      const quantityInput = row.querySelector('[data-quantity]');
+      const unitPriceInput = row.querySelector('[data-unit-price]');
+      const paidInput = row.querySelector('input[name="paid_amount[]"]');
+      const paymentModeSelect = row.querySelector('select[name="payment_mode[]"]');
+      const noteInput = row.querySelector('input[name="line_note[]"]');
+      if (itemSelect) itemSelect.selectedIndex = 0;
+      if (directionSelect) directionSelect.value = "IN";
+      if (jarTypeSelect) jarTypeSelect.value = "";
+      if (quantityInput) quantityInput.value = "1";
+      if (unitPriceInput) unitPriceInput.value = "0";
+      if (paidInput) paidInput.value = "0";
+      if (paymentModeSelect) paymentModeSelect.value = "FULL";
+      if (noteInput) noteInput.value = "";
+      syncRow(row);
+    };
+
+    const bindRow = (row) => {
+      const itemSelect = row.querySelector('[data-item-type]');
+      const directionSelect = row.querySelector('[data-direction]');
+      const jarTypeSelect = row.querySelector('[data-jar-type]');
+      const quantityInput = row.querySelector('[data-quantity]');
+      const unitPriceInput = row.querySelector('[data-unit-price]');
+      const removeButton = row.querySelector('[data-remove-import-row]');
+
+      if (itemSelect) itemSelect.addEventListener('change', () => syncRow(row));
+      if (directionSelect) directionSelect.addEventListener('change', () => syncRow(row));
+      if (jarTypeSelect) jarTypeSelect.addEventListener('change', () => syncRow(row));
+      if (quantityInput) quantityInput.addEventListener('input', () => syncRow(row));
+      if (unitPriceInput) unitPriceInput.addEventListener('input', () => syncRow(row));
+      if (removeButton) {
+        removeButton.addEventListener('click', () => {
+          const rows = rowsWrap.querySelectorAll('[data-import-row]');
+          if (rows.length <= 1) {
+            resetRow(row);
+            return;
+          }
+          row.remove();
+        });
+      }
+      syncRow(row);
+    };
+
+    rowsWrap.querySelectorAll('[data-import-row]').forEach((row) => bindRow(row));
+    addRowButton.addEventListener('click', () => {
+      const node = rowTemplate.content.cloneNode(true);
+      const row = node.querySelector('[data-import-row]');
+      if (!row) return;
+      rowsWrap.appendChild(row);
+      bindRow(row);
+    });
   })();
 
 </script>

@@ -9,6 +9,13 @@ const { createReceiptNo, createInvoiceNo } = require("../utils/numbering");
 const { createRecycleEntry } = require("../utils/recycleBin");
 const { formatActivityRows } = require("../utils/activity");
 const { adToBs } = require("../utils/calendar");
+const {
+  computeSalaryDue: computeSalaryDueWithHistory,
+  getDailyCollectionBalance,
+  parseWholeMoney,
+  recordSalaryAdjustment,
+  roundMoney
+} = require("../utils/salary");
 
 const router = express.Router();
 const defaultStaffRoleCodes = ["CLEANER", "MACHINE_MANAGER", "VEHICLE_CONDUCTOR", "KITCHEN_COOK"];
@@ -32,11 +39,34 @@ const importUnitFallbackByCode = {
   DISPENSER: "unitPiece"
 };
 const vehicleExpenseTypes = ["FUEL", "REPAIR", "SERVICE", "OTHER"];
+const themePresetOptions = ["classic", "ocean", "slate", "sunrise", "forest"];
+const normalizeThemePreset = (value) => {
+  const safe = String(value || "").trim().toLowerCase();
+  return themePresetOptions.includes(safe) ? safe : "classic";
+};
 const normalizeSalaryPaymentSource = (value) => {
   const safe = String(value || "").trim().toUpperCase();
   if (safe === "OWNER_PERSONAL") return "OWNER_PERSONAL";
   if (safe === "BANK_OTHER") return "BANK_OTHER";
   return "DAILY_COLLECTION";
+};
+
+const runInTransaction = (callback) => {
+  const savepoint = `sp_records_${Date.now()}_${Math.floor(Math.random() * 100000)}`;
+  db.exec(`SAVEPOINT ${savepoint};`);
+  try {
+    const result = callback();
+    db.exec(`RELEASE ${savepoint};`);
+    return result;
+  } catch (err) {
+    try {
+      db.exec(`ROLLBACK TO ${savepoint};`);
+      db.exec(`RELEASE ${savepoint};`);
+    } catch (_) {
+      // Preserve the original error.
+    }
+    throw err;
+  }
 };
 const normalizePaymentMethod = (value) => {
   const safe = String(value || "").trim().toUpperCase();
@@ -45,13 +75,6 @@ const normalizePaymentMethod = (value) => {
   return "CASH";
 };
 const paymentLedgerChannels = ["BANK", "E_WALLET"];
-const complianceDateFields = [
-  "insurance_expiry",
-  "tax_expiry",
-  "permit_expiry",
-  "fitness_expiry",
-  "pollution_expiry"
-];
 const normalizeLedgerChannel = (value) => {
   const safe = String(value || "").trim().toUpperCase();
   return paymentLedgerChannels.includes(safe) ? safe : "BANK";
@@ -60,16 +83,6 @@ const normalizeDocumentType = (value) => {
   const safe = String(value || "").trim().toUpperCase();
   return documentTypeOptions.includes(safe) ? safe : null;
 };
-const getDateStatus = (dateText, todayText = dayjs().format("YYYY-MM-DD")) => {
-  if (!dateText) return { code: "NOT_SET", daysLeft: null };
-  const target = dayjs(dateText);
-  if (!target.isValid()) return { code: "NOT_SET", daysLeft: null };
-  const daysLeft = target.startOf("day").diff(dayjs(todayText).startOf("day"), "day");
-  if (daysLeft < 0) return { code: "EXPIRED", daysLeft };
-  if (daysLeft <= 15) return { code: "DUE_SOON", daysLeft };
-  return { code: "VALID", daysLeft };
-};
-const complianceStatusPriority = { EXPIRED: 3, DUE_SOON: 2, NOT_SET: 1, VALID: 0 };
 const uploadDir = path.join(__dirname, "..", "..", "public", "uploads");
 const staffStorage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, uploadDir),
@@ -121,18 +134,12 @@ const waterReportUpload = multer({
   }
 });
 
-const computeSalaryDue = (staffRow, paidTotal, asOf) => {
-  if (!staffRow || !staffRow.start_date) return 0;
-  const salary = Number(staffRow.monthly_salary || 0);
-  if (salary <= 0) return 0;
-  const start = dayjs(staffRow.start_date).startOf("month");
-  const lastCompletedMonth = dayjs(asOf).startOf("month").subtract(1, "month");
-  if (!start.isValid() || lastCompletedMonth.isBefore(start)) return 0;
-  const months = lastCompletedMonth.diff(start, "month") + 1;
-  const accrued = months * salary;
-  const paid = Number(paidTotal || 0);
-  return Math.max(0, accrued - paid);
-};
+const computeSalaryDue = (staffRow, paidTotal, asOf) => computeSalaryDueWithHistory(db, {
+  personType: "STAFF",
+  personRow: staffRow,
+  paidTotal,
+  asOf
+});
 
 const humanizeRoleCode = (code) => String(code || "")
   .trim()
@@ -460,6 +467,160 @@ const computeRemainingMoney = (total, paid) => {
   return diff > 0 ? diff : 0;
 };
 
+const toBodyArray = (value) => {
+  if (Array.isArray(value)) return value;
+  if (typeof value === "undefined") return [];
+  return [value];
+};
+
+const buildPartnerSavingsNote = (receiptNo, exportId) => `Partner savings from export ${receiptNo || `#${exportId}`}`;
+const buildExportVehicleExpenseNote = (receiptNo, exportId, note) => {
+  const base = `Export vehicle expense from ${receiptNo || `#${exportId}`}`;
+  const trimmedNote = String(note || "").trim();
+  return trimmedNote ? `${base} - ${trimmedNote}` : base;
+};
+
+const getLinkedExportSavings = (exportId) => {
+  if (!exportId) return null;
+  return db.prepare("SELECT * FROM vehicle_savings WHERE export_id = ?").get(exportId);
+};
+
+const getLinkedExportVehicleExpense = (exportId) => {
+  if (!exportId) return null;
+  return db.prepare("SELECT * FROM vehicle_expenses WHERE export_id = ?").get(exportId);
+};
+
+const syncExportPartnerSavings = ({ exportId, vehicleId, entryDate, amount, receiptNo, userId }) => {
+  const safeExportId = Number(exportId || 0);
+  const safeVehicleId = Number(vehicleId || 0);
+  const safeAmount = parseMoneyValue(amount);
+  const existing = getLinkedExportSavings(safeExportId);
+  if (!safeExportId || !safeVehicleId || safeAmount <= 0 || !entryDate) {
+    if (existing) {
+      db.prepare("DELETE FROM vehicle_savings WHERE id = ?").run(existing.id);
+      return { action: "delete", previous: existing, current: null };
+    }
+    return { action: "none", previous: existing, current: null };
+  }
+
+  const note = buildPartnerSavingsNote(receiptNo, safeExportId);
+  if (existing) {
+    db.prepare(
+      "UPDATE vehicle_savings SET vehicle_id = ?, entry_date = ?, amount = ?, payment_source = 'DAILY_COLLECTION', note = ? WHERE id = ?"
+    ).run(safeVehicleId, entryDate, safeAmount, note, existing.id);
+    return {
+      action: "update",
+      previous: existing,
+      current: db.prepare("SELECT * FROM vehicle_savings WHERE id = ?").get(existing.id)
+    };
+  }
+
+  const savingsId = db.prepare(
+    "INSERT INTO vehicle_savings (vehicle_id, export_id, entry_date, amount, payment_source, note, created_by) VALUES (?, ?, ?, ?, 'DAILY_COLLECTION', ?, ?)"
+  ).run(safeVehicleId, safeExportId, entryDate, safeAmount, note, userId || null).lastInsertRowid;
+  return {
+    action: "create",
+    previous: null,
+    current: db.prepare("SELECT * FROM vehicle_savings WHERE id = ?").get(savingsId)
+  };
+};
+
+const syncExportVehicleExpense = ({ exportId, vehicleId, expenseDate, amount, note, receiptNo, userId }) => {
+  const safeExportId = Number(exportId || 0);
+  const safeVehicleId = Number(vehicleId || 0);
+  const safeAmount = parseMoneyValue(amount);
+  const existing = getLinkedExportVehicleExpense(safeExportId);
+
+  if (!safeExportId || !safeVehicleId || !expenseDate || safeAmount <= 0) {
+    if (existing) {
+      db.prepare("DELETE FROM vehicle_expenses WHERE id = ?").run(existing.id);
+      return { action: "delete", previous: existing, current: null };
+    }
+    return { action: "none", previous: existing, current: null };
+  }
+
+  const combinedNote = buildExportVehicleExpenseNote(receiptNo, safeExportId, note);
+  let expenseId = existing ? Number(existing.id) : null;
+
+  if (existing) {
+    db.prepare(
+      `UPDATE vehicle_expenses
+       SET vehicle_id = ?, expense_date = ?, expense_type = 'OTHER', amount = ?, paid_amount = ?, is_credit = 0, note = ?
+       WHERE id = ?`
+    ).run(safeVehicleId, expenseDate, safeAmount, safeAmount, combinedNote, expenseId);
+    db.prepare("DELETE FROM vehicle_expense_payments WHERE vehicle_expense_id = ?").run(expenseId);
+  } else {
+    expenseId = Number(
+      db.prepare(
+        `INSERT INTO vehicle_expenses (vehicle_id, export_id, expense_date, expense_type, amount, paid_amount, is_credit, note, created_by)
+         VALUES (?, ?, ?, 'OTHER', ?, ?, 0, ?, ?)`
+      ).run(safeVehicleId, safeExportId, expenseDate, safeAmount, safeAmount, combinedNote, userId || null).lastInsertRowid
+    );
+  }
+
+  const paymentId = Number(
+    db.prepare(
+      `INSERT INTO vehicle_expense_payments (vehicle_expense_id, payment_date, amount, payment_method, payment_source, note, created_by)
+       VALUES (?, ?, ?, 'CASH', 'DAILY_COLLECTION', ?, ?)`
+    ).run(expenseId, expenseDate, safeAmount, combinedNote, userId || null).lastInsertRowid
+  );
+  ensurePaymentReceiptNo("vehicle_expense_payments", paymentId, expenseDate);
+
+  return {
+    action: existing ? "update" : "create",
+    previous: existing,
+    current: db.prepare("SELECT * FROM vehicle_expenses WHERE id = ?").get(expenseId)
+  };
+};
+
+const collectImportBatchRows = (body) => {
+  const itemTypes = toBodyArray(body.item_type);
+  const directions = toBodyArray(body.direction);
+  const jarTypeIds = toBodyArray(body.jar_type_id);
+  const quantities = toBodyArray(body.quantity);
+  const unitPrices = toBodyArray(body.unit_price);
+  const paidAmounts = toBodyArray(body.paid_amount);
+  const paymentModes = toBodyArray(body.payment_mode);
+  const lineNotes = toBodyArray(body.line_note);
+  const rowCount = Math.max(
+    itemTypes.length,
+    directions.length,
+    jarTypeIds.length,
+    quantities.length,
+    unitPrices.length,
+    paidAmounts.length,
+    paymentModes.length,
+    lineNotes.length
+  );
+
+  const rows = [];
+  for (let index = 0; index < rowCount; index += 1) {
+    const row = {
+      item_type: itemTypes[index],
+      direction: directions[index],
+      jar_type_id: jarTypeIds[index],
+      quantity: quantities[index],
+      unit_price: unitPrices[index],
+      paid_amount: paidAmounts[index],
+      payment_mode: paymentModes[index],
+      line_note: lineNotes[index]
+    };
+    const hasContent = [
+      row.item_type,
+      row.direction,
+      row.jar_type_id,
+      row.quantity,
+      row.unit_price,
+      row.paid_amount,
+      row.payment_mode,
+      row.line_note
+    ].some((value) => String(value ?? "").trim() !== "");
+    if (!hasContent) continue;
+    rows.push(row);
+  }
+  return rows;
+};
+
 const findDuplicateExportEntries = ({ vehicleId, exportDate, totalAmount, excludeId = null }) => {
   if (!vehicleId || !exportDate) return [];
   const safeAmount = parseMoneyValue(totalAmount);
@@ -523,9 +684,16 @@ const getDailyReconciliationSnapshot = (businessDate) => {
      WHERE rent_date = ?`
   ).get(businessDate);
   const jarSalePaid = db.prepare(
-    `SELECT COALESCE(SUM(paid_amount), 0) AS amount
-     FROM jar_sales
-     WHERE sale_date = ?`
+    `SELECT COALESCE(SUM(amount), 0) AS amount
+     FROM jar_sale_payments
+     WHERE payment_date = ?`
+  ).get(businessDate);
+  const leakageSalePaid = db.prepare(
+    `SELECT COALESCE(SUM(cash_amount), 0) AS cash_amount,
+            COALESCE(SUM(bank_amount), 0) AS bank_amount,
+            COALESCE(SUM(ewallet_amount), 0) AS ewallet_amount
+     FROM leakage_jar_sale_payments
+     WHERE payment_date = ?`
   ).get(businessDate);
   const savingsDeposit = db.prepare(
     `SELECT COALESCE(SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END), 0) AS amount
@@ -537,18 +705,21 @@ const getDailyReconciliationSnapshot = (businessDate) => {
     Number(exportPaid.cash_amount || 0) +
     Number(creditPaid.cash_amount || 0) +
     Number(rentPaid.cash_amount || 0) +
+    Number(leakageSalePaid.cash_amount || 0) +
     Number(jarSalePaid.amount || 0) +
     Number(savingsDeposit.amount || 0)
   );
   const expectedBank = parseMoneyValue(
     Number(exportPaid.bank_amount || 0) +
     Number(creditPaid.bank_amount || 0) +
-    Number(rentPaid.bank_amount || 0)
+    Number(rentPaid.bank_amount || 0) +
+    Number(leakageSalePaid.bank_amount || 0)
   );
   const expectedEwallet = parseMoneyValue(
     Number(exportPaid.ewallet_amount || 0) +
     Number(creditPaid.ewallet_amount || 0) +
-    Number(rentPaid.ewallet_amount || 0)
+    Number(rentPaid.ewallet_amount || 0) +
+    Number(leakageSalePaid.ewallet_amount || 0)
   );
   const expectedTotal = parseMoneyValue(expectedCash + expectedBank + expectedEwallet);
 
@@ -600,6 +771,11 @@ const getDailyReconciliationSnapshot = (businessDate) => {
         cash: parseMoneyValue(rentPaid.cash_amount || 0),
         bank: parseMoneyValue(rentPaid.bank_amount || 0),
         eWallet: parseMoneyValue(rentPaid.ewallet_amount || 0)
+      },
+      leakageJarSales: {
+        cash: parseMoneyValue(leakageSalePaid.cash_amount || 0),
+        bank: parseMoneyValue(leakageSalePaid.bank_amount || 0),
+        eWallet: parseMoneyValue(leakageSalePaid.ewallet_amount || 0)
       },
       jarSalesCash: parseMoneyValue(jarSalePaid.amount || 0),
       savingsDepositsCash: parseMoneyValue(savingsDeposit.amount || 0),
@@ -767,25 +943,6 @@ const getVendorAgingBucket = (days) => {
   if (days <= 7) return "0_7";
   if (days <= 30) return "8_30";
   return "30_plus";
-};
-
-const getComplianceSummaryRow = (row, todayDate) => {
-  const statuses = complianceDateFields.map((key) => getDateStatus(row[key], todayDate));
-  let overall = "VALID";
-  statuses.forEach((status) => {
-    if (complianceStatusPriority[status.code] > complianceStatusPriority[overall]) {
-      overall = status.code;
-    }
-  });
-  return {
-    ...row,
-    status_insurance: statuses[0],
-    status_tax: statuses[1],
-    status_permit: statuses[2],
-    status_fitness: statuses[3],
-    status_pollution: statuses[4],
-    overall_status: overall
-  };
 };
 
 const getBottleCaseStorageBalance = ({ excludeExportId = null } = {}) => {
@@ -1359,6 +1516,10 @@ const attachWorkerPhoto = (user) => {
   return { ...user, photo_path: doc ? doc.photo_path : null };
 };
 
+const getProfileUserById = (userId) => db.prepare(
+  "SELECT id, username, full_name, phone, role, theme_preset FROM users WHERE id = ?"
+).get(userId);
+
 const logActivity = ({ userId, action, entityType, entityId, details }) => {
   if (!action || !entityType) return;
   db.prepare(
@@ -1371,7 +1532,8 @@ const paymentReceiptTableMap = {
   import_payments: { prefix: "IMP" },
   company_purchase_payments: { prefix: "CPP" },
   vehicle_expense_payments: { prefix: "VEP" },
-  jar_sale_payments: { prefix: "JRP" }
+  jar_sale_payments: { prefix: "JRP" },
+  leakage_jar_sale_payments: { prefix: "LJP" }
 };
 
 const ensurePaymentReceiptNo = (tableName, id, dateText) => {
@@ -1383,6 +1545,57 @@ const ensurePaymentReceiptNo = (tableName, id, dateText) => {
   const receiptNo = createReceiptNo(db, config.prefix, dateText || dayjs().format("YYYY-MM-DD"));
   db.prepare(`UPDATE ${tableName} SET receipt_no = ? WHERE id = ?`).run(receiptNo, id);
   return receiptNo;
+};
+
+const syncLeakageJarSaleTotals = (saleId) => {
+  if (!saleId) return null;
+  const record = db.prepare("SELECT id, total_amount FROM leakage_jar_sales WHERE id = ?").get(saleId);
+  if (!record) return null;
+  const sums = db.prepare(
+    `SELECT
+        COALESCE(ROUND(SUM(amount), 2), 0) AS total_paid,
+        COALESCE(ROUND(SUM(cash_amount), 2), 0) AS cash_paid,
+        COALESCE(ROUND(SUM(bank_amount), 2), 0) AS bank_paid,
+        COALESCE(ROUND(SUM(ewallet_amount), 2), 0) AS ewallet_paid
+     FROM leakage_jar_sale_payments
+     WHERE leakage_jar_sale_id = ?`
+  ).get(saleId) || { total_paid: 0, cash_paid: 0, bank_paid: 0, ewallet_paid: 0 };
+
+  const paidBreakdown = {
+    cash: parseMoneyValue(sums.cash_paid || 0),
+    bank: parseMoneyValue(sums.bank_paid || 0),
+    eWallet: parseMoneyValue(sums.ewallet_paid || 0)
+  };
+  const paidAmount = parseMoneyValue(sums.total_paid || 0);
+  const creditAmount = computeRemainingMoney(record.total_amount || 0, paidAmount);
+  const paymentMethod = getPaymentMethodFromBreakdown(paidBreakdown, "CASH", true);
+
+  db.prepare(
+    `UPDATE leakage_jar_sales
+     SET paid_amount = ?,
+         paid_cash_amount = ?,
+         paid_bank_amount = ?,
+         paid_ewallet_amount = ?,
+         payment_method = ?,
+         credit_amount = ?,
+         updated_at = datetime('now')
+     WHERE id = ?`
+  ).run(
+    paidAmount,
+    paidBreakdown.cash,
+    paidBreakdown.bank,
+    paidBreakdown.eWallet,
+    paymentMethod,
+    creditAmount,
+    saleId
+  );
+
+  return {
+    paidAmount,
+    creditAmount,
+    paymentMethod,
+    paidBreakdown
+  };
 };
 
 const formatDiffValue = (value) => {
@@ -1476,6 +1689,34 @@ const getClosedDateForMutation = (req) => {
     return getDateFromEntityById("jar_sales", id, "sale_date");
   }
 
+  if (pathName === "/leakage-sales") return body.sale_date || null;
+  if (/^\/leakage-sales\/\d+$/.test(pathName)) {
+    const id = extractIdFromPath(pathName, /^\/leakage-sales\/(\d+)$/);
+    return body.sale_date || getDateFromEntityById("leakage_jar_sales", id, "sale_date");
+  }
+  if (/^\/leakage-sales\/\d+\/payments$/.test(pathName)) {
+    const id = extractIdFromPath(pathName, /^\/leakage-sales\/(\d+)\/payments$/);
+    return body.payment_date || getDateFromEntityById("leakage_jar_sales", id, "sale_date");
+  }
+  if (/^\/leakage-sales\/payments\/\d+\/delete$/.test(pathName)) {
+    const id = extractIdFromPath(pathName, /^\/leakage-sales\/payments\/(\d+)\/delete$/);
+    return getDateFromEntityById("leakage_jar_sale_payments", id, "payment_date");
+  }
+  if (/^\/leakage-sales\/\d+\/delete$/.test(pathName)) {
+    const id = extractIdFromPath(pathName, /^\/leakage-sales\/(\d+)\/delete$/);
+    return getDateFromEntityById("leakage_jar_sales", id, "sale_date");
+  }
+
+  if (pathName === "/cleaning-routines") return body.routine_date || null;
+  if (/^\/cleaning-routines\/\d+\/status$/.test(pathName)) {
+    const id = extractIdFromPath(pathName, /^\/cleaning-routines\/(\d+)\/status$/);
+    return getDateFromEntityById("daily_cleaning_routines", id, "routine_date");
+  }
+  if (/^\/cleaning-routines\/\d+\/delete$/.test(pathName)) {
+    const id = extractIdFromPath(pathName, /^\/cleaning-routines\/(\d+)\/delete$/);
+    return getDateFromEntityById("daily_cleaning_routines", id, "routine_date");
+  }
+
   if (pathName === "/credits") return body.credit_date || null;
   if (/^\/credits\/\d+$/.test(pathName)) {
     const id = extractIdFromPath(pathName, /^\/credits\/(\d+)$/);
@@ -1540,10 +1781,11 @@ const modulePathAccessMap = [
   { prefix: "/customer-invoice", moduleKey: "invoices" },
   { prefix: "/vehicle-invoice", moduleKey: "invoices" },
   { prefix: "/jar-sales", moduleKey: "jar_sales" },
+  { prefix: "/leakage-sales", moduleKey: "jar_sales" },
   { prefix: "/rentals", moduleKey: "rentals" },
   { prefix: "/company-purchases", moduleKey: "company_expenses" },
+  { prefix: "/cleaning-routines", moduleKey: "company_expenses" },
   { prefix: "/vehicle-expenses", moduleKey: "vehicle_expenses" },
-  { prefix: "/vehicle-compliance", moduleKey: "vehicle_expenses" },
   { prefix: "/payment-ledger", moduleKey: "payment_ledger" },
   { prefix: "/vendor-aging", moduleKey: "vendor_aging" },
   { prefix: "/savings", moduleKey: "savings" },
@@ -2981,7 +3223,8 @@ router.get("/exports/new", (req, res) => {
     externalVehicleNumber: "",
     externalOwnerName: "",
     externalPhone: "",
-    externalOrganization: ""
+    externalOrganization: "",
+    partnerSavingsAmount: 0
   });
 });
 
@@ -3006,6 +3249,9 @@ router.post("/exports", (req, res) => {
     sold_jar_count,
     sold_jar_price,
     collection_amount,
+    expense_amount,
+    expense_note,
+    partner_savings_amount,
     note,
     paid_amount,
     payment_method,
@@ -3140,6 +3386,9 @@ router.post("/exports", (req, res) => {
   const resolvedVehicleId = Number(vehicleResolution.vehicleId);
   const vehicleRow = db.prepare("SELECT is_company FROM vehicles WHERE id = ?").get(resolvedVehicleId);
   const isCompany = vehicleRow && Number(vehicleRow.is_company) === 1;
+  const partnerSavingsAmount = isCompany ? 0 : parseMoneyValue(partner_savings_amount);
+  const expenseAmount = isCompany ? parseMoneyValue(expense_amount) : 0;
+  const expenseNoteValue = isCompany ? String(expense_note || "").trim() || null : null;
   if (isCompany) {
     jarUnitPrice = 0;
     bottleCaseUnitPrice = 0;
@@ -3153,7 +3402,6 @@ router.post("/exports", (req, res) => {
   const soldJarAmount = Math.max(0, soldJars) * Math.max(0, soldJarPrice);
   let totalAmount = netJars * jarUnitPrice + netBottles * bottleCaseUnitPrice + dispenserAmount + soldJarAmount;
   let collectionAmount = Number(collection_amount || 0);
-  const expenseAmount = 0;
   if (Number.isNaN(collectionAmount) || collectionAmount < 0) collectionAmount = 0;
   if (!isCompany) {
     collectionAmount = 0;
@@ -3198,7 +3446,6 @@ router.post("/exports", (req, res) => {
     true
   );
   const creditAmount = isCompany ? 0 : Math.max(0, totalAmount - effectivePaid);
-  const expenseNoteValue = null;
   const externalVehicleNote = buildExternalVehicleNote({
     useExternalVehicle: vehicleResolution.useExternalVehicle,
     externalOwnerName: vehicleResolution.externalOwnerName,
@@ -3277,13 +3524,68 @@ router.post("/exports", (req, res) => {
   const exportId = Number(exportResult.lastInsertRowid);
   const exportReceiptNo = createReceiptNo(db, "EXP", export_date || dayjs().format("YYYY-MM-DD"));
   db.prepare("UPDATE exports SET receipt_no = ? WHERE id = ?").run(exportReceiptNo, exportId);
+  const partnerSavingsResult = syncExportPartnerSavings({
+    exportId,
+    vehicleId: resolvedVehicleId,
+    entryDate: export_date,
+    amount: partnerSavingsAmount,
+    receiptNo: exportReceiptNo,
+    userId: req.session.userId
+  });
+  const vehicleExpenseResult = syncExportVehicleExpense({
+    exportId,
+    vehicleId: resolvedVehicleId,
+    expenseDate: export_date,
+    amount: expenseAmount,
+    note: expenseNoteValue,
+    receiptNo: exportReceiptNo,
+    userId: req.session.userId
+  });
   logActivity({
     userId: req.session.userId,
     action: "create",
     entityType: "export",
     entityId: exportId,
-    details: `receipt=${exportReceiptNo}, export_date=${export_date}, vehicle_id=${resolvedVehicleId}, external_vehicle=${vehicleResolution.useExternalVehicle ? 1 : 0}, external_vehicle_number=${vehicleResolution.externalVehicleNumber || ''}, external_owner=${vehicleResolution.externalOwnerName || ''}, external_phone=${vehicleResolution.externalPhone || ''}, external_org=${externalOrganizationRaw || ''}, jars=${jarCount}, jar_price=${jarUnitPrice}, bottles=${bottleCount}, bottle_price=${bottleCaseUnitPrice}, dispensers=${dispenserCount}, dispenser_price=${dispenserUnitPrice}, return_jars=${returnJars}, return_bottles=${returnBottles}, leakage_jars=${leakageJars}, sold_jars=${soldJars}, sold_price=${soldJarPrice}, collection=${collectionAmount}, paid_method=${paymentMethod}, paid_cash=${paidBreakdown.cash}, paid_bank=${paidBreakdown.bank}, paid_ewallet=${paidBreakdown.eWallet}, expense=${expenseAmount}, route=${route || ''}, checked_staff=${checkedByStaffId || ''}, checked_staff_name=${checkedByStaffName || ''}, force_wash=${forceWashRequired}, force_wash_by=${forceWashStaffName || ''}`
+    details: `receipt=${exportReceiptNo}, export_date=${export_date}, vehicle_id=${resolvedVehicleId}, external_vehicle=${vehicleResolution.useExternalVehicle ? 1 : 0}, external_vehicle_number=${vehicleResolution.externalVehicleNumber || ''}, external_owner=${vehicleResolution.externalOwnerName || ''}, external_phone=${vehicleResolution.externalPhone || ''}, external_org=${externalOrganizationRaw || ''}, jars=${jarCount}, jar_price=${jarUnitPrice}, bottles=${bottleCount}, bottle_price=${bottleCaseUnitPrice}, dispensers=${dispenserCount}, dispenser_price=${dispenserUnitPrice}, return_jars=${returnJars}, return_bottles=${returnBottles}, leakage_jars=${leakageJars}, sold_jars=${soldJars}, sold_price=${soldJarPrice}, collection=${collectionAmount}, partner_savings=${partnerSavingsAmount}, paid_method=${paymentMethod}, paid_cash=${paidBreakdown.cash}, paid_bank=${paidBreakdown.bank}, paid_ewallet=${paidBreakdown.eWallet}, expense=${expenseAmount}, route=${route || ''}, checked_staff=${checkedByStaffId || ''}, checked_staff_name=${checkedByStaffName || ''}, force_wash=${forceWashRequired}, force_wash_by=${forceWashStaffName || ''}`
   });
+  if (partnerSavingsResult.action === "create" && partnerSavingsResult.current) {
+    logActivity({
+      userId: req.session.userId,
+      action: "create",
+      entityType: "vehicle_savings",
+      entityId: partnerSavingsResult.current.id,
+      details: `export_id=${exportId}, amount=${partnerSavingsResult.current.amount}, source=${partnerSavingsResult.current.payment_source}`
+    });
+  }
+  if (vehicleExpenseResult.action === "create" && vehicleExpenseResult.current) {
+    logActivity({
+      userId: req.session.userId,
+      action: "create",
+      entityType: "vehicle_expense",
+      entityId: vehicleExpenseResult.current.id,
+      details: `export_id=${exportId}, amount=${vehicleExpenseResult.current.amount}, type=OTHER`
+    });
+  } else if (vehicleExpenseResult.action === "update" && vehicleExpenseResult.current) {
+    logActivity({
+      userId: req.session.userId,
+      action: "update",
+      entityType: "vehicle_expense",
+      entityId: vehicleExpenseResult.current.id,
+      details: buildDiffDetails(
+        vehicleExpenseResult.previous,
+        vehicleExpenseResult.current,
+        ["vehicle_id", "expense_date", "amount", "paid_amount", "note"]
+      )
+    });
+  } else if (vehicleExpenseResult.action === "delete" && vehicleExpenseResult.previous) {
+    logActivity({
+      userId: req.session.userId,
+      action: "delete",
+      entityType: "vehicle_expense",
+      entityId: vehicleExpenseResult.previous.id,
+      details: `export_id=${exportId}, amount=${vehicleExpenseResult.previous.amount}`
+    });
+  }
 
   res.redirect(`/records/exports/${exportId}/saved`);
 });
@@ -3427,6 +3729,7 @@ router.get("/exports/:id/edit", (req, res) => {
   const vehicles = db.prepare("SELECT id, vehicle_number, owner_name, is_company FROM vehicles ORDER BY vehicle_number").all();
   const staffOptions = getExportStaffOptions();
   const nameSuggestions = getExportNameSuggestions();
+  const linkedSavings = getLinkedExportSavings(req.params.id);
   res.render("records/export_form", {
     title: req.t("editExportTitle"),
     record,
@@ -3443,7 +3746,8 @@ router.get("/exports/:id/edit", (req, res) => {
     externalVehicleNumber: "",
     externalOwnerName: "",
     externalPhone: "",
-    externalOrganization: ""
+    externalOrganization: "",
+    partnerSavingsAmount: Number(linkedSavings?.amount || 0)
   });
 });
 
@@ -3468,6 +3772,9 @@ router.post("/exports/:id", (req, res) => {
     sold_jar_count,
     sold_jar_price,
     collection_amount,
+    expense_amount,
+    expense_note,
+    partner_savings_amount,
     note,
     paid_amount,
     payment_method,
@@ -3605,6 +3912,9 @@ router.post("/exports/:id", (req, res) => {
   const resolvedVehicleId = Number(vehicleResolution.vehicleId);
   const vehicleRow = db.prepare("SELECT is_company FROM vehicles WHERE id = ?").get(resolvedVehicleId);
   const isCompany = vehicleRow && Number(vehicleRow.is_company) === 1;
+  const partnerSavingsAmount = isCompany ? 0 : parseMoneyValue(partner_savings_amount);
+  const expenseAmount = isCompany ? parseMoneyValue(expense_amount) : 0;
+  const expenseNoteValue = isCompany ? String(expense_note || "").trim() || null : null;
   if (isCompany) {
     jarUnitPrice = 0;
     bottleCaseUnitPrice = 0;
@@ -3618,7 +3928,6 @@ router.post("/exports/:id", (req, res) => {
   const soldJarAmount = Math.max(0, soldJars) * Math.max(0, soldJarPrice);
   let totalAmount = netJars * jarUnitPrice + netBottles * bottleCaseUnitPrice + dispenserAmount + soldJarAmount;
   let collectionAmount = Number(collection_amount || 0);
-  const expenseAmount = 0;
   if (Number.isNaN(collectionAmount) || collectionAmount < 0) collectionAmount = 0;
   if (!isCompany) {
     collectionAmount = 0;
@@ -3663,7 +3972,6 @@ router.post("/exports/:id", (req, res) => {
     true
   );
   const creditAmount = isCompany ? 0 : Math.max(0, totalAmount - effectivePaid);
-  const expenseNoteValue = null;
   const externalVehicleNote = buildExternalVehicleNote({
     useExternalVehicle: vehicleResolution.useExternalVehicle,
     externalOwnerName: vehicleResolution.externalOwnerName,
@@ -3739,6 +4047,23 @@ router.post("/exports/:id", (req, res) => {
     forceWashStaffName,
     req.params.id
   );
+  const partnerSavingsResult = syncExportPartnerSavings({
+    exportId: req.params.id,
+    vehicleId: resolvedVehicleId,
+    entryDate: export_date,
+    amount: partnerSavingsAmount,
+    receiptNo: record.receipt_no,
+    userId: req.session.userId
+  });
+  const vehicleExpenseResult = syncExportVehicleExpense({
+    exportId: req.params.id,
+    vehicleId: resolvedVehicleId,
+    expenseDate: export_date,
+    amount: expenseAmount,
+    note: expenseNoteValue,
+    receiptNo: record.receipt_no,
+    userId: req.session.userId
+  });
   logActivity({
     userId: req.session.userId,
     action: "update",
@@ -3810,8 +4135,66 @@ router.post("/exports/:id", (req, res) => {
         "force_wash_required",
         "force_wash_staff_name"
       ]
-    )
+    ) + `; partner_savings=${partnerSavingsAmount}`
   });
+  if (partnerSavingsResult.action === "create" && partnerSavingsResult.current) {
+    logActivity({
+      userId: req.session.userId,
+      action: "create",
+      entityType: "vehicle_savings",
+      entityId: partnerSavingsResult.current.id,
+      details: `export_id=${req.params.id}, amount=${partnerSavingsResult.current.amount}, source=${partnerSavingsResult.current.payment_source}`
+    });
+  } else if (partnerSavingsResult.action === "update" && partnerSavingsResult.current) {
+    logActivity({
+      userId: req.session.userId,
+      action: "update",
+      entityType: "vehicle_savings",
+      entityId: partnerSavingsResult.current.id,
+      details: buildDiffDetails(
+        partnerSavingsResult.previous,
+        partnerSavingsResult.current,
+        ["vehicle_id", "entry_date", "amount", "payment_source", "note"]
+      )
+    });
+  } else if (partnerSavingsResult.action === "delete" && partnerSavingsResult.previous) {
+    logActivity({
+      userId: req.session.userId,
+      action: "delete",
+      entityType: "vehicle_savings",
+      entityId: partnerSavingsResult.previous.id,
+      details: `export_id=${req.params.id}, amount=${partnerSavingsResult.previous.amount}`
+    });
+  }
+  if (vehicleExpenseResult.action === "create" && vehicleExpenseResult.current) {
+    logActivity({
+      userId: req.session.userId,
+      action: "create",
+      entityType: "vehicle_expense",
+      entityId: vehicleExpenseResult.current.id,
+      details: `export_id=${req.params.id}, amount=${vehicleExpenseResult.current.amount}, type=OTHER`
+    });
+  } else if (vehicleExpenseResult.action === "update" && vehicleExpenseResult.current) {
+    logActivity({
+      userId: req.session.userId,
+      action: "update",
+      entityType: "vehicle_expense",
+      entityId: vehicleExpenseResult.current.id,
+      details: buildDiffDetails(
+        vehicleExpenseResult.previous,
+        vehicleExpenseResult.current,
+        ["vehicle_id", "expense_date", "amount", "paid_amount", "note"]
+      )
+    });
+  } else if (vehicleExpenseResult.action === "delete" && vehicleExpenseResult.previous) {
+    logActivity({
+      userId: req.session.userId,
+      action: "delete",
+      entityType: "vehicle_expense",
+      entityId: vehicleExpenseResult.previous.id,
+      details: `export_id=${req.params.id}, amount=${vehicleExpenseResult.previous.amount}`
+    });
+  }
 
   res.redirect(`/records/exports?from=${export_date}&to=${export_date}`);
 });
@@ -3819,10 +4202,15 @@ router.post("/exports/:id", (req, res) => {
 router.post("/exports/:id/delete", (req, res) => {
   const record = db.prepare("SELECT * FROM exports WHERE id = ?").get(req.params.id);
   if (!record) return res.redirect("/records/exports");
+  const linkedSavings = db.prepare("SELECT * FROM vehicle_savings WHERE export_id = ?").all(req.params.id);
+  const linkedExpenses = db.prepare("SELECT * FROM vehicle_expenses WHERE export_id = ?").all(req.params.id).map((expense) => ({
+    ...expense,
+    payments: db.prepare("SELECT * FROM vehicle_expense_payments WHERE vehicle_expense_id = ? ORDER BY id ASC").all(expense.id)
+  }));
   const recycleId = createRecycleEntry({
     entityType: "export",
     entityId: req.params.id,
-    payload: { export: record },
+    payload: { export: record, savings: linkedSavings, expenses: linkedExpenses },
     deletedBy: req.session.userId,
     note: `date=${record.export_date || ""}`
   });
@@ -3833,6 +4221,8 @@ router.post("/exports/:id/delete", (req, res) => {
     entityId: req.params.id,
     details: `recycle_id=${recycleId}`
   });
+  db.prepare("DELETE FROM vehicle_savings WHERE export_id = ?").run(req.params.id);
+  db.prepare("DELETE FROM vehicle_expenses WHERE export_id = ?").run(req.params.id);
   db.prepare("DELETE FROM exports WHERE id = ?").run(req.params.id);
   res.redirect("/records/exports");
 });
@@ -4080,6 +4470,8 @@ router.get("/imports", (req, res) => {
     ? req.t("paymentSaved")
     : status === "payment_deleted"
       ? req.t("paymentDeleted")
+      : status === "imports_saved"
+        ? req.t("importsSaved", { count: Number(req.query.count || 0) || 0 })
       : null;
 
   res.render("records/imports", {
@@ -4109,55 +4501,15 @@ router.get("/imports", (req, res) => {
 
 router.post("/imports", (req, res) => {
   const {
-    item_type,
-    quantity,
     entry_date,
-    note,
-    direction,
-    jar_type_id,
     seller_name,
-    total_amount,
-    paid_amount,
-    is_credit,
     payment_method,
     payment_source,
     due_date,
     reminder_days
   } = req.body;
-  const itemRow = getImportItemTypeByCode(item_type);
-  if (!item_type || !entry_date || !itemRow || Number(itemRow.is_active) !== 1) {
+  if (!entry_date) {
     return res.redirect("/records/imports");
-  }
-  let qty = Number(quantity || 0);
-  if (Number.isNaN(qty) || qty <= 0) {
-    qty = 0;
-  }
-  let entryDirection = direction === "OUT" ? "OUT" : "IN";
-  if (item_type === "JAR_CONTAINER") {
-    entryDirection = "IN";
-    if (!jar_type_id) {
-      return res.redirect("/records/imports");
-    }
-    const typeRow = db.prepare("SELECT default_qty FROM jar_types WHERE id = ?").get(jar_type_id);
-    if (!typeRow) {
-      return res.redirect("/records/imports");
-    }
-    const defaultQty = Number(typeRow.default_qty || 0);
-    if (defaultQty > 0) {
-      qty = defaultQty;
-    }
-  }
-  if (item_type !== "JAR_CONTAINER" && Number(itemRow.uses_direction) !== 1) {
-    entryDirection = "IN";
-  }
-  if (qty <= 0) {
-    return res.redirect("/records/imports");
-  }
-  if (entryDirection === "OUT") {
-    const available = Number(getImportItemDirectionalBalance(item_type) || 0);
-    if (qty > available) {
-      return res.redirect(`/records/imports?from=${entry_date}&to=${entry_date}&error=itemOutInsufficient`);
-    }
   }
 
   const sellerName = String(seller_name || "").trim();
@@ -4166,70 +4518,139 @@ router.post("/imports", (req, res) => {
   const reminderDays = Number.isNaN(reminderDaysRaw) ? 0 : Math.max(0, Math.min(365, Math.floor(reminderDaysRaw)));
   const paymentMethod = normalizePaymentMethod(payment_method);
   const paymentSource = normalizeSalaryPaymentSource(payment_source);
-  let totalAmount = parseMoneyValue(total_amount);
-  let paidAmount = parseMoneyValue(paid_amount);
-  const wantsCredit = parseCheckbox(is_credit);
-  if (totalAmount <= 0) {
-    totalAmount = 0;
-    paidAmount = 0;
-  }
-  if (paidAmount > totalAmount) {
-    return res.redirect(`/records/imports?from=${entry_date}&to=${entry_date}&error=paidMoreThanTotal`);
-  }
-  if (!wantsCredit && totalAmount > 0 && paidAmount < totalAmount) {
-    paidAmount = totalAmount;
-  }
-  const isCreditFinal = totalAmount > paidAmount ? 1 : 0;
-  if (isCreditFinal === 1 && !sellerName) {
-    return res.redirect(`/records/imports?from=${entry_date}&to=${entry_date}&error=sellerRequiredForCredit`);
+  const rawRows = collectImportBatchRows(req.body);
+  if (!rawRows.length) {
+    return res.redirect(`/records/imports?from=${entry_date}&to=${entry_date}&error=atLeastOneImportRow`);
   }
 
-  const entryId = db.prepare(
-    `INSERT INTO import_entries (
-      item_type, quantity, direction, jar_type_id, jar_cap_type_id, entry_date,
-      seller_name, total_amount, paid_amount, is_credit, due_date, reminder_days, note, created_by
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).run(
-    item_type,
-    qty,
-    entryDirection,
-    item_type === "JAR_CONTAINER" ? jar_type_id : null,
-    null,
-    entry_date,
-    sellerName || null,
-    totalAmount,
-    paidAmount,
-    isCreditFinal,
-    dueDate,
-    reminderDays,
-    note || null,
-    req.session.userId
-  ).lastInsertRowid;
+  const availableByItem = new Map();
+  const preparedRows = [];
+  for (const rawRow of rawRows) {
+    const itemType = String(rawRow.item_type || "").trim();
+    const itemRow = getImportItemTypeByCode(itemType);
+    if (!itemType || !itemRow || Number(itemRow.is_active) !== 1) {
+      return res.redirect(`/records/imports?from=${entry_date}&to=${entry_date}&error=atLeastOneImportRow`);
+    }
 
-  if (paidAmount > 0) {
-    const paymentId = db.prepare(
-      "INSERT INTO import_payments (import_entry_id, payment_date, amount, payment_method, payment_source, note, created_by) VALUES (?, ?, ?, ?, ?, ?, ?)"
-    ).run(
-      entryId,
-      entry_date,
+    let qty = Number(rawRow.quantity || 0);
+    if (Number.isNaN(qty) || qty <= 0) qty = 0;
+
+    let entryDirection = rawRow.direction === "OUT" ? "OUT" : "IN";
+    let jarTypeId = rawRow.jar_type_id ? Number(rawRow.jar_type_id) : null;
+    if (itemType === "JAR_CONTAINER") {
+      entryDirection = "IN";
+      if (!jarTypeId) {
+        return res.redirect(`/records/imports?from=${entry_date}&to=${entry_date}&error=atLeastOneImportRow`);
+      }
+      const typeRow = db.prepare("SELECT default_qty FROM jar_types WHERE id = ?").get(jarTypeId);
+      if (!typeRow) {
+        return res.redirect(`/records/imports?from=${entry_date}&to=${entry_date}&error=atLeastOneImportRow`);
+      }
+      const defaultQty = Number(typeRow.default_qty || 0);
+      if (defaultQty > 0) qty = defaultQty;
+    }
+    if (itemType !== "JAR_CONTAINER" && Number(itemRow.uses_direction) !== 1) {
+      entryDirection = "IN";
+    }
+    if (qty <= 0) {
+      return res.redirect(`/records/imports?from=${entry_date}&to=${entry_date}&error=atLeastOneImportRow`);
+    }
+    if (entryDirection === "OUT") {
+      const currentAvailable = availableByItem.has(itemType)
+        ? availableByItem.get(itemType)
+        : Number(getImportItemDirectionalBalance(itemType) || 0);
+      if (qty > currentAvailable) {
+        return res.redirect(`/records/imports?from=${entry_date}&to=${entry_date}&error=itemOutInsufficient`);
+      }
+      availableByItem.set(itemType, currentAvailable - qty);
+    }
+
+    const unitPrice = parseMoneyValue(rawRow.unit_price);
+    const totalAmount = parseMoneyValue(qty * unitPrice);
+    let paidAmount = parseMoneyValue(rawRow.paid_amount);
+    const wantsCredit = String(rawRow.payment_mode || "").trim().toUpperCase() === "CREDIT";
+    if (paidAmount > totalAmount) {
+      return res.redirect(`/records/imports?from=${entry_date}&to=${entry_date}&error=paidMoreThanTotal`);
+    }
+    if (!wantsCredit && totalAmount > 0 && paidAmount < totalAmount) {
+      paidAmount = totalAmount;
+    }
+    const isCreditFinal = totalAmount > paidAmount ? 1 : 0;
+    if (isCreditFinal === 1 && !sellerName) {
+      return res.redirect(`/records/imports?from=${entry_date}&to=${entry_date}&error=sellerRequiredForCredit`);
+    }
+
+    preparedRows.push({
+      itemType,
+      qty,
+      unitPrice,
+      entryDirection,
+      jarTypeId: itemType === "JAR_CONTAINER" ? jarTypeId : null,
+      totalAmount,
       paidAmount,
-      paymentMethod,
-      paymentSource,
-      req.t("openingPaymentNote"),
-      req.session.userId || null
-    ).lastInsertRowid;
-    ensurePaymentReceiptNo("import_payments", paymentId, entry_date);
+      isCreditFinal,
+      note: String(rawRow.line_note || "").trim() || null
+    });
   }
 
-  logActivity({
-    userId: req.session.userId,
-    action: "create",
-    entityType: "import_entry",
-    entityId: `${entryId}`,
-    details: `direction=${entryDirection}, qty=${qty}, total=${totalAmount}, paid=${paidAmount}, due_date=${dueDate || ""}, reminder_days=${reminderDays}, method=${paymentMethod}, source=${paymentSource}`
-  });
+  let savedCount = 0;
+  db.exec("BEGIN IMMEDIATE");
+  try {
+    preparedRows.forEach((row) => {
+      const entryId = db.prepare(
+        `INSERT INTO import_entries (
+          item_type, quantity, unit_price, direction, jar_type_id, jar_cap_type_id, entry_date,
+          seller_name, total_amount, paid_amount, is_credit, due_date, reminder_days, note, created_by
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ).run(
+        row.itemType,
+        row.qty,
+        row.unitPrice,
+        row.entryDirection,
+        row.jarTypeId,
+        null,
+        entry_date,
+        sellerName || null,
+        row.totalAmount,
+        row.paidAmount,
+        row.isCreditFinal,
+        dueDate,
+        reminderDays,
+        row.note,
+        req.session.userId
+      ).lastInsertRowid;
 
-  res.redirect(`/records/imports?from=${entry_date}&to=${entry_date}`);
+      if (row.paidAmount > 0) {
+        const paymentId = db.prepare(
+          "INSERT INTO import_payments (import_entry_id, payment_date, amount, payment_method, payment_source, note, created_by) VALUES (?, ?, ?, ?, ?, ?, ?)"
+        ).run(
+          entryId,
+          entry_date,
+          row.paidAmount,
+          paymentMethod,
+          paymentSource,
+          req.t("openingPaymentNote"),
+          req.session.userId || null
+        ).lastInsertRowid;
+        ensurePaymentReceiptNo("import_payments", paymentId, entry_date);
+      }
+
+      logActivity({
+        userId: req.session.userId,
+        action: "create",
+        entityType: "import_entry",
+        entityId: `${entryId}`,
+        details: `direction=${row.entryDirection}, qty=${row.qty}, unit_price=${row.unitPrice}, total=${row.totalAmount}, paid=${row.paidAmount}, due_date=${dueDate || ""}, reminder_days=${reminderDays}, method=${paymentMethod}, source=${paymentSource}`
+      });
+      savedCount += 1;
+    });
+    db.exec("COMMIT");
+  } catch (err) {
+    db.exec("ROLLBACK");
+    throw err;
+  }
+
+  res.redirect(`/records/imports?from=${entry_date}&to=${entry_date}&status=imports_saved&count=${savedCount}`);
 });
 
 router.get("/imports/:id/edit", (req, res) => {
@@ -4313,6 +4734,7 @@ router.post("/imports/:id", (req, res) => {
   const {
     item_type,
     quantity,
+    unit_price,
     entry_date,
     note,
     direction,
@@ -4367,7 +4789,11 @@ router.post("/imports/:id", (req, res) => {
   const reminderDays = Number.isNaN(reminderDaysRaw) ? 0 : Math.max(0, Math.min(365, Math.floor(reminderDaysRaw)));
   const paymentMethod = normalizePaymentMethod(payment_method);
   const paymentSource = normalizeSalaryPaymentSource(payment_source);
-  let totalAmount = parseMoneyValue(total_amount);
+  const unitPrice = parseMoneyValue(unit_price);
+  let totalAmount = parseMoneyValue(qty * unitPrice);
+  if (totalAmount <= 0 && Object.prototype.hasOwnProperty.call(req.body, "total_amount")) {
+    totalAmount = parseMoneyValue(total_amount);
+  }
   if (totalAmount < 0) totalAmount = 0;
   const paidRow = db.prepare(
     "SELECT COALESCE(SUM(amount), 0) as paid FROM import_payments WHERE import_entry_id = ?"
@@ -4406,12 +4832,13 @@ router.post("/imports/:id", (req, res) => {
 
   db.prepare(
     `UPDATE import_entries
-     SET item_type = ?, quantity = ?, direction = ?, jar_type_id = ?, jar_cap_type_id = ?, entry_date = ?,
+     SET item_type = ?, quantity = ?, unit_price = ?, direction = ?, jar_type_id = ?, jar_cap_type_id = ?, entry_date = ?,
          seller_name = ?, total_amount = ?, paid_amount = ?, is_credit = ?, due_date = ?, reminder_days = ?, note = ?
      WHERE id = ?`
   ).run(
     item_type,
     qty,
+    unitPrice,
     entryDirection,
     item_type === "JAR_CONTAINER" ? jar_type_id : null,
     null,
@@ -4436,6 +4863,7 @@ router.post("/imports/:id", (req, res) => {
       {
         item_type,
         quantity: qty,
+        unit_price: unitPrice,
         direction: entryDirection,
         jar_type_id: item_type === "JAR_CONTAINER" ? Number(jar_type_id) : null,
         jar_cap_type_id: null,
@@ -4451,6 +4879,7 @@ router.post("/imports/:id", (req, res) => {
       [
         "item_type",
         "quantity",
+        "unit_price",
         "direction",
         "jar_type_id",
         "jar_cap_type_id",
@@ -4700,8 +5129,8 @@ router.post("/staffs", (req, res) => {
         basePath: "/records/staffs"
       });
     }
-    const salary = Number(monthly_salary || 0);
-    if (Number.isNaN(salary) || salary < 0) {
+    const salaryRaw = Number(monthly_salary || 0);
+    if (Number.isNaN(salaryRaw) || salaryRaw < 0) {
       return res.render("admin/staff_form", {
         title: req.t("addStaffTitle"),
         staff: null,
@@ -4711,6 +5140,7 @@ router.post("/staffs", (req, res) => {
         basePath: "/records/staffs"
       });
     }
+    const salary = parseWholeMoney(salaryRaw);
     const fingerprintId = normalizeFingerprintId(fingerprint_id);
     const fpConflict = findFingerprintConflict({ fingerprintId });
     if (fpConflict) {
@@ -4811,7 +5241,9 @@ router.get("/staffs/:id", (req, res) => {
      ORDER BY attendance_date DESC`
   ).all(req.params.id).map((row) => row.attendance_date);
   const errorKey = String(req.query.error || "").trim();
+  const status = String(req.query.status || "").trim();
   const error = errorKey ? req.t(errorKey) : null;
+  const success = status === "salary_adjusted" ? req.t("salaryAdjusted") : null;
 
   res.render("admin/staff_detail", {
     title: req.t("staffDetailTitle"),
@@ -4824,8 +5256,52 @@ router.get("/staffs/:id", (req, res) => {
     attendanceSummary,
     absentDates,
     error,
+    success,
     basePath: "/records/staffs"
   });
+});
+
+router.post("/staffs/:id/salary-adjust", (req, res) => {
+  const staff = db.prepare("SELECT id, full_name, monthly_salary FROM staff WHERE id = ?").get(req.params.id);
+  if (!staff) return res.redirect("/records/staffs");
+
+  const adjustType = String(req.body.adjust_type || "").trim().toUpperCase();
+  const adjustAmountRaw = Number(req.body.adjust_amount || 0);
+  const adjustAmount = parseWholeMoney(adjustAmountRaw);
+  const note = String(req.body.note || "").trim();
+  if (!["INCREASE", "DECREASE"].includes(adjustType) || Number.isNaN(adjustAmountRaw) || adjustAmount <= 0) {
+    return res.redirect(`/records/staffs/${req.params.id}?error=salaryAdjustmentInvalid`);
+  }
+
+  const currentSalary = parseWholeMoney(staff.monthly_salary || 0);
+  const nextSalary = adjustType === "INCREASE"
+    ? currentSalary + adjustAmount
+    : currentSalary - adjustAmount;
+  if (nextSalary < 0) {
+    return res.redirect(`/records/staffs/${req.params.id}?error=salaryAdjustmentWouldBeNegative`);
+  }
+
+  runInTransaction(() => {
+    recordSalaryAdjustment(db, {
+      personType: "STAFF",
+      personId: req.params.id,
+      previousSalary: currentSalary,
+      newSalary: nextSalary,
+      effectiveMonth: dayjs().startOf("month").format("YYYY-MM-DD"),
+      note,
+      createdBy: req.session.userId
+    });
+    db.prepare("UPDATE staff SET monthly_salary = ?, updated_at = datetime('now') WHERE id = ?").run(nextSalary, req.params.id);
+  });
+  logActivity({
+    userId: req.session.userId,
+    action: "update",
+    entityType: "staff_salary_adjustment",
+    entityId: req.params.id,
+    details: `type=${adjustType}, amount=${adjustAmount}, from=${currentSalary}, to=${nextSalary}, note=${note || ""}`
+  });
+
+  return res.redirect(`/records/staffs/${req.params.id}?status=salary_adjusted`);
 });
 
 router.get("/staffs/:id/print", (req, res) => {
@@ -4934,8 +5410,8 @@ router.post("/staffs/:id", (req, res) => {
         basePath: "/records/staffs"
       });
     }
-    const salary = Number(monthly_salary || 0);
-    if (Number.isNaN(salary) || salary < 0) {
+    const salaryRaw = Number(monthly_salary || 0);
+    if (Number.isNaN(salaryRaw) || salaryRaw < 0) {
       return res.render("admin/staff_form", {
         title: req.t("editStaffTitle"),
         staff,
@@ -4945,6 +5421,7 @@ router.post("/staffs/:id", (req, res) => {
         basePath: "/records/staffs"
       });
     }
+    const salary = parseWholeMoney(salaryRaw);
     const fingerprintId = normalizeFingerprintId(fingerprint_id);
     const fpConflict = findFingerprintConflict({ fingerprintId, skipStaffId: req.params.id });
     if (fpConflict) {
@@ -4964,9 +5441,23 @@ router.post("/staffs/:id", (req, res) => {
     const photoFile = req.files && req.files.photo ? req.files.photo[0] : null;
     if (photoFile) photoPath = `/uploads/${photoFile.filename}`;
 
-    db.prepare(
-      "UPDATE staff SET full_name = ?, staff_role = ?, phone = ?, fingerprint_id = ?, photo_path = ?, start_date = ?, monthly_salary = ?, updated_at = datetime('now') WHERE id = ?"
-    ).run(full_name.trim(), staffRole, phone || null, fingerprintId, photoPath, start_date || null, salary, req.params.id);
+    const currentSalary = parseWholeMoney(staff.monthly_salary || 0);
+    runInTransaction(() => {
+      if (currentSalary !== salary) {
+        recordSalaryAdjustment(db, {
+          personType: "STAFF",
+          personId: req.params.id,
+          previousSalary: currentSalary,
+          newSalary: salary,
+          effectiveMonth: dayjs().startOf("month").format("YYYY-MM-DD"),
+          note: "Updated from staff profile",
+          createdBy: req.session.userId
+        });
+      }
+      db.prepare(
+        "UPDATE staff SET full_name = ?, staff_role = ?, phone = ?, fingerprint_id = ?, photo_path = ?, start_date = ?, monthly_salary = ?, updated_at = datetime('now') WHERE id = ?"
+      ).run(full_name.trim(), staffRole, phone || null, fingerprintId, photoPath, start_date || null, salary, req.params.id);
+    });
 
     if (safeDocType) {
       let frontPath = document ? document.front_path : null;
@@ -5049,10 +5540,16 @@ router.post("/staffs/:id/payments", (req, res) => {
   }
   const type = payment_type === "ADVANCE" ? "ADVANCE" : "SALARY";
   const source = normalizeSalaryPaymentSource(payment_source);
+  if (source === "DAILY_COLLECTION") {
+    const collectionBalance = getDailyCollectionBalance(db, payment_date);
+    if (amt > roundMoney(collectionBalance) + 0.01) {
+      return res.redirect(`/records/staffs/${req.params.id}?error=dailyCollectionInsufficient`);
+    }
+  }
   if (type === "SALARY") {
     const paidTotal = getStaffPaidTotal(req.params.id);
     const due = computeSalaryDue(staff, paidTotal, payment_date || dayjs().format("YYYY-MM-DD"));
-    if (amt > parseMoneyValue(due) + 0.01) {
+    if (amt > roundMoney(due) + 0.01) {
       return res.redirect(`/records/staffs/${req.params.id}?error=salaryOverpaymentBlocked`);
     }
   }
@@ -5109,10 +5606,16 @@ router.post("/staffs/payments/:id", (req, res) => {
   }
   const type = payment_type === "ADVANCE" ? "ADVANCE" : "SALARY";
   const source = normalizeSalaryPaymentSource(payment_source);
+  if (source === "DAILY_COLLECTION") {
+    const collectionBalance = getDailyCollectionBalance(db, payment_date, { excludeStaffPaymentId: req.params.id });
+    if (amt > roundMoney(collectionBalance) + 0.01) {
+      return res.redirect(`/records/staffs/payments/${req.params.id}/edit?error=dailyCollectionInsufficient`);
+    }
+  }
   if (type === "SALARY") {
     const paidTotal = getStaffPaidTotal(payment.staff_id, { excludePaymentId: req.params.id });
     const due = computeSalaryDue(staff, paidTotal, payment_date || dayjs().format("YYYY-MM-DD"));
-    if (amt > parseMoneyValue(due) + 0.01) {
+    if (amt > roundMoney(due) + 0.01) {
       return res.redirect(`/records/staffs/payments/${req.params.id}/edit?error=salaryOverpaymentBlocked`);
     }
   }
@@ -5324,12 +5827,23 @@ router.get("/profile", (req, res) => {
   const user = attachWorkerPhoto(res.locals.currentUser);
   if (!user) return res.redirect("/login");
   const attendancePayload = getUserAttendancePayload(user.id);
+  const success = req.query.theme_saved === "1"
+    ? req.t("themeSaved")
+    : req.query.photo_saved === "1"
+      ? req.t("profilePhotoSaved")
+      : req.query.photo_deleted === "1"
+        ? req.t("profilePhotoDeleted")
+      : null;
+  const error = req.query.error ? req.t(String(req.query.error)) : null;
   res.render("admin/profile", {
     title: req.t("profileTitle"),
     user,
-    error: null,
-    success: null,
+    error,
+    success,
     profileAction: "/records/profile",
+    preferenceAction: "/records/profile/preferences",
+    workerPhotoAction: user.role === "WORKER" ? "/records/profile/photo" : "",
+    workerPhotoDeleteAction: user.role === "WORKER" ? "/records/profile/photo/delete" : "",
     attendanceAction: "/records/profile/attendance",
     ...attendancePayload,
     attendanceSaved: req.query.saved === "1" ? req.t("attendanceSaved") : null
@@ -5347,6 +5861,9 @@ router.post("/profile", (req, res) => {
       error: req.t("fullNameRequired"),
       success: null,
       profileAction: "/records/profile",
+      preferenceAction: "/records/profile/preferences",
+      workerPhotoAction: user.role === "WORKER" ? "/records/profile/photo" : "",
+      workerPhotoDeleteAction: user.role === "WORKER" ? "/records/profile/photo/delete" : "",
       attendanceAction: "/records/profile/attendance",
       ...attendancePayload
     });
@@ -5358,7 +5875,7 @@ router.post("/profile", (req, res) => {
   if (new_password) {
     const dbUser = db.prepare("SELECT password_hash FROM users WHERE id = ?").get(user.id);
     if (!current_password || !dbUser || !bcrypt.compareSync(current_password, dbUser.password_hash)) {
-      const refreshed = db.prepare("SELECT id, username, full_name, phone, role FROM users WHERE id = ?").get(user.id);
+      const refreshed = getProfileUserById(user.id);
       const attendancePayload = getUserAttendancePayload(user.id);
       return res.render("admin/profile", {
         title: req.t("profileTitle"),
@@ -5366,6 +5883,9 @@ router.post("/profile", (req, res) => {
         error: req.t("currentPasswordInvalid"),
         success: null,
         profileAction: "/records/profile",
+        preferenceAction: "/records/profile/preferences",
+        workerPhotoAction: user.role === "WORKER" ? "/records/profile/photo" : "",
+        workerPhotoDeleteAction: user.role === "WORKER" ? "/records/profile/photo/delete" : "",
         attendanceAction: "/records/profile/attendance",
         ...attendancePayload
       });
@@ -5374,7 +5894,7 @@ router.post("/profile", (req, res) => {
     db.prepare("UPDATE users SET password_hash = ? WHERE id = ?").run(hash, user.id);
   }
 
-  const refreshed = db.prepare("SELECT id, username, full_name, phone, role FROM users WHERE id = ?").get(user.id);
+  const refreshed = getProfileUserById(user.id);
   const attendancePayload = getUserAttendancePayload(user.id);
   res.render("admin/profile", {
     title: req.t("profileTitle"),
@@ -5382,9 +5902,86 @@ router.post("/profile", (req, res) => {
     error: null,
     success: req.t("profileSaved"),
     profileAction: "/records/profile",
+    preferenceAction: "/records/profile/preferences",
+    workerPhotoAction: user.role === "WORKER" ? "/records/profile/photo" : "",
+    workerPhotoDeleteAction: user.role === "WORKER" ? "/records/profile/photo/delete" : "",
     attendanceAction: "/records/profile/attendance",
     ...attendancePayload
   });
+});
+
+router.post("/profile/preferences", (req, res) => {
+  const user = res.locals.currentUser;
+  if (!user) return res.redirect("/login");
+  const themePreset = normalizeThemePreset(req.body.theme_preset);
+  db.prepare("UPDATE users SET theme_preset = ?, updated_at = datetime('now') WHERE id = ?").run(themePreset, user.id);
+  logActivity({
+    userId: user.id,
+    action: "update",
+    entityType: "user_preferences",
+    entityId: user.id,
+    details: `theme=${themePreset}`
+  });
+  res.redirect("/records/profile?theme_saved=1");
+});
+
+router.post("/profile/photo", (req, res) => {
+  const user = res.locals.currentUser;
+  if (!user) return res.redirect("/login");
+  if (user.role !== "WORKER") {
+    return res.status(403).render("unauthorized", { title: req.t("notAllowedTitle") });
+  }
+  const uploadProfilePhoto = staffUpload.single("profile_photo");
+  uploadProfilePhoto(req, res, (err) => {
+    if (err) {
+      return res.redirect("/records/profile?error=profilePhotoInvalid");
+    }
+    if (!req.file) {
+      return res.redirect("/records/profile?error=profilePhotoRequired");
+    }
+    const photoPath = `/uploads/${req.file.filename}`;
+    const existing = db.prepare("SELECT id FROM worker_documents WHERE worker_id = ?").get(user.id);
+    if (existing) {
+      db.prepare(
+        "UPDATE worker_documents SET photo_path = ?, updated_at = datetime('now') WHERE worker_id = ?"
+      ).run(photoPath, user.id);
+    } else {
+      db.prepare(
+        "INSERT INTO worker_documents (worker_id, doc_type, photo_path, created_at, updated_at) VALUES (?, NULL, ?, datetime('now'), datetime('now'))"
+      ).run(user.id, photoPath);
+    }
+    logActivity({
+      userId: user.id,
+      action: "update",
+      entityType: "worker_profile_photo",
+      entityId: user.id,
+      details: `photo=${photoPath}`
+    });
+    return res.redirect("/records/profile?photo_saved=1");
+  });
+});
+
+router.post("/profile/photo/delete", (req, res) => {
+  const user = res.locals.currentUser;
+  if (!user) return res.redirect("/login");
+  if (user.role !== "WORKER") {
+    return res.status(403).render("unauthorized", { title: req.t("notAllowedTitle") });
+  }
+  const existing = db.prepare("SELECT id, photo_path FROM worker_documents WHERE worker_id = ?").get(user.id);
+  if (!existing || !existing.photo_path) {
+    return res.redirect("/records/profile?error=profilePhotoMissing");
+  }
+  db.prepare(
+    "UPDATE worker_documents SET photo_path = NULL, updated_at = datetime('now') WHERE worker_id = ?"
+  ).run(user.id);
+  logActivity({
+    userId: user.id,
+    action: "delete",
+    entityType: "worker_profile_photo",
+    entityId: user.id,
+    details: "photo_deleted=1"
+  });
+  return res.redirect("/records/profile?photo_deleted=1");
 });
 
 router.post("/profile/attendance", (req, res) => {
@@ -5980,12 +6577,9 @@ router.get("/vehicle-expenses", (req, res) => {
   const to = req.query.to || dayjs().format("YYYY-MM-DD");
   const vehicleIdRaw = Number(req.query.vehicle_id || 0);
   const vehicleId = Number.isInteger(vehicleIdRaw) && vehicleIdRaw > 0 ? vehicleIdRaw : null;
-  const complianceVehicleRaw = Number(req.query.compliance_vehicle_id || 0);
-  const complianceVehicleId = Number.isInteger(complianceVehicleRaw) && complianceVehicleRaw > 0 ? complianceVehicleRaw : null;
   const selectedType = String(req.query.expense_type || "").trim().toUpperCase();
   const expenseType = vehicleExpenseTypes.includes(selectedType) ? selectedType : "ALL";
   const q = String(req.query.q || "").trim();
-  const todayDate = dayjs().format("YYYY-MM-DD");
   const vehicles = db.prepare(
     "SELECT id, vehicle_number, owner_name, is_company FROM vehicles WHERE is_company = 1 ORDER BY vehicle_number"
   ).all();
@@ -6034,42 +6628,11 @@ router.get("/vehicle-expenses", (req, res) => {
     return acc;
   }, { total: 0, paid: 0, due: 0, fuel: 0, repair: 0, service: 0, other: 0 });
 
-  const complianceRows = db.prepare(
-    `SELECT vehicles.id as vehicle_id,
-            vehicles.vehicle_number,
-            vehicles.owner_name,
-            vehicle_compliance.insurance_expiry,
-            vehicle_compliance.tax_expiry,
-            vehicle_compliance.permit_expiry,
-            vehicle_compliance.fitness_expiry,
-            vehicle_compliance.pollution_expiry,
-            vehicle_compliance.note,
-            vehicle_compliance.updated_at,
-            users.full_name as updated_by_name
-     FROM vehicles
-     LEFT JOIN vehicle_compliance ON vehicle_compliance.vehicle_id = vehicles.id
-     LEFT JOIN users ON users.id = vehicle_compliance.updated_by
-     WHERE vehicles.is_company = 1
-     ORDER BY vehicles.vehicle_number ASC`
-  ).all().map((row) => getComplianceSummaryRow(row, todayDate));
-  const complianceCounts = complianceRows.reduce((acc, row) => {
-    if (row.overall_status === "EXPIRED") acc.expired += 1;
-    else if (row.overall_status === "DUE_SOON") acc.dueSoon += 1;
-    else if (row.overall_status === "NOT_SET") acc.notSet += 1;
-    else acc.valid += 1;
-    return acc;
-  }, { expired: 0, dueSoon: 0, notSet: 0, valid: 0 });
-  const selectedCompliance = complianceRows.find((row) => row.vehicle_id === complianceVehicleId)
-    || complianceRows[0]
-    || null;
-
   const status = req.query.status || "";
   const errorKey = req.query.error || "";
   const error = errorKey ? req.t(errorKey) : null;
   const success = status === "saved"
     ? req.t("vehicleExpenseSaved")
-    : status === "compliance_saved"
-      ? req.t("vehicleComplianceSaved")
     : status === "payment_saved"
       ? req.t("vehicleExpensePaymentSaved")
       : status === "payment_deleted"
@@ -6088,75 +6651,10 @@ router.get("/vehicle-expenses", (req, res) => {
     vehicles,
     rows,
     totals,
-    todayDate,
-    complianceRows,
-    complianceCounts,
-    selectedCompliance,
     error,
     success,
     resolveExpenseTypeLabel: (value) => getVehicleExpenseTypeLabel(value, req.t)
   });
-});
-
-router.post("/vehicle-compliance/:vehicleId", (req, res) => {
-  const vehicleId = Number(req.params.vehicleId || 0);
-  const from = String(req.body.from || "").trim();
-  const to = String(req.body.to || "").trim();
-  if (!vehicleId) {
-    return res.redirect(`/records/vehicle-expenses?from=${from || dayjs().startOf("month").format("YYYY-MM-DD")}&to=${to || dayjs().format("YYYY-MM-DD")}&error=vehicleComplianceVehicleRequired`);
-  }
-  const vehicle = db.prepare("SELECT id, is_company FROM vehicles WHERE id = ?").get(vehicleId);
-  if (!vehicle || Number(vehicle.is_company) !== 1) {
-    return res.redirect(`/records/vehicle-expenses?from=${from || dayjs().startOf("month").format("YYYY-MM-DD")}&to=${to || dayjs().format("YYYY-MM-DD")}&error=vehicleExpenseCompanyOnly`);
-  }
-  const insuranceExpiry = parseOptionalDate(req.body.insurance_expiry);
-  const taxExpiry = parseOptionalDate(req.body.tax_expiry);
-  const permitExpiry = parseOptionalDate(req.body.permit_expiry);
-  const fitnessExpiry = parseOptionalDate(req.body.fitness_expiry);
-  const pollutionExpiry = parseOptionalDate(req.body.pollution_expiry);
-  const note = String(req.body.compliance_note || "").trim();
-
-  db.prepare(
-    `INSERT INTO vehicle_compliance (
-      vehicle_id,
-      insurance_expiry,
-      tax_expiry,
-      permit_expiry,
-      fitness_expiry,
-      pollution_expiry,
-      note,
-      updated_by,
-      updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
-    ON CONFLICT(vehicle_id) DO UPDATE SET
-      insurance_expiry = excluded.insurance_expiry,
-      tax_expiry = excluded.tax_expiry,
-      permit_expiry = excluded.permit_expiry,
-      fitness_expiry = excluded.fitness_expiry,
-      pollution_expiry = excluded.pollution_expiry,
-      note = excluded.note,
-      updated_by = excluded.updated_by,
-      updated_at = datetime('now')`
-  ).run(
-    vehicleId,
-    insuranceExpiry,
-    taxExpiry,
-    permitExpiry,
-    fitnessExpiry,
-    pollutionExpiry,
-    note || null,
-    req.session.userId || null
-  );
-
-  logActivity({
-    userId: req.session.userId,
-    action: "update",
-    entityType: "vehicle_compliance",
-    entityId: vehicleId,
-    details: `insurance=${insuranceExpiry || ""}; tax=${taxExpiry || ""}; permit=${permitExpiry || ""}; fitness=${fitnessExpiry || ""}; pollution=${pollutionExpiry || ""}`
-  });
-
-  return res.redirect(`/records/vehicle-expenses?from=${from || dayjs().startOf("month").format("YYYY-MM-DD")}&to=${to || dayjs().format("YYYY-MM-DD")}&status=compliance_saved&compliance_vehicle_id=${vehicleId}`);
 });
 
 router.post("/vehicle-expenses", (req, res) => {
@@ -7348,6 +7846,494 @@ router.post("/savings/:id/delete", (req, res) => {
   });
   db.prepare("DELETE FROM vehicle_savings WHERE id = ?").run(req.params.id);
   res.redirect(`/records/savings?from=${entry.entry_date}&to=${entry.entry_date}&vehicle_id=${entry.vehicle_id}`);
+});
+
+router.get("/cleaning-routines", (req, res) => {
+  const staffOptions = db.prepare(
+    "SELECT full_name FROM staff WHERE is_active = 1 ORDER BY full_name COLLATE NOCASE"
+  ).all();
+  const from = req.query.from || dayjs().format("YYYY-MM-DD");
+  const to = req.query.to || dayjs().format("YYYY-MM-DD");
+  const statusFilter = String(req.query.status_filter || "all").trim().toUpperCase();
+  const q = String(req.query.q || "").trim();
+  const where = ["routine_date BETWEEN ? AND ?"];
+  const params = [from, to];
+  if (statusFilter && statusFilter !== "ALL") {
+    where.push("status = ?");
+    params.push(statusFilter);
+  }
+  if (q) {
+    where.push("(area_name LIKE ? OR task_name LIKE ? OR COALESCE(cleaned_by, '') LIKE ? OR COALESCE(note, '') LIKE ?)");
+    params.push(`%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`);
+  }
+
+  const rows = db.prepare(
+    `SELECT daily_cleaning_routines.*, users.full_name AS recorded_by
+     FROM daily_cleaning_routines
+     LEFT JOIN users ON users.id = daily_cleaning_routines.created_by
+     WHERE ${where.join(" AND ")}
+     ORDER BY routine_date DESC, created_at DESC`
+  ).all(...params);
+  const errorKey = String(req.query.error || "").trim();
+  const status = String(req.query.status || "").trim();
+  const error = errorKey ? req.t(errorKey) : null;
+  const success = status === "saved"
+    ? req.t("cleaningRoutineSaved")
+    : status === "updated"
+      ? req.t("cleaningRoutineUpdated")
+      : status === "deleted"
+        ? req.t("cleaningRoutineDeleted")
+        : null;
+
+  res.render("records/cleaning_routines", {
+    title: req.t("cleaningRoutinesTitle"),
+    from,
+    to,
+    q,
+    statusFilter,
+    staffOptions,
+    rows,
+    error,
+    success
+  });
+});
+
+router.post("/cleaning-routines", (req, res) => {
+  const selectedStaffNames = Array.isArray(req.body.cleaned_by)
+    ? req.body.cleaned_by
+    : typeof req.body.cleaned_by === "undefined"
+      ? []
+      : [req.body.cleaned_by];
+  const cleanedBy = Array.from(
+    new Set(
+      selectedStaffNames
+        .map((name) => String(name || "").trim())
+        .filter(Boolean)
+    )
+  ).join(", ");
+  const routineDate = String(req.body.routine_date || "").trim();
+  const shift = String(req.body.shift || "MORNING").trim().toUpperCase() === "EVENING" ? "EVENING" : "MORNING";
+  const areaName = String(req.body.area_name || "").trim();
+  const taskName = String(req.body.task_name || "").trim();
+  const statusValueRaw = String(req.body.status || "PENDING").trim().toUpperCase();
+  const statusValue = ["DONE", "SKIPPED"].includes(statusValueRaw) ? statusValueRaw : "PENDING";
+  const note = String(req.body.note || "").trim();
+  if (!routineDate || !areaName || !taskName) {
+    return res.redirect(`/records/cleaning-routines?from=${routineDate || dayjs().format("YYYY-MM-DD")}&to=${routineDate || dayjs().format("YYYY-MM-DD")}&error=cleaningRoutineRequired`);
+  }
+  const result = db.prepare(
+    `INSERT INTO daily_cleaning_routines (routine_date, shift, area_name, task_name, cleaned_by, status, note, created_by)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(routineDate, shift, areaName, taskName, cleanedBy || null, statusValue, note || null, req.session.userId || null);
+
+  logActivity({
+    userId: req.session.userId,
+    action: "create",
+    entityType: "daily_cleaning_routine",
+    entityId: result.lastInsertRowid,
+    details: `date=${routineDate}, shift=${shift}, area=${areaName}, task=${taskName}, status=${statusValue}`
+  });
+
+  res.redirect(`/records/cleaning-routines?from=${routineDate}&to=${routineDate}&status=saved`);
+});
+
+router.post("/cleaning-routines/:id/status", (req, res) => {
+  const record = db.prepare("SELECT * FROM daily_cleaning_routines WHERE id = ?").get(req.params.id);
+  if (!record) return res.redirect("/records/cleaning-routines");
+  const statusValueRaw = String(req.body.status || "PENDING").trim().toUpperCase();
+  const statusValue = ["DONE", "SKIPPED"].includes(statusValueRaw) ? statusValueRaw : "PENDING";
+  const cleanedBy = Array.from(
+    new Set(
+      (Array.isArray(req.body.cleaned_by) ? req.body.cleaned_by : typeof req.body.cleaned_by === "undefined" ? [] : [req.body.cleaned_by])
+        .map((name) => String(name || "").trim())
+        .filter(Boolean)
+    )
+  ).join(", ");
+  const note = String(req.body.note || "").trim();
+  db.prepare(
+    "UPDATE daily_cleaning_routines SET status = ?, cleaned_by = ?, note = ?, updated_at = datetime('now') WHERE id = ?"
+  ).run(statusValue, cleanedBy || record.cleaned_by || null, note || record.note || null, req.params.id);
+
+  logActivity({
+    userId: req.session.userId,
+    action: "update",
+    entityType: "daily_cleaning_routine",
+    entityId: req.params.id,
+    details: buildDiffDetails(
+      record,
+      {
+        status: statusValue,
+        cleaned_by: cleanedBy || record.cleaned_by || null,
+        note: note || record.note || null
+      },
+      ["status", "cleaned_by", "note"]
+    )
+  });
+
+  res.redirect(`/records/cleaning-routines?from=${record.routine_date}&to=${record.routine_date}&status=updated`);
+});
+
+router.post("/cleaning-routines/:id/delete", (req, res) => {
+  const record = db.prepare("SELECT * FROM daily_cleaning_routines WHERE id = ?").get(req.params.id);
+  if (!record) return res.redirect("/records/cleaning-routines");
+  db.prepare("DELETE FROM daily_cleaning_routines WHERE id = ?").run(req.params.id);
+  logActivity({
+    userId: req.session.userId,
+    action: "delete",
+    entityType: "daily_cleaning_routine",
+    entityId: req.params.id,
+    details: `date=${record.routine_date}, area=${record.area_name}, task=${record.task_name}`
+  });
+  res.redirect(`/records/cleaning-routines?from=${record.routine_date}&to=${record.routine_date}&status=deleted`);
+});
+
+router.get("/leakage-sales", (req, res) => {
+  const from = req.query.from || dayjs().subtract(7, "day").format("YYYY-MM-DD");
+  const to = req.query.to || dayjs().format("YYYY-MM-DD");
+  const q = String(req.query.q || "").trim();
+  const where = ["sale_date BETWEEN ? AND ?"];
+  const params = [from, to];
+  if (q) {
+    where.push("COALESCE(note, '') LIKE ?");
+    params.push(`%${q}%`);
+  }
+  const rows = db.prepare(
+    `SELECT leakage_jar_sales.*, users.full_name AS recorded_by
+     FROM leakage_jar_sales
+     LEFT JOIN users ON users.id = leakage_jar_sales.created_by
+     WHERE ${where.join(" AND ")}
+     ORDER BY sale_date DESC, created_at DESC`
+  ).all(...params);
+  const totals = rows.reduce((acc, row) => {
+    acc.quantity += Number(row.quantity || 0);
+    acc.total = parseMoneyValue(acc.total + Number(row.total_amount || 0));
+    acc.paid = parseMoneyValue(acc.paid + Number(row.paid_amount || 0));
+    acc.credit = parseMoneyValue(acc.credit + Number(row.credit_amount || 0));
+    return acc;
+  }, { quantity: 0, total: 0, paid: 0, credit: 0 });
+  const errorKey = String(req.query.error || "").trim();
+  const status = String(req.query.status || "").trim();
+  const error = errorKey ? req.t(errorKey) : null;
+  const success = status === "saved"
+    ? req.t("leakageJarSaleSaved")
+    : status === "updated"
+      ? req.t("leakageJarSaleUpdated")
+    : status === "deleted"
+      ? req.t("leakageJarSaleDeleted")
+      : null;
+
+  res.render("records/leakage_sales", {
+    title: req.t("leakageJarSalesTitle"),
+    from,
+    to,
+    q,
+    rows,
+    totals,
+    error,
+    success
+  });
+});
+
+router.post("/leakage-sales", (req, res) => {
+  const saleDate = String(req.body.sale_date || "").trim();
+  const quantity = Math.max(0, Math.floor(Number(req.body.quantity || 0)));
+  const unitPrice = parseMoneyValue(req.body.unit_price || 0);
+  const totalAmount = parseMoneyValue(quantity * unitPrice);
+  const paymentParsed = parsePaymentBreakdownFromBody(req.body, {
+    cashField: "paid_cash_amount",
+    bankField: "paid_bank_amount",
+    ewalletField: "paid_ewallet_amount",
+    amountField: "paid_amount",
+    methodField: "payment_method",
+    maxTotal: totalAmount,
+    strictMax: true
+  });
+  if (!saleDate || quantity <= 0 || unitPrice <= 0) {
+    return res.redirect(`/records/leakage-sales?from=${saleDate || dayjs().format("YYYY-MM-DD")}&to=${saleDate || dayjs().format("YYYY-MM-DD")}&error=leakageJarSaleRequired`);
+  }
+  if (paymentParsed.isOverLimit) {
+    return res.redirect(`/records/leakage-sales?from=${saleDate}&to=${saleDate}&error=paidMoreThanTotal`);
+  }
+  const paidBreakdown = paymentParsed.breakdown;
+  const paidAmount = sumPaymentBreakdown(paidBreakdown);
+  const note = String(req.body.note || "").trim();
+  let result = null;
+  let paymentReceiptNo = "";
+  runInTransaction(() => {
+    result = db.prepare(
+      `INSERT INTO leakage_jar_sales (
+        sale_date, quantity, unit_price, total_amount, paid_amount, paid_cash_amount, paid_bank_amount, paid_ewallet_amount, payment_method, credit_amount, note, created_by
+       ) VALUES (?, ?, ?, ?, 0, 0, 0, 0, 'CASH', ?, ?, ?)`
+    ).run(
+      saleDate,
+      quantity,
+      unitPrice,
+      totalAmount,
+      totalAmount,
+      note || null,
+      req.session.userId || null
+    );
+
+    if (paidAmount > 0) {
+      const paymentId = db.prepare(
+        `INSERT INTO leakage_jar_sale_payments (
+          leakage_jar_sale_id, payment_date, amount, cash_amount, bank_amount, ewallet_amount, payment_method, note, created_by
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ).run(
+        result.lastInsertRowid,
+        saleDate,
+        paidAmount,
+        paidBreakdown.cash,
+        paidBreakdown.bank,
+        paidBreakdown.eWallet,
+        getPaymentMethodFromBreakdown(
+          paidBreakdown,
+          normalizePaymentMethod(req.body.payment_method),
+          true
+        ),
+        req.t("openingPaymentNote"),
+        req.session.userId || null
+      ).lastInsertRowid;
+      paymentReceiptNo = ensurePaymentReceiptNo("leakage_jar_sale_payments", paymentId, saleDate);
+    }
+
+    syncLeakageJarSaleTotals(result.lastInsertRowid);
+  });
+
+  const createdRow = db.prepare("SELECT * FROM leakage_jar_sales WHERE id = ?").get(result.lastInsertRowid);
+  logActivity({
+    userId: req.session.userId,
+    action: "create",
+    entityType: "leakage_jar_sale",
+    entityId: result.lastInsertRowid,
+    details: `date=${saleDate}, qty=${quantity}, total=${totalAmount}, paid=${createdRow?.paid_amount || 0}, credit=${createdRow?.credit_amount || 0}${paymentReceiptNo ? `, receipt=${paymentReceiptNo}` : ""}`
+  });
+  res.redirect(`/records/leakage-sales?from=${saleDate}&to=${saleDate}&status=saved`);
+});
+
+router.get("/leakage-sales/:id/edit", (req, res) => {
+  const record = db.prepare("SELECT * FROM leakage_jar_sales WHERE id = ?").get(req.params.id);
+  if (!record) return res.redirect("/records/leakage-sales");
+  const errorKey = String(req.query.error || "").trim();
+  res.render("records/leakage_sale_form", {
+    title: req.t("editLeakageJarSaleTitle"),
+    record,
+    error: errorKey ? req.t(errorKey) : null
+  });
+});
+
+router.post("/leakage-sales/:id", (req, res) => {
+  const record = db.prepare("SELECT * FROM leakage_jar_sales WHERE id = ?").get(req.params.id);
+  if (!record) return res.redirect("/records/leakage-sales");
+
+  const saleDate = String(req.body.sale_date || "").trim();
+  const quantity = Math.max(0, Math.floor(Number(req.body.quantity || 0)));
+  const unitPrice = parseMoneyValue(req.body.unit_price || 0);
+  const totalAmount = parseMoneyValue(quantity * unitPrice);
+  const note = String(req.body.note || "").trim();
+
+  if (!saleDate || quantity <= 0 || unitPrice <= 0) {
+    return res.redirect(`/records/leakage-sales/${record.id}/edit?error=leakageJarSaleRequired`);
+  }
+  if (parseMoneyValue(record.paid_amount || 0) > totalAmount) {
+    return res.redirect(`/records/leakage-sales/${record.id}/edit?error=paidMoreThanTotal`);
+  }
+
+  runInTransaction(() => {
+    db.prepare(
+      `UPDATE leakage_jar_sales
+       SET sale_date = ?,
+           quantity = ?,
+           unit_price = ?,
+           total_amount = ?,
+           note = ?,
+           updated_at = datetime('now')
+       WHERE id = ?`
+    ).run(
+      saleDate,
+      quantity,
+      unitPrice,
+      totalAmount,
+      note || null,
+      record.id
+    );
+    syncLeakageJarSaleTotals(record.id);
+  });
+
+  const updated = db.prepare("SELECT * FROM leakage_jar_sales WHERE id = ?").get(record.id);
+  logActivity({
+    userId: req.session.userId,
+    action: "update",
+    entityType: "leakage_jar_sale",
+    entityId: record.id,
+    details: buildDiffDetails(record, updated, [
+      "sale_date",
+      "quantity",
+      "unit_price",
+      "total_amount",
+      "credit_amount",
+      "note"
+    ])
+  });
+
+  return res.redirect(`/records/leakage-sales?from=${saleDate}&to=${saleDate}&status=updated`);
+});
+
+router.get("/leakage-sales/:id/payments", (req, res) => {
+  const record = db.prepare("SELECT * FROM leakage_jar_sales WHERE id = ?").get(req.params.id);
+  if (!record) return res.redirect("/records/leakage-sales");
+  const payments = db.prepare(
+    `SELECT leakage_jar_sale_payments.*, users.full_name AS recorded_by
+     FROM leakage_jar_sale_payments
+     LEFT JOIN users ON users.id = leakage_jar_sale_payments.created_by
+     WHERE leakage_jar_sale_payments.leakage_jar_sale_id = ?
+     ORDER BY leakage_jar_sale_payments.payment_date DESC, leakage_jar_sale_payments.id DESC`
+  ).all(req.params.id);
+  const remaining = computeRemainingMoney(record.total_amount || 0, record.paid_amount || 0);
+  const errorKey = String(req.query.error || "").trim();
+  const status = String(req.query.status || "").trim();
+  res.render("records/leakage_sale_payments", {
+    title: req.t("leakageJarSalePaymentsTitle"),
+    record,
+    payments,
+    remaining,
+    error: errorKey ? req.t(errorKey) : null,
+    success: status === "payment_saved"
+      ? req.t("leakageJarSalePaymentSaved")
+      : status === "payment_deleted"
+        ? req.t("leakageJarSalePaymentDeleted")
+        : null
+  });
+});
+
+router.post("/leakage-sales/:id/payments", (req, res) => {
+  const record = db.prepare("SELECT * FROM leakage_jar_sales WHERE id = ?").get(req.params.id);
+  if (!record) return res.redirect("/records/leakage-sales");
+  const remaining = computeRemainingMoney(record.total_amount || 0, record.paid_amount || 0);
+  if (remaining <= 0) {
+    return res.redirect(`/records/leakage-sales/${req.params.id}/payments?error=noBalanceDue`);
+  }
+
+  const paymentDate = String(req.body.payment_date || dayjs().format("YYYY-MM-DD")).trim();
+  const paymentParsed = parsePaymentBreakdownFromBody(req.body, {
+    cashField: "cash_amount",
+    bankField: "bank_amount",
+    ewalletField: "ewallet_amount",
+    amountField: "payment_amount",
+    methodField: "payment_method",
+    maxTotal: remaining,
+    strictMax: true
+  });
+  if (paymentParsed.total <= 0) {
+    return res.redirect(`/records/leakage-sales/${req.params.id}/payments?error=invalidPaymentAmount`);
+  }
+  if (paymentParsed.isOverLimit) {
+    return res.redirect(`/records/leakage-sales/${req.params.id}/payments?error=paidMoreThanDue`);
+  }
+
+  const note = String(req.body.note || "").trim();
+  let paymentId = null;
+  let receiptNo = "";
+  const priorPaid = parseMoneyValue(record.paid_amount || 0);
+  const priorCredit = parseMoneyValue(record.credit_amount || 0);
+  runInTransaction(() => {
+    paymentId = db.prepare(
+      `INSERT INTO leakage_jar_sale_payments (
+        leakage_jar_sale_id, payment_date, amount, cash_amount, bank_amount, ewallet_amount, payment_method, note, created_by
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      record.id,
+      paymentDate,
+      paymentParsed.total,
+      paymentParsed.breakdown.cash,
+      paymentParsed.breakdown.bank,
+      paymentParsed.breakdown.eWallet,
+      getPaymentMethodFromBreakdown(paymentParsed.breakdown, paymentParsed.primaryMethod, true),
+      note || null,
+      req.session.userId || null
+    ).lastInsertRowid;
+    receiptNo = ensurePaymentReceiptNo("leakage_jar_sale_payments", paymentId, paymentDate);
+    syncLeakageJarSaleTotals(record.id);
+  });
+
+  const updated = db.prepare("SELECT paid_amount, credit_amount FROM leakage_jar_sales WHERE id = ?").get(record.id);
+  logActivity({
+    userId: req.session.userId,
+    action: "payment",
+    entityType: "leakage_jar_sale",
+    entityId: record.id,
+    details: `receipt=${receiptNo}; payment=${paymentParsed.total}; method=${getPaymentMethodFromBreakdown(paymentParsed.breakdown, paymentParsed.primaryMethod, true)}; cash=${paymentParsed.breakdown.cash || 0}; bank=${paymentParsed.breakdown.bank || 0}; ewallet=${paymentParsed.breakdown.eWallet || 0}; paid_amount: ${formatDiffValue(priorPaid)} -> ${formatDiffValue(updated?.paid_amount)}; credit_amount: ${formatDiffValue(priorCredit)} -> ${formatDiffValue(updated?.credit_amount)}`
+  });
+
+  return res.redirect(`/records/leakage-sales/${record.id}/payments?status=payment_saved`);
+});
+
+router.post("/leakage-sales/payments/:id/delete", (req, res) => {
+  const payment = db.prepare("SELECT * FROM leakage_jar_sale_payments WHERE id = ?").get(req.params.id);
+  if (!payment) return res.redirect("/records/leakage-sales");
+  const record = db.prepare("SELECT * FROM leakage_jar_sales WHERE id = ?").get(payment.leakage_jar_sale_id);
+  if (!record) return res.redirect("/records/leakage-sales");
+
+  runInTransaction(() => {
+    db.prepare("DELETE FROM leakage_jar_sale_payments WHERE id = ?").run(req.params.id);
+    syncLeakageJarSaleTotals(record.id);
+  });
+
+  logActivity({
+    userId: req.session.userId,
+    action: "delete",
+    entityType: "leakage_jar_sale_payment",
+    entityId: req.params.id,
+    details: `leakage_sale_id=${record.id}; receipt=${payment.receipt_no || ""}; amount=${payment.amount || 0}`
+  });
+
+  return res.redirect(`/records/leakage-sales/${record.id}/payments?status=payment_deleted`);
+});
+
+router.get("/leakage-sales/payments/:id/print", (req, res) => {
+  const payment = db.prepare(
+    `SELECT leakage_jar_sale_payments.*, leakage_jar_sales.sale_date, leakage_jar_sales.quantity, leakage_jar_sales.note as sale_note
+     FROM leakage_jar_sale_payments
+     JOIN leakage_jar_sales ON leakage_jar_sales.id = leakage_jar_sale_payments.leakage_jar_sale_id
+     WHERE leakage_jar_sale_payments.id = ?`
+  ).get(req.params.id);
+  if (!payment) return res.redirect("/records/leakage-sales");
+  const receiptNo = ensurePaymentReceiptNo("leakage_jar_sale_payments", req.params.id, payment.payment_date || payment.sale_date);
+  const methodLabel = getPaymentMethodLabel(payment.payment_method, req.t);
+  const splitParts = [];
+  if (Number(payment.cash_amount || 0) > 0) splitParts.push(`${req.t("methodCash")}: ${payment.cash_amount}`);
+  if (Number(payment.bank_amount || 0) > 0) splitParts.push(`${req.t("methodBank")}: ${payment.bank_amount}`);
+  if (Number(payment.ewallet_amount || 0) > 0) splitParts.push(`${req.t("methodEWallet")}: ${payment.ewallet_amount}`);
+  const noteParts = [payment.note, splitParts.join(" | ")].filter(Boolean);
+  return res.render("records/payment_receipt_print", {
+    title: req.t("paymentReceiptTitle"),
+    printSubtitle: req.t("leakageJarSalesTitle"),
+    moduleLabel: req.t("leakageJarSalesTitle"),
+    autoPrint: req.query.autoprint === "1",
+    receiptNo,
+    paymentDate: payment.payment_date || payment.sale_date,
+    createdAt: payment.created_at || payment.payment_date,
+    amount: Number(payment.amount || 0),
+    paymentMethodLabel: methodLabel,
+    paymentSourceLabel: req.t("leakageJarSalesTitle"),
+    referenceNo: `${req.t("leakageJarSalesTitle")} • #${payment.leakage_jar_sale_id}`,
+    partyName: `${req.t("quantity")}: ${payment.quantity || 0}`,
+    note: noteParts.length ? noteParts.join(" | ") : (payment.sale_note || "-")
+  });
+});
+
+router.post("/leakage-sales/:id/delete", (req, res) => {
+  const record = db.prepare("SELECT * FROM leakage_jar_sales WHERE id = ?").get(req.params.id);
+  if (!record) return res.redirect("/records/leakage-sales");
+  db.prepare("DELETE FROM leakage_jar_sales WHERE id = ?").run(req.params.id);
+  logActivity({
+    userId: req.session.userId,
+    action: "delete",
+    entityType: "leakage_jar_sale",
+    entityId: req.params.id,
+    details: `date=${record.sale_date}, qty=${record.quantity}, total=${record.total_amount}`
+  });
+  res.redirect(`/records/leakage-sales?from=${record.sale_date}&to=${record.sale_date}&status=deleted`);
 });
 
 router.get("/jar-sales", (req, res) => {

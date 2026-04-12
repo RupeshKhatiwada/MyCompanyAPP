@@ -1,0 +1,174 @@
+<%- include('../partials/shell-start', { title }) %>
+<section class="py-8">
+  <div class="flex flex-wrap items-center justify-between gap-3">
+    <div>
+      <h1 class="text-3xl font-semibold"><%= t('leakageJarSalePaymentsTitle') %></h1>
+      <p class="text-slate-600"><%= t('leakageJarSalePaymentsSubtitle') %></p>
+    </div>
+    <a class="btn-outline" href="/records/leakage-sales?from=<%= record.sale_date %>&to=<%= record.sale_date %>"><%= t('back') %></a>
+  </div>
+
+  <% if (error) { %>
+    <div class="mt-4 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700"><%= error %></div>
+  <% } %>
+  <% if (success) { %>
+    <div class="mt-4 rounded-lg bg-emerald-50 px-4 py-3 text-sm text-emerald-700"><%= success %></div>
+  <% } %>
+
+  <div class="mt-6 grid gap-4 lg:grid-cols-4">
+    <div class="card p-4">
+      <p class="text-slate-500"><%= t('date') %></p>
+      <p class="text-lg font-semibold"><%= record.sale_date %></p>
+    </div>
+    <div class="card p-4">
+      <p class="text-slate-500"><%= t('quantity') %></p>
+      <p class="text-lg font-semibold"><%= Number(record.quantity || 0) %></p>
+    </div>
+    <div class="card p-4">
+      <p class="text-slate-500"><%= t('totalAmount') %></p>
+      <p class="text-lg font-semibold"><%= Number(record.total_amount || 0) %></p>
+    </div>
+    <div class="card p-4">
+      <p class="text-slate-500"><%= t('remainingAmount') %></p>
+      <p class="text-lg font-semibold"><%= Number(remaining || 0) %></p>
+    </div>
+  </div>
+
+  <div class="mt-6 grid gap-6 lg:grid-cols-[360px_minmax(0,1fr)]">
+    <div class="card p-6">
+      <h2 class="text-lg font-semibold"><%= t('addPayment') %></h2>
+      <form class="mt-4 space-y-4" method="post" action="/records/leakage-sales/<%= record.id %>/payments">
+        <div>
+          <label class="label"><%= t('date') %></label>
+          <input class="input" type="date" name="payment_date" value="<%= record.sale_date %>" required />
+        </div>
+        <div class="grid gap-3 sm:grid-cols-3 lg:grid-cols-1 xl:grid-cols-3">
+          <div>
+            <label class="label"><%= t('methodCash') %></label>
+            <input class="input" type="number" step="0.01" min="0" max="<%= Number(remaining || 0) %>" name="cash_amount" data-cash />
+          </div>
+          <div>
+            <label class="label"><%= t('methodBank') %></label>
+            <input class="input" type="number" step="0.01" min="0" max="<%= Number(remaining || 0) %>" name="bank_amount" data-bank />
+          </div>
+          <div>
+            <label class="label"><%= t('methodEWallet') %></label>
+            <input class="input" type="number" step="0.01" min="0" max="<%= Number(remaining || 0) %>" name="ewallet_amount" data-ewallet />
+          </div>
+        </div>
+        <div>
+          <label class="label"><%= t('paymentAmount') %></label>
+          <input class="input bg-slate-50" type="number" step="0.01" min="0" name="payment_amount" data-total readonly />
+        </div>
+        <div>
+          <label class="label"><%= t('note') %></label>
+          <input class="input" type="text" name="note" />
+        </div>
+        <input type="hidden" name="payment_method" value="CASH" />
+        <button class="btn-primary w-full" type="submit"><%= t('savePayment') %></button>
+      </form>
+    </div>
+
+    <div class="card overflow-hidden">
+      <div class="overflow-x-auto">
+        <table class="table-base">
+          <thead class="table-head">
+            <tr>
+              <th class="px-4 py-3"><%= t('date') %></th>
+              <th class="px-4 py-3"><%= t('paymentReceiptNo') %></th>
+              <th class="px-4 py-3"><%= t('amount') %></th>
+              <th class="px-4 py-3"><%= t('paymentMethodLabel') %></th>
+              <th class="px-4 py-3"><%= t('note') %></th>
+              <th class="px-4 py-3"><%= t('recordedBy') %></th>
+              <th class="table-action-sticky px-4 py-3 text-right"><%= t('actions') %></th>
+            </tr>
+          </thead>
+          <tbody>
+            <% if (!payments || payments.length === 0) { %>
+              <tr>
+                <td class="px-4 py-4 text-slate-500" colspan="7"><%= t('noPayments') %></td>
+              </tr>
+            <% } %>
+            <% payments.forEach((payment) => { %>
+              <% const methodLabel = payment.payment_method === 'BANK' ? t('methodBank') : payment.payment_method === 'E_WALLET' ? t('methodEWallet') : payment.payment_method === 'MIXED' ? t('methodMixed') : t('methodCash'); %>
+              <% const splitParts = []; %>
+              <% if (Number(payment.cash_amount || 0) > 0) splitParts.push(`${t('methodCash')}: ${payment.cash_amount}`); %>
+              <% if (Number(payment.bank_amount || 0) > 0) splitParts.push(`${t('methodBank')}: ${payment.bank_amount}`); %>
+              <% if (Number(payment.ewallet_amount || 0) > 0) splitParts.push(`${t('methodEWallet')}: ${payment.ewallet_amount}`); %>
+              <tr class="table-row">
+                <td class="px-4 py-3"><%= payment.payment_date %></td>
+                <td class="px-4 py-3"><%= payment.receipt_no || '-' %></td>
+                <td class="px-4 py-3"><%= Number(payment.amount || 0) %></td>
+                <td class="px-4 py-3">
+                  <div><%= methodLabel %></div>
+                  <% if (splitParts.length > 1) { %>
+                    <div class="text-xs text-slate-500"><%= splitParts.join(' • ') %></div>
+                  <% } %>
+                </td>
+                <td class="px-4 py-3"><%= payment.note || '-' %></td>
+                <td class="px-4 py-3"><%= payment.recorded_by || '-' %></td>
+                <td class="table-action-sticky px-4 py-3 text-right">
+                  <div class="flex justify-end gap-2">
+                    <a class="btn-outline" href="/records/leakage-sales/payments/<%= payment.id %>/print?autoprint=1" target="_blank"><%= t('print') %></a>
+                    <form method="post" action="/records/leakage-sales/payments/<%= payment.id %>/delete" onsubmit="return confirm('<%= t('deletePaymentConfirm') %>');">
+                      <button class="btn-outline" type="submit"><%= t('delete') %></button>
+                    </form>
+                  </div>
+                </td>
+              </tr>
+            <% }) %>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</section>
+
+<script>
+  (() => {
+    const maxTotal = Number("<%= Number(remaining || 0) %>");
+    const cashInput = document.querySelector("[data-cash]");
+    const bankInput = document.querySelector("[data-bank]");
+    const walletInput = document.querySelector("[data-ewallet]");
+    const totalInput = document.querySelector("[data-total]");
+    const methodInput = document.querySelector('input[name="payment_method"]');
+    if (!cashInput || !bankInput || !walletInput || !totalInput) return;
+
+    const toSafe = (value) => {
+      const num = Number(value || 0);
+      if (Number.isNaN(num) || num < 0) return 0;
+      return num;
+    };
+    const formatMoneyInput = (value) => {
+      const safe = Math.round(toSafe(value) * 100) / 100;
+      return safe > 0 ? String(safe) : "";
+    };
+
+    const recalc = () => {
+      let cash = toSafe(cashInput.value);
+      let bank = toSafe(bankInput.value);
+      let wallet = toSafe(walletInput.value);
+      let remainingTotal = Math.max(maxTotal, 0);
+      const clamp = (value) => {
+        const used = Math.min(value, remainingTotal);
+        remainingTotal -= used;
+        return used;
+      };
+      cash = clamp(cash);
+      bank = clamp(bank);
+      wallet = clamp(wallet);
+      cashInput.value = formatMoneyInput(cash);
+      bankInput.value = formatMoneyInput(bank);
+      walletInput.value = formatMoneyInput(wallet);
+      const total = cash + bank + wallet;
+      totalInput.value = formatMoneyInput(total);
+      if (methodInput) {
+        methodInput.value = wallet > 0 ? "E_WALLET" : bank > 0 ? "BANK" : "CASH";
+      }
+    };
+
+    [cashInput, bankInput, walletInput].forEach((el) => el.addEventListener("input", recalc));
+    recalc();
+  })();
+</script>
+<%- include('../partials/shell-end') %>

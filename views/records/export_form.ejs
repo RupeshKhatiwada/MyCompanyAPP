@@ -41,6 +41,10 @@
       const paidCashValue = pickValue('paid_cash_amount', fallbackMethod === 'CASH' ? paidAmountFallback : 0);
       const paidBankValue = pickValue('paid_bank_amount', fallbackMethod === 'BANK' ? paidAmountFallback : 0);
       const paidEWalletValue = pickValue('paid_ewallet_amount', fallbackMethod === 'E_WALLET' ? paidAmountFallback : 0);
+      const partnerSavingsDefault = typeof partnerSavingsAmount !== 'undefined' ? partnerSavingsAmount : 0;
+      const partnerSavingsValue = pickValue('partner_savings_amount', partnerSavingsDefault);
+      const expenseAmountValue = pickValue('expense_amount', 0);
+      const expenseNoteValue = pickValue('expense_note', '');
     %>
     <form method="post" action="<%= record ? '/records/exports/' + record.id : '/records/exports' %>" class="space-y-4">
       <% if (duplicateWarningValue && duplicateWarningValue.type === 'export') { %>
@@ -209,6 +213,24 @@
         <input class="input" type="number" min="0" step="0.01" name="collection_amount" value="<%= pickValue('collection_amount', 0) %>" data-collection />
         <p class="mt-1 text-xs text-slate-500"><%= t('collectionHint') %></p>
       </div>
+      <div id="expenseWrap" class="hidden grid gap-3 sm:grid-cols-2">
+        <div>
+          <label class="label"><%= t('expenseAmount') %></label>
+          <input class="input" type="number" min="0" step="0.01" name="expense_amount" value="<%= expenseAmountValue %>" data-expense-amount />
+        </div>
+        <div>
+          <label class="label"><%= t('expenseNote') %></label>
+          <input class="input" type="text" name="expense_note" value="<%= expenseNoteValue %>" data-expense-note />
+        </div>
+        <div class="sm:col-span-2">
+          <p class="text-xs text-slate-500"><%= t('expenseHint') %></p>
+        </div>
+      </div>
+      <div id="partnerSavingsWrap">
+        <label class="label"><%= t('partnerSavingsAmount') %></label>
+        <input class="input" type="number" min="0" step="0.01" name="partner_savings_amount" value="<%= partnerSavingsValue %>" data-partner-savings />
+        <p class="mt-1 text-xs text-slate-500"><%= t('partnerSavingsHint') %></p>
+      </div>
       <div>
         <label class="label"><%= t('note') %></label>
         <input class="input" type="text" name="note" value="<%= pickValue('note', '') %>" />
@@ -269,8 +291,13 @@
     const priceFields = Array.from(document.querySelectorAll('.price-only'));
     const paidWrap = document.getElementById('paidWrap');
     const collectionWrap = document.getElementById('collectionWrap');
+    const expenseWrap = document.getElementById('expenseWrap');
     const soldJarWrap = document.getElementById('soldJarWrap');
     const collectionInput = document.querySelector('[data-collection]');
+    const expenseAmountInput = document.querySelector('[data-expense-amount]');
+    const expenseNoteInput = document.querySelector('[data-expense-note]');
+    const partnerSavingsWrap = document.getElementById('partnerSavingsWrap');
+    const partnerSavingsInput = document.querySelector('[data-partner-savings]');
     const totalEl = document.getElementById('totalAmount');
     const creditEl = document.getElementById('creditAmount');
     const netJarsEl = document.getElementById('netJars');
@@ -308,6 +335,7 @@
       if (Number.isNaN(paidBank) || paidBank < 0) paidBank = 0;
       if (Number.isNaN(paidEWallet) || paidEWallet < 0) paidEWallet = 0;
       const collection = Number(collectionInput?.value || 0);
+      const expenseAmount = Number(expenseAmountInput?.value || 0);
       const netJars = Math.max(0, jarCount - returnJars - leakageJars);
       const netBottles = Math.max(0, bottleCount - returnBottles);
       const dispenserAmount = Math.max(0, dispenserCount) * Math.max(0, dispenserPrice);
@@ -315,6 +343,7 @@
       const total = netJars * jarPrice + netBottles * bottlePrice + dispenserAmount + soldAmount;
       const companyVehicle = isCompanyVehicle();
       const safeCollection = Math.max(collection, 0);
+      const safeExpense = Math.max(expenseAmount, 0);
       let paidSafe = 0;
       if (companyVehicle) {
         paidCash = safeCollection;
@@ -341,7 +370,7 @@
       if (netBottlesEl) netBottlesEl.textContent = netBottles;
       if (soldAmountEl) soldAmountEl.textContent = soldAmount.toFixed(2);
       if (dispenserAmountEl) dispenserAmountEl.textContent = dispenserAmount.toFixed(2);
-      if (totalEl) totalEl.textContent = (companyVehicle ? safeCollection : total).toFixed(2);
+      if (totalEl) totalEl.textContent = (companyVehicle ? Math.max(0, safeCollection - safeExpense) : total).toFixed(2);
       if (creditEl) creditEl.textContent = companyVehicle ? "0.00" : Math.max(0, total - paidSafe).toFixed(2);
     };
 
@@ -362,12 +391,18 @@
       const isCompany = isCompanyVehicle();
       if (paidWrap) paidWrap.classList.toggle('hidden', isCompany);
       collectionWrap.classList.toggle('hidden', !isCompany);
+      if (expenseWrap) expenseWrap.classList.toggle('hidden', !isCompany);
       if (soldJarWrap) soldJarWrap.classList.toggle('hidden', !isCompany);
+      if (partnerSavingsWrap) partnerSavingsWrap.classList.toggle('hidden', isCompany);
       priceFields.forEach((el) => el.classList.toggle('hidden', isCompany));
       if (!isCompany) {
         if (soldJarInput) soldJarInput.value = "0";
         if (soldPriceInput) soldPriceInput.value = "0";
         if (collectionInput) collectionInput.value = "0";
+        if (expenseAmountInput) expenseAmountInput.value = "0";
+        if (expenseNoteInput) expenseNoteInput.value = "";
+      } else if (partnerSavingsInput) {
+        partnerSavingsInput.value = "0";
       }
       if (jarPriceInput) {
         if (isCompany) jarPriceInput.value = "0";
@@ -387,7 +422,7 @@
       recalc();
     };
 
-    [jarInput, bottleInput, dispenserInput, jarPriceInput, bottlePriceInput, dispenserPriceInput, returnJarInput, returnBottleInput, leakageJarInput, soldJarInput, soldPriceInput, paidCashInput, paidBankInput, paidEWalletInput, collectionInput].forEach((el) => {
+    [jarInput, bottleInput, dispenserInput, jarPriceInput, bottlePriceInput, dispenserPriceInput, returnJarInput, returnBottleInput, leakageJarInput, soldJarInput, soldPriceInput, paidCashInput, paidBankInput, paidEWalletInput, collectionInput, expenseAmountInput].forEach((el) => {
       if (el) el.addEventListener('input', recalc);
     });
     if (vehicleSelect) vehicleSelect.addEventListener('change', toggleCollection);

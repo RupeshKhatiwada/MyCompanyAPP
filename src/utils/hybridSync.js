@@ -16,6 +16,8 @@ const HYBRID_SYNC_TABLES = [
   { name: "jar_types", idColumn: "id" },
   { name: "jar_cap_types", idColumn: "id" },
   { name: "jar_sales", idColumn: "id" },
+  { name: "leakage_jar_sales", idColumn: "id" },
+  { name: "leakage_jar_sale_payments", idColumn: "id" },
   { name: "import_item_types", idColumn: "id" },
   { name: "import_entries", idColumn: "id" },
   { name: "import_payments", idColumn: "id" },
@@ -33,6 +35,7 @@ const HYBRID_SYNC_TABLES = [
   { name: "staff_salary_payments", idColumn: "id" },
   { name: "worker_salary_payments", idColumn: "id" },
   { name: "water_test_reports", idColumn: "id" },
+  { name: "daily_cleaning_routines", idColumn: "id" },
   { name: "jar_sale_payments", idColumn: "id" },
   { name: "day_closures", idColumn: "closure_date" },
   { name: "settings", idColumn: "key" }

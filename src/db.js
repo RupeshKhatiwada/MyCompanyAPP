@@ -33,6 +33,9 @@ const HYBRID_SYNC_TABLES = [
   { name: "credit_payments", pk: "id" },
   { name: "jar_sales", pk: "id" },
   { name: "jar_sale_payments", pk: "id" },
+  { name: "leakage_jar_sales", pk: "id" },
+  { name: "leakage_jar_sale_payments", pk: "id" },
+  { name: "daily_cleaning_routines", pk: "id" },
   { name: "import_entries", pk: "id" },
   { name: "import_payments", pk: "id" },
   { name: "company_purchases", pk: "id" },
@@ -345,6 +348,7 @@ CREATE TABLE IF NOT EXISTS exports (
   vehicle_id INTEGER NOT NULL,
   export_date TEXT NOT NULL,
   jar_count INTEGER NOT NULL DEFAULT 0,
+  jar_container_given_count INTEGER NOT NULL DEFAULT 0,
   bottle_case_count INTEGER NOT NULL DEFAULT 0,
   dispenser_count INTEGER NOT NULL DEFAULT 0,
   jar_unit_price REAL NOT NULL DEFAULT 0,
@@ -564,6 +568,66 @@ CREATE TABLE IF NOT EXISTS jar_sale_payments (
 CREATE INDEX IF NOT EXISTS idx_jar_sale_payments_sale ON jar_sale_payments(jar_sale_id);
 CREATE INDEX IF NOT EXISTS idx_jar_sale_payments_date ON jar_sale_payments(payment_date);
 
+CREATE TABLE IF NOT EXISTS leakage_jar_sales (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  sale_date TEXT NOT NULL,
+  quantity INTEGER NOT NULL DEFAULT 0,
+  unit_price REAL NOT NULL DEFAULT 0,
+  total_amount REAL NOT NULL DEFAULT 0,
+  paid_amount REAL NOT NULL DEFAULT 0,
+  paid_cash_amount REAL NOT NULL DEFAULT 0,
+  paid_bank_amount REAL NOT NULL DEFAULT 0,
+  paid_ewallet_amount REAL NOT NULL DEFAULT 0,
+  payment_method TEXT NOT NULL DEFAULT 'CASH',
+  credit_amount REAL NOT NULL DEFAULT 0,
+  note TEXT,
+  created_by INTEGER,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  FOREIGN KEY (created_by) REFERENCES users(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_leakage_jar_sales_date ON leakage_jar_sales(sale_date);
+
+CREATE TABLE IF NOT EXISTS leakage_jar_sale_payments (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  leakage_jar_sale_id INTEGER NOT NULL,
+  payment_date TEXT NOT NULL,
+  amount REAL NOT NULL DEFAULT 0,
+  cash_amount REAL NOT NULL DEFAULT 0,
+  bank_amount REAL NOT NULL DEFAULT 0,
+  ewallet_amount REAL NOT NULL DEFAULT 0,
+  payment_method TEXT NOT NULL DEFAULT 'CASH',
+  note TEXT,
+  receipt_no TEXT,
+  created_by INTEGER,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  FOREIGN KEY (leakage_jar_sale_id) REFERENCES leakage_jar_sales(id) ON DELETE CASCADE,
+  FOREIGN KEY (created_by) REFERENCES users(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_leakage_jar_sale_payments_sale ON leakage_jar_sale_payments(leakage_jar_sale_id);
+CREATE INDEX IF NOT EXISTS idx_leakage_jar_sale_payments_date ON leakage_jar_sale_payments(payment_date);
+
+CREATE TABLE IF NOT EXISTS daily_cleaning_routines (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  routine_date TEXT NOT NULL,
+  shift TEXT NOT NULL DEFAULT 'MORNING',
+  area_name TEXT NOT NULL,
+  task_name TEXT NOT NULL,
+  cleaned_by TEXT,
+  status TEXT NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING','DONE','SKIPPED')),
+  note TEXT,
+  created_by INTEGER,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  FOREIGN KEY (created_by) REFERENCES users(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_daily_cleaning_routines_date ON daily_cleaning_routines(routine_date);
+CREATE INDEX IF NOT EXISTS idx_daily_cleaning_routines_status ON daily_cleaning_routines(status);
+
 CREATE TABLE IF NOT EXISTS import_item_types (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   code TEXT UNIQUE NOT NULL,
@@ -580,6 +644,7 @@ CREATE TABLE IF NOT EXISTS import_entries (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   item_type TEXT NOT NULL,
   quantity INTEGER NOT NULL DEFAULT 0,
+  unit_price REAL NOT NULL DEFAULT 0,
   direction TEXT NOT NULL DEFAULT 'IN',
   jar_type_id INTEGER,
   jar_cap_type_id INTEGER,
@@ -732,6 +797,7 @@ CREATE INDEX IF NOT EXISTS idx_water_test_reports_date ON water_test_reports(tes
 CREATE TABLE IF NOT EXISTS vehicle_savings (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   vehicle_id INTEGER NOT NULL,
+  export_id INTEGER,
   entry_date TEXT NOT NULL,
   amount REAL NOT NULL DEFAULT 0,
   payment_source TEXT NOT NULL DEFAULT 'DAILY_COLLECTION',
@@ -739,6 +805,7 @@ CREATE TABLE IF NOT EXISTS vehicle_savings (
   created_by INTEGER,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   FOREIGN KEY (vehicle_id) REFERENCES vehicles(id) ON DELETE CASCADE,
+  FOREIGN KEY (export_id) REFERENCES exports(id) ON DELETE SET NULL,
   FOREIGN KEY (created_by) REFERENCES users(id)
 );
 
@@ -870,6 +937,38 @@ CREATE TABLE IF NOT EXISTS worker_salary_payments (
 
 CREATE INDEX IF NOT EXISTS idx_worker_salary_date ON worker_salary_payments(payment_date);
 CREATE INDEX IF NOT EXISTS idx_worker_salary_worker ON worker_salary_payments(worker_id);
+
+CREATE TABLE IF NOT EXISTS staff_salary_adjustments (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  staff_id INTEGER NOT NULL,
+  effective_month TEXT NOT NULL,
+  previous_salary REAL NOT NULL DEFAULT 0,
+  new_salary REAL NOT NULL DEFAULT 0,
+  note TEXT,
+  created_by INTEGER,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  FOREIGN KEY (staff_id) REFERENCES staff(id) ON DELETE CASCADE,
+  FOREIGN KEY (created_by) REFERENCES users(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_staff_salary_adjustments_staff ON staff_salary_adjustments(staff_id);
+CREATE INDEX IF NOT EXISTS idx_staff_salary_adjustments_month ON staff_salary_adjustments(effective_month);
+
+CREATE TABLE IF NOT EXISTS worker_salary_adjustments (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  worker_id INTEGER NOT NULL,
+  effective_month TEXT NOT NULL,
+  previous_salary REAL NOT NULL DEFAULT 0,
+  new_salary REAL NOT NULL DEFAULT 0,
+  note TEXT,
+  created_by INTEGER,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  FOREIGN KEY (worker_id) REFERENCES users(id) ON DELETE CASCADE,
+  FOREIGN KEY (created_by) REFERENCES users(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_worker_salary_adjustments_worker ON worker_salary_adjustments(worker_id);
+CREATE INDEX IF NOT EXISTS idx_worker_salary_adjustments_month ON worker_salary_adjustments(effective_month);
 
 CREATE TABLE IF NOT EXISTS worker_documents (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1038,6 +1137,10 @@ if (!userColumns.has("deactivated_by")) {
 if (!userColumns.has("fingerprint_id")) {
   db.exec("ALTER TABLE users ADD COLUMN fingerprint_id TEXT;");
 }
+if (!userColumns.has("theme_preset")) {
+  db.exec("ALTER TABLE users ADD COLUMN theme_preset TEXT NOT NULL DEFAULT 'classic';");
+}
+db.exec("UPDATE users SET theme_preset = 'classic' WHERE theme_preset IS NULL OR TRIM(theme_preset) = '';");
 db.exec("CREATE INDEX IF NOT EXISTS idx_users_fingerprint ON users(fingerprint_id);");
 
 const creditColumns = new Set(
@@ -1148,6 +1251,16 @@ if (!importColumns.has("seller_name")) {
 }
 if (!importColumns.has("total_amount")) {
   db.exec("ALTER TABLE import_entries ADD COLUMN total_amount REAL NOT NULL DEFAULT 0;");
+}
+if (!importColumns.has("unit_price")) {
+  db.exec("ALTER TABLE import_entries ADD COLUMN unit_price REAL NOT NULL DEFAULT 0;");
+  db.exec(
+    `UPDATE import_entries
+     SET unit_price = CASE
+       WHEN COALESCE(quantity, 0) > 0 THEN ROUND(COALESCE(total_amount, 0) / quantity, 6)
+       ELSE 0
+     END`
+  );
 }
 if (!importColumns.has("paid_amount")) {
   db.exec("ALTER TABLE import_entries ADD COLUMN paid_amount REAL NOT NULL DEFAULT 0;");
@@ -1279,6 +1392,9 @@ if (vehicleExpenseTable && vehicleExpenseTable.sql && !vehicleExpenseTable.sql.i
 const vehicleExpenseColumns = new Set(
   db.prepare("PRAGMA table_info(vehicle_expenses)").all().map((col) => col.name)
 );
+if (!vehicleExpenseColumns.has("export_id")) {
+  db.exec("ALTER TABLE vehicle_expenses ADD COLUMN export_id INTEGER;");
+}
 if (!vehicleExpenseColumns.has("paid_amount")) {
   db.exec("ALTER TABLE vehicle_expenses ADD COLUMN paid_amount REAL NOT NULL DEFAULT 0;");
   db.exec("UPDATE vehicle_expenses SET paid_amount = amount WHERE paid_amount IS NULL OR paid_amount = 0;");
@@ -1286,6 +1402,7 @@ if (!vehicleExpenseColumns.has("paid_amount")) {
 if (!vehicleExpenseColumns.has("is_credit")) {
   db.exec("ALTER TABLE vehicle_expenses ADD COLUMN is_credit INTEGER NOT NULL DEFAULT 0;");
 }
+db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_vehicle_expenses_export ON vehicle_expenses(export_id);");
 
 db.exec(
   `CREATE TABLE IF NOT EXISTS vehicle_expense_payments (
@@ -1392,6 +1509,9 @@ if (!exportColumns.has("credit_amount")) {
 }
 if (!exportColumns.has("return_jar_count")) {
   db.exec("ALTER TABLE exports ADD COLUMN return_jar_count INTEGER NOT NULL DEFAULT 0;");
+}
+if (!exportColumns.has("jar_container_given_count")) {
+  db.exec("ALTER TABLE exports ADD COLUMN jar_container_given_count INTEGER NOT NULL DEFAULT 0;");
 }
 if (!exportColumns.has("return_bottle_case_count")) {
   db.exec("ALTER TABLE exports ADD COLUMN return_bottle_case_count INTEGER NOT NULL DEFAULT 0;");
@@ -1516,6 +1636,9 @@ db.exec("CREATE INDEX IF NOT EXISTS idx_worker_salary_source ON worker_salary_pa
 const vehicleSavingsColumns = new Set(
   db.prepare("PRAGMA table_info(vehicle_savings)").all().map((col) => col.name)
 );
+if (vehicleSavingsColumns.size > 0 && !vehicleSavingsColumns.has("export_id")) {
+  db.exec("ALTER TABLE vehicle_savings ADD COLUMN export_id INTEGER;");
+}
 if (vehicleSavingsColumns.size > 0 && !vehicleSavingsColumns.has("payment_source")) {
   db.exec("ALTER TABLE vehicle_savings ADD COLUMN payment_source TEXT NOT NULL DEFAULT 'DAILY_COLLECTION';");
 }
@@ -1529,6 +1652,7 @@ db.exec(
   "UPDATE vehicle_savings SET payment_source = 'DAILY_COLLECTION' WHERE amount >= 0;"
 );
 db.exec("CREATE INDEX IF NOT EXISTS idx_vehicle_savings_source ON vehicle_savings(payment_source);");
+db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_vehicle_savings_export ON vehicle_savings(export_id);");
 db.exec("UPDATE rent_entries SET payment_method = 'CASH' WHERE payment_method IS NULL OR TRIM(payment_method) = '';");
 db.exec("UPDATE rent_entries SET payment_method = 'CASH' WHERE payment_method NOT IN ('CASH','BANK','E_WALLET');");
 db.exec("UPDATE rent_entries SET add_to_collection = CASE WHEN add_to_collection = 0 THEN 0 ELSE 1 END;");
@@ -1570,6 +1694,48 @@ if (jarSalePaymentColumns.size > 0 && !jarSalePaymentColumns.has("receipt_no")) 
   db.exec("ALTER TABLE jar_sale_payments ADD COLUMN receipt_no TEXT;");
 }
 db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_jar_sale_payments_receipt_no ON jar_sale_payments(receipt_no);");
+
+const leakageJarSalePaymentColumns = new Set(
+  db.prepare("PRAGMA table_info(leakage_jar_sale_payments)").all().map((col) => col.name)
+);
+if (leakageJarSalePaymentColumns.size > 0 && !leakageJarSalePaymentColumns.has("cash_amount")) {
+  db.exec("ALTER TABLE leakage_jar_sale_payments ADD COLUMN cash_amount REAL NOT NULL DEFAULT 0;");
+}
+if (leakageJarSalePaymentColumns.size > 0 && !leakageJarSalePaymentColumns.has("bank_amount")) {
+  db.exec("ALTER TABLE leakage_jar_sale_payments ADD COLUMN bank_amount REAL NOT NULL DEFAULT 0;");
+}
+if (leakageJarSalePaymentColumns.size > 0 && !leakageJarSalePaymentColumns.has("ewallet_amount")) {
+  db.exec("ALTER TABLE leakage_jar_sale_payments ADD COLUMN ewallet_amount REAL NOT NULL DEFAULT 0;");
+}
+if (leakageJarSalePaymentColumns.size > 0 && !leakageJarSalePaymentColumns.has("payment_method")) {
+  db.exec("ALTER TABLE leakage_jar_sale_payments ADD COLUMN payment_method TEXT NOT NULL DEFAULT 'CASH';");
+}
+if (leakageJarSalePaymentColumns.size > 0 && !leakageJarSalePaymentColumns.has("receipt_no")) {
+  db.exec("ALTER TABLE leakage_jar_sale_payments ADD COLUMN receipt_no TEXT;");
+}
+if (leakageJarSalePaymentColumns.size > 0 && !leakageJarSalePaymentColumns.has("updated_at")) {
+  db.exec("ALTER TABLE leakage_jar_sale_payments ADD COLUMN updated_at TEXT NOT NULL DEFAULT (datetime('now'));");
+}
+db.exec("UPDATE leakage_jar_sale_payments SET payment_method = 'CASH' WHERE payment_method IS NULL OR TRIM(payment_method) = '';");
+db.exec("UPDATE leakage_jar_sale_payments SET payment_method = 'CASH' WHERE payment_method NOT IN ('CASH','BANK','E_WALLET','MIXED');");
+db.exec("UPDATE leakage_jar_sale_payments SET cash_amount = 0 WHERE cash_amount IS NULL OR cash_amount < 0;");
+db.exec("UPDATE leakage_jar_sale_payments SET bank_amount = 0 WHERE bank_amount IS NULL OR bank_amount < 0;");
+db.exec("UPDATE leakage_jar_sale_payments SET ewallet_amount = 0 WHERE ewallet_amount IS NULL OR ewallet_amount < 0;");
+db.exec(
+  `UPDATE leakage_jar_sale_payments
+   SET cash_amount = CASE WHEN payment_method = 'CASH' THEN amount ELSE 0 END,
+       bank_amount = CASE WHEN payment_method = 'BANK' THEN amount ELSE 0 END,
+       ewallet_amount = CASE WHEN payment_method = 'E_WALLET' THEN amount ELSE 0 END
+   WHERE COALESCE(amount, 0) > 0
+     AND COALESCE(cash_amount, 0) = 0
+     AND COALESCE(bank_amount, 0) = 0
+     AND COALESCE(ewallet_amount, 0) = 0`
+);
+db.exec(
+  `UPDATE leakage_jar_sale_payments
+   SET amount = ROUND(COALESCE(cash_amount, 0) + COALESCE(bank_amount, 0) + COALESCE(ewallet_amount, 0), 2)`
+);
+db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_leakage_jar_sale_payments_receipt_no ON leakage_jar_sale_payments(receipt_no);");
 
 if (jarTypeColumns.size > 0 && !jarTypeColumns.has("updated_at")) {
   db.exec("ALTER TABLE jar_types ADD COLUMN updated_at TEXT NOT NULL DEFAULT (datetime('now'));");
@@ -1710,6 +1876,11 @@ db.exec(
    WHERE receipt_no IS NULL OR TRIM(receipt_no) = ''`
 );
 db.exec(
+  `UPDATE leakage_jar_sale_payments
+   SET receipt_no = 'LJP-' || COALESCE(NULLIF(REPLACE(payment_date, '-', ''), ''), strftime('%Y%m%d', 'now')) || '-' || printf('%06d', id)
+   WHERE receipt_no IS NULL OR TRIM(receipt_no) = ''`
+);
+db.exec(
   "CREATE UNIQUE INDEX IF NOT EXISTS idx_exports_receipt_no ON exports(receipt_no);"
 );
 db.exec(
@@ -1735,6 +1906,9 @@ db.exec(
 );
 db.exec(
   "CREATE UNIQUE INDEX IF NOT EXISTS idx_jar_sale_payments_receipt_no ON jar_sale_payments(receipt_no);"
+);
+db.exec(
+  "CREATE UNIQUE INDEX IF NOT EXISTS idx_leakage_jar_sale_payments_receipt_no ON leakage_jar_sale_payments(receipt_no);"
 );
 db.exec(
   `UPDATE recycle_bin
@@ -1974,6 +2148,84 @@ db.exec(
 );
 db.exec(
   `UPDATE jar_sales
+   SET credit_amount = CASE
+     WHEN total_amount - paid_amount > 0 THEN total_amount - paid_amount
+     ELSE 0
+   END`
+);
+
+const leakageJarSalePaymentCount = db.prepare("SELECT COUNT(*) as count FROM leakage_jar_sale_payments").get().count;
+if (leakageJarSalePaymentCount === 0) {
+  const existingLeakageSalePayments = db.prepare(
+    `SELECT id, sale_date, paid_amount, paid_cash_amount, paid_bank_amount, paid_ewallet_amount, payment_method, created_by
+     FROM leakage_jar_sales
+     WHERE paid_amount > 0`
+  ).all();
+  const insertLeakageSalePayment = db.prepare(
+    `INSERT INTO leakage_jar_sale_payments (
+      leakage_jar_sale_id, payment_date, amount, cash_amount, bank_amount, ewallet_amount, payment_method, note, created_by
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  );
+  existingLeakageSalePayments.forEach((row) => {
+    insertLeakageSalePayment.run(
+      row.id,
+      row.sale_date || new Date().toISOString().slice(0, 10),
+      Number(row.paid_amount || 0),
+      Number(row.paid_cash_amount || 0),
+      Number(row.paid_bank_amount || 0),
+      Number(row.paid_ewallet_amount || 0),
+      row.payment_method || "CASH",
+      "Opening payment",
+      row.created_by || null
+    );
+  });
+}
+db.exec(
+  `INSERT INTO leakage_jar_sale_payments (
+      leakage_jar_sale_id, payment_date, amount, cash_amount, bank_amount, ewallet_amount, payment_method, note, created_by
+   )
+   SELECT leakage_jar_sales.id,
+          COALESCE(NULLIF(leakage_jar_sales.sale_date, ''), date('now')),
+          leakage_jar_sales.paid_amount,
+          COALESCE(leakage_jar_sales.paid_cash_amount, 0),
+          COALESCE(leakage_jar_sales.paid_bank_amount, 0),
+          COALESCE(leakage_jar_sales.paid_ewallet_amount, 0),
+          COALESCE(NULLIF(leakage_jar_sales.payment_method, ''), 'CASH'),
+          'Opening payment',
+          leakage_jar_sales.created_by
+   FROM leakage_jar_sales
+   WHERE leakage_jar_sales.paid_amount > 0
+     AND NOT EXISTS (
+       SELECT 1
+       FROM leakage_jar_sale_payments
+       WHERE leakage_jar_sale_payments.leakage_jar_sale_id = leakage_jar_sales.id
+     )`
+);
+db.exec(
+  `UPDATE leakage_jar_sales
+   SET paid_amount = COALESCE((
+     SELECT ROUND(SUM(leakage_jar_sale_payments.amount), 2)
+     FROM leakage_jar_sale_payments
+     WHERE leakage_jar_sale_payments.leakage_jar_sale_id = leakage_jar_sales.id
+   ), 0),
+       paid_cash_amount = COALESCE((
+         SELECT ROUND(SUM(leakage_jar_sale_payments.cash_amount), 2)
+         FROM leakage_jar_sale_payments
+         WHERE leakage_jar_sale_payments.leakage_jar_sale_id = leakage_jar_sales.id
+       ), 0),
+       paid_bank_amount = COALESCE((
+         SELECT ROUND(SUM(leakage_jar_sale_payments.bank_amount), 2)
+         FROM leakage_jar_sale_payments
+         WHERE leakage_jar_sale_payments.leakage_jar_sale_id = leakage_jar_sales.id
+       ), 0),
+       paid_ewallet_amount = COALESCE((
+         SELECT ROUND(SUM(leakage_jar_sale_payments.ewallet_amount), 2)
+         FROM leakage_jar_sale_payments
+         WHERE leakage_jar_sale_payments.leakage_jar_sale_id = leakage_jar_sales.id
+       ), 0)`
+);
+db.exec(
+  `UPDATE leakage_jar_sales
    SET credit_amount = CASE
      WHEN total_amount - paid_amount > 0 THEN total_amount - paid_amount
      ELSE 0

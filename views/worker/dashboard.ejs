@@ -1,53 +1,11 @@
 <%- include('../partials/shell-start', { title }) %>
 <section class="py-8">
-  <div class="page-header flex flex-wrap items-center justify-between gap-6">
-    <div>
-      <h1 class="text-3xl font-semibold"><%= t('workerDashboardTitle') %></h1>
-      <p class="mt-2 text-slate-600"><%= t('workerWelcome') %></p>
-    </div>
-    <% const alertSummary = (typeof workerAlerts !== 'undefined' && workerAlerts) ? workerAlerts : { totalAlerts: 0, lowStockCount: 0, pendingCustomerCount: 0, pendingCustomerAmount: 0, pendingVehicleCount: 0, pendingVehicleAmount: 0 } %>
-    <div class="flex items-center gap-3">
-      <a class="btn-outline relative" href="/records/alerts">
-        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M15 17h5l-1.4-1.4A2 2 0 0 1 18 14.2V11a6 6 0 1 0-12 0v3.2a2 2 0 0 1-.6 1.4L4 17h5m6 0a3 3 0 1 1-6 0m6 0H9"/>
-        </svg>
-        <span class="ml-2"><%= t('alertCenterTitle') %></span>
-        <% if (alertSummary.totalAlerts > 0) { %>
-          <span class="ml-2 badge bg-red-100 text-red-700"><%= alertSummary.totalAlerts %></span>
-        <% } %>
-      </a>
-      <a class="btn-outline" href="/records/history"><%= t('activityLogTitle') %></a>
-    </div>
-  </div>
-
-  <div class="mt-4 card p-4">
-    <form class="flex flex-wrap items-end gap-3" method="get" action="/search">
-      <div class="min-w-[220px] flex-1">
-        <label class="label"><%= t('search') %></label>
-        <input class="input" type="text" name="q" placeholder="<%= t('searchGlobal') %>" />
-      </div>
-      <button class="btn-primary" type="submit"><%= t('search') %></button>
-    </form>
-  </div>
-
-  <div class="mt-4 card p-6">
-    <h2 class="text-lg font-semibold"><%= t('quickActions') %></h2>
-    <div class="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-      <a class="btn-primary w-full justify-start" href="/records/exports/new"><%= t('addExport') %></a>
-      <a class="btn-outline w-full justify-start" href="/records/credits/new"><%= t('addCredit') %></a>
-      <a class="btn-outline w-full justify-start" href="/records/vehicle-expenses"><%= t('vehicleExpensesTitle') %></a>
-      <a class="btn-outline w-full justify-start" href="/records/rentals"><%= t('rentalsTitle') %></a>
-      <a class="btn-outline w-full justify-start" href="/records/reconciliation"><%= t('reconciliationTitle') %></a>
-      <a class="btn-outline w-full justify-start" href="/records/water-tests"><%= t('waterTestsTitle') %></a>
-      <a class="btn-outline w-full justify-start" href="/records/jar-sales/new"><%= t('addJarSaleTitle') %></a>
-      <a class="btn-outline w-full justify-start" href="/records/staffs"><%= t('staffsTitle') %></a>
-    </div>
-  </div>
-
+  <% const alertSummary = (typeof workerAlerts !== 'undefined' && workerAlerts) ? workerAlerts : { totalAlerts: 0, lowStockCount: 0, pendingCustomerCount: 0, pendingCustomerAmount: 0, pendingVehicleCount: 0, pendingVehicleAmount: 0 } %>
   <% const finance = (typeof dailyFinance !== 'undefined' && dailyFinance) ? dailyFinance : {
     date: today || '',
     exports: { trips: 0, total: 0, paid: 0, credit: 0 },
     jarSales: { count: 0, total: 0, paid: 0, credit: 0 },
+    leakageJarSales: { count: 0, total: 0, paid: 0, collected: 0, paymentCount: 0, collectedByMethod: { cash: 0, bank: 0, eWallet: 0 }, credit: 0 },
     customerCredits: { count: 0, total: 0, paid: 0, remaining: 0, openCount: 0, openRemaining: 0 },
     vehicleCredits: { trips: 0, total: 0, remaining: 0, openTrips: 0, openRemaining: 0 },
     salaries: { paymentCount: 0, total: 0, fromCollection: 0, fromOther: 0, allTimeTotal: 0, allTimeCount: 0, allTimeFromCollection: 0, allTimeFromOther: 0 },
@@ -61,6 +19,104 @@
     vehicleRows: []
   } %>
   <% const paidMethods = (finance.totals && finance.totals.paidByMethod) ? finance.totals.paidByMethod : { cash: 0, bank: 0, eWallet: 0 } %>
+  <div class="dashboard-hero">
+    <div class="grid gap-5 xl:grid-cols-[1.1fr_0.9fr] xl:items-start">
+      <div>
+        <p class="dashboard-kicker"><%= t('dashboard') %></p>
+        <h1 class="mt-2 text-3xl font-semibold text-slate-900"><%= t('workerDashboardTitle') %></h1>
+        <p class="mt-3 max-w-2xl text-sm leading-6 text-slate-600"><%= t('workerDashboardLead') %></p>
+        <div class="mt-4 flex flex-wrap gap-2">
+          <span class="pill"><%= t('selectedDate') %>: <%= formatDateDual(finance.date) %></span>
+          <span class="pill"><%= t('alertCenterTitle') %>: <%= alertSummary.totalAlerts %></span>
+          <span class="pill"><%= t('openCredits') %>: <%= (finance.customerCredits.openRemaining || 0) + (finance.vehicleCredits.openRemaining || 0) %></span>
+        </div>
+      </div>
+      <div class="card card-soft p-5">
+        <p class="dashboard-kicker"><%= t('search') %></p>
+        <p class="mt-2 text-sm text-slate-600"><%= t('dashboardSearchHint') %></p>
+        <form class="mt-4 flex flex-col gap-3" method="get" action="/worker">
+          <div class="flex flex-col gap-3 sm:flex-row">
+            <div class="flex-1">
+              <label class="sr-only" for="workerDashboardDate"><%= t('date') %></label>
+              <input class="input" id="workerDashboardDate" type="date" name="date" value="<%= finance.date %>" />
+            </div>
+            <button class="btn-primary sm:min-w-[120px]" type="submit"><%= t('filter') %></button>
+          </div>
+        </form>
+        <form class="mt-3 flex flex-col gap-3 sm:flex-row" method="get" action="/search">
+          <input class="input flex-1" type="text" name="q" placeholder="<%= t('searchGlobal') %>" />
+          <button class="btn-outline sm:min-w-[120px]" type="submit"><%= t('search') %></button>
+        </form>
+        <div class="mt-4 flex flex-wrap gap-2">
+          <a class="btn-outline relative" href="/records/alerts">
+            <span><%= t('alertCenterTitle') %></span>
+            <% if (alertSummary.totalAlerts > 0) { %>
+              <span class="ml-2 badge bg-red-100 text-red-700"><%= alertSummary.totalAlerts %></span>
+            <% } %>
+          </a>
+          <a class="btn-outline" href="/records/history"><%= t('activityLogTitle') %></a>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="mt-6 dashboard-panel">
+    <div class="flex flex-wrap items-center justify-between gap-3">
+      <div>
+        <h2 class="dashboard-panel-title"><%= t('quickActions') %></h2>
+        <p class="dashboard-panel-subtitle"><%= t('quickActionsWorkerHint') %></p>
+      </div>
+    </div>
+    <div class="action-grid mt-4">
+      <a class="action-card action-card-primary" href="/records/exports/new">
+        <p class="action-title"><%= t('addExport') %></p>
+        <p class="action-copy"><%= t('dashboardActionExportCopy') %></p>
+      </a>
+      <a class="action-card" href="/records/credits/new">
+        <p class="action-title"><%= t('recordPayment') %> / <%= t('addCredit') %></p>
+        <p class="action-copy"><%= t('dashboardActionCreditCopy') %></p>
+      </a>
+      <a class="action-card" href="/records/staff-attendance">
+        <p class="action-title"><%= t('markAttendance') %></p>
+        <p class="action-copy"><%= t('dashboardActionAttendanceCopy') %></p>
+      </a>
+      <a class="action-card" href="/records/company-purchases">
+        <p class="action-title"><%= t('addExpense') %></p>
+        <p class="action-copy"><%= t('dashboardActionExpenseCopy') %></p>
+      </a>
+      <a class="action-card" href="/records/imports">
+        <p class="action-title"><%= t('updateStock') %></p>
+        <p class="action-copy"><%= t('dashboardActionStockCopy') %></p>
+      </a>
+      <a class="action-card" href="/records/reconciliation">
+        <p class="action-title"><%= t('reconciliationTitle') %></p>
+        <p class="action-copy"><%= t('dashboardActionReconciliationCopy') %></p>
+      </a>
+    </div>
+  </div>
+
+  <div class="mt-6 metric-grid">
+    <div class="metric-card metric-card-emphasis">
+      <p class="metric-label"><%= t('totalSales') %></p>
+      <p class="metric-value"><%= finance.totals.sales %></p>
+      <p class="metric-meta"><%= t('exportsTitle') %>: <%= finance.exports.total %> • <%= t('jarSalesTitle') %>: <%= finance.jarSales.total %></p>
+    </div>
+    <div class="metric-card">
+      <p class="metric-label"><%= t('cashCollected') %></p>
+      <p class="metric-value"><%= finance.totals.paidIn %></p>
+      <p class="metric-meta"><%= t('methodCash') %>: <%= paidMethods.cash || 0 %> • <%= t('methodBank') %>: <%= paidMethods.bank || 0 %> • <%= t('methodEWallet') %>: <%= paidMethods.eWallet || 0 %></p>
+    </div>
+    <div class="metric-card">
+      <p class="metric-label"><%= t('todayCredit') %></p>
+      <p class="metric-value"><%= finance.totals.credited %></p>
+      <p class="metric-meta"><%= t('customerCredits') %>: <%= finance.customerCredits.total %> • <%= t('workerPendingVehicleCredits') %>: <%= finance.vehicleCredits.total %></p>
+    </div>
+    <div class="metric-card">
+      <p class="metric-label"><%= t('dailyNetResult') %></p>
+      <p class="metric-value <%= finance.totals.net >= 0 ? 'text-emerald-700' : 'text-red-700' %>"><%= finance.totals.net %></p>
+      <p class="metric-meta"><%= t('salaryPaid') %>: <%= finance.salaries.total %> • <%= t('companyPurchasesTitle') %>: <%= finance.purchases.total %></p>
+    </div>
+  </div>
 
   <div class="mt-6 card p-6">
     <div class="flex flex-wrap items-end justify-between gap-3">
@@ -68,106 +124,152 @@
         <h2 class="text-lg font-semibold"><%= t('dailyBusinessTitle') %></h2>
         <p class="mt-1 text-sm text-slate-600"><%= t('dailyBusinessSubtitle') %></p>
       </div>
-      <form class="flex flex-wrap items-end gap-2" method="get" action="/worker">
-        <div>
-          <label class="label"><%= t('date') %></label>
-          <input class="input" type="date" name="date" value="<%= finance.date %>" />
-        </div>
-        <button class="btn-outline" type="submit"><%= t('filter') %></button>
-      </form>
-    </div>
-
-    <div class="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-      <div class="card p-4">
-        <p class="text-slate-500"><%= t('totalSales') %></p>
-        <p class="text-xl font-semibold"><%= finance.totals.sales %></p>
-        <p class="text-xs text-slate-500"><%= t('exports') %>: <%= finance.exports.total %> • <%= t('jarSalesTitle') %>: <%= finance.jarSales.total %></p>
-        <p class="text-xs text-slate-500"><%= t('cashCollected') %>: <%= finance.totals.paidIn %></p>
-        <p class="text-xs text-slate-500"><%= t('methodCash') %>: <%= paidMethods.cash || 0 %> • <%= t('methodBank') %>: <%= paidMethods.bank || 0 %> • <%= t('methodEWallet') %>: <%= paidMethods.eWallet || 0 %></p>
-      </div>
-      <div class="card p-4">
-        <p class="text-slate-500"><%= t('customerCredits') %></p>
-        <p class="text-xl font-semibold"><%= finance.customerCredits.total %></p>
-        <p class="text-xs text-slate-500"><%= t('remainingAmount') %>: <%= finance.customerCredits.remaining %></p>
-      </div>
-      <div class="card p-4">
-        <p class="text-slate-500"><%= t('workerPendingVehicleCredits') %></p>
-        <p class="text-xl font-semibold"><%= finance.vehicleCredits.remaining %></p>
-        <p class="text-xs text-slate-500"><%= t('tripCount') %>: <%= finance.vehicleCredits.trips %></p>
-      </div>
-      <div class="card p-4">
-        <p class="text-slate-500"><%= t('salaryPaid') %></p>
-        <p class="text-xl font-semibold"><%= finance.salaries.total %></p>
-        <p class="text-xs text-slate-500"><%= t('paymentCount') %>: <%= finance.salaries.paymentCount %></p>
-        <p class="text-xs text-slate-500"><%= t('salaryFromDailyCollection') %>: <%= finance.salaries.fromCollection || 0 %> • <%= t('salaryFromOtherSources') %>: <%= finance.salaries.fromOther || 0 %></p>
-        <p class="text-xs text-slate-500"><%= t('allTimeSalaryPaid') %>: <%= finance.salaries.allTimeTotal || 0 %> (<%= finance.salaries.allTimeCount || 0 %>)</p>
-      </div>
-      <div class="card p-4">
-        <p class="text-slate-500"><%= t('companyPurchasesTitle') %></p>
-        <p class="text-xl font-semibold"><%= finance.purchases.total %></p>
-        <p class="text-xs text-slate-500"><%= t('remainingAmount') %>: <%= finance.purchases.due %></p>
-        <p class="text-xs text-slate-500"><%= t('sourceDailyCollection') %>: <%= finance.purchases.fromCollection || 0 %> • <%= t('salaryFromOtherSources') %>: <%= finance.purchases.fromOther || 0 %></p>
-      </div>
-      <div class="card p-4">
-        <p class="text-slate-500"><%= t('importsTitle') %></p>
-        <p class="text-xl font-semibold"><%= finance.imports.total %></p>
-        <p class="text-xs text-slate-500"><%= t('remainingAmount') %>: <%= finance.imports.due %></p>
-        <p class="text-xs text-slate-500"><%= t('sourceDailyCollection') %>: <%= finance.imports.fromCollection || 0 %> • <%= t('salaryFromOtherSources') %>: <%= finance.imports.fromOther || 0 %></p>
-      </div>
-      <div class="card p-4">
-        <p class="text-slate-500"><%= t('vehicleExpensesTitle') %></p>
-        <p class="text-xl font-semibold"><%= finance.vehicleExpenses.total %></p>
-        <p class="text-xs text-slate-500"><%= t('remainingAmount') %>: <%= finance.vehicleExpenses.due %></p>
-        <p class="text-xs text-slate-500"><%= t('sourceDailyCollection') %>: <%= finance.vehicleExpenses.fromCollection || 0 %> • <%= t('salaryFromOtherSources') %>: <%= finance.vehicleExpenses.fromOther || 0 %></p>
-      </div>
-      <div class="card p-4">
-        <p class="text-slate-500"><%= t('rentalsTitle') %></p>
-        <p class="text-xl font-semibold"><%= finance.rentals.total || 0 %></p>
-        <p class="text-xs text-slate-500"><%= t('rentCollectionAmount') %>: <%= finance.rentals.collection || 0 %></p>
-      </div>
-      <div class="card p-4">
-        <p class="text-slate-500"><%= t('savingsTitle') %></p>
-        <p class="text-xl font-semibold"><%= finance.savings.deposits || 0 %></p>
-        <p class="text-xs text-slate-500"><%= t('savingsWithdraw') %>: <%= finance.savings.withdrawals || 0 %></p>
-        <p class="text-xs text-slate-500"><%= t('sourceDailyCollection') %>: <%= finance.savings.withdrawalFromCollection || 0 %></p>
-      </div>
-      <div class="card p-4">
-        <p class="text-slate-500"><%= t('openCredits') %> (<%= t('customerCredits') %>)</p>
-        <p class="text-xl font-semibold"><%= finance.customerCredits.openRemaining %></p>
-        <p class="text-xs text-slate-500"><%= t('entries') %>: <%= finance.customerCredits.openCount %></p>
-      </div>
-      <div class="card p-4">
-        <p class="text-slate-500"><%= t('openCredits') %> (<%= t('workerPendingVehicleCredits') %>)</p>
-        <p class="text-xl font-semibold"><%= finance.vehicleCredits.openRemaining %></p>
-        <p class="text-xs text-slate-500"><%= t('tripCount') %>: <%= finance.vehicleCredits.openTrips %></p>
-      </div>
-    </div>
-
-    <div class="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-      <div class="card p-4">
-        <p class="text-slate-500"><%= t('cashCollected') %></p>
-        <p class="text-lg font-semibold"><%= finance.totals.paidIn %></p>
-        <p class="text-xs text-slate-500"><%= t('methodCash') %>: <%= paidMethods.cash || 0 %> • <%= t('methodBank') %>: <%= paidMethods.bank || 0 %> • <%= t('methodEWallet') %>: <%= paidMethods.eWallet || 0 %></p>
-        <p class="text-xs text-slate-500"><%= t('savingsDeposit') %>: <%= finance.savings.deposits || 0 %> • <%= t('rentCollectionAmount') %>: <%= finance.rentals.collection || 0 %></p>
-      </div>
-      <div class="card p-4">
-        <p class="text-slate-500"><%= t('todayCredit') %></p>
-        <p class="text-lg font-semibold"><%= finance.totals.credited %></p>
-      </div>
-      <div class="card p-4">
-        <p class="text-slate-500"><%= t('dailyNetResult') %></p>
-        <p class="text-lg font-semibold <%= finance.totals.net >= 0 ? 'text-emerald-700' : 'text-red-700' %>"><%= finance.totals.net %></p>
-      </div>
+      <span class="pill"><%= formatDateDual(finance.date) %></span>
     </div>
 
     <div class="mt-4 flex flex-wrap gap-2">
-      <a class="btn-outline" href="/records/exports?from=<%= finance.date %>&to=<%= finance.date %>"><%= t('viewExports') %></a>
-      <a class="btn-outline" href="/records/credits?from=<%= finance.date %>&to=<%= finance.date %>"><%= t('viewCredits') %></a>
-      <a class="btn-outline" href="/records/reconciliation?date=<%= finance.date %>&from=<%= finance.date %>&to=<%= finance.date %>"><%= t('reconciliationTitle') %></a>
-      <a class="btn-outline" href="/records/company-purchases?from=<%= finance.date %>&to=<%= finance.date %>"><%= t('companyPurchasesTitle') %></a>
-      <a class="btn-outline" href="/records/vehicle-expenses?from=<%= finance.date %>&to=<%= finance.date %>"><%= t('vehicleExpensesTitle') %></a>
-      <a class="btn-outline" href="/records/rentals?from=<%= finance.date %>&to=<%= finance.date %>"><%= t('rentalsTitle') %></a>
-      <a class="btn-outline" href="/records/staffs"><%= t('staffsTitle') %></a>
+      <a class="btn-outline" href="#snapshot-overview"><%= t('snapshotOverview') %></a>
+      <a class="btn-outline" href="#snapshot-details"><%= t('snapshotDetailedTotals') %></a>
+      <a class="btn-outline" href="#snapshot-balances"><%= t('snapshotOpenBalances') %></a>
+      <a class="btn-outline" href="#snapshot-links"><%= t('snapshotQuickLinks') %></a>
+    </div>
+
+    <div class="mt-6" id="snapshot-overview">
+      <div class="mb-3 flex items-center justify-between gap-3">
+        <h3 class="text-base font-semibold text-slate-900"><%= t('snapshotOverview') %></h3>
+        <span class="pill"><%= finance.date %></span>
+      </div>
+      <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div class="card p-4">
+          <p class="text-slate-500"><%= t('totalSales') %></p>
+          <p class="text-xl font-semibold"><%= finance.totals.sales %></p>
+          <p class="text-xs text-slate-500"><%= t('exports') %>: <%= finance.exports.total %> • <%= t('jarSalesTitle') %>: <%= finance.jarSales.total %> • <%= t('leakageJarSalesTitle') %>: <%= finance.leakageJarSales?.total || 0 %></p>
+        </div>
+        <div class="card p-4">
+          <p class="text-slate-500"><%= t('cashCollected') %></p>
+          <p class="text-xl font-semibold"><%= finance.totals.paidIn %></p>
+          <p class="text-xs text-slate-500"><%= t('methodCash') %>: <%= paidMethods.cash || 0 %> • <%= t('methodBank') %>: <%= paidMethods.bank || 0 %> • <%= t('methodEWallet') %>: <%= paidMethods.eWallet || 0 %></p>
+        </div>
+        <div class="card p-4">
+          <p class="text-slate-500"><%= t('todayCredit') %></p>
+          <p class="text-xl font-semibold"><%= finance.totals.credited %></p>
+          <p class="text-xs text-slate-500"><%= t('customerCredits') %>: <%= finance.customerCredits.total %> • <%= t('workerPendingVehicleCredits') %>: <%= finance.vehicleCredits.total %></p>
+        </div>
+        <div class="card p-4">
+          <p class="text-slate-500"><%= t('dailyNetResult') %></p>
+          <p class="text-xl font-semibold <%= finance.totals.net >= 0 ? 'text-emerald-700' : 'text-red-700' %>"><%= finance.totals.net %></p>
+          <p class="text-xs text-slate-500"><%= t('salaryPaid') %>: <%= finance.salaries.total %> • <%= t('companyPurchasesTitle') %>: <%= finance.purchases.total %></p>
+        </div>
+      </div>
+    </div>
+
+    <div class="mt-6" id="snapshot-details">
+      <div class="mb-3 flex items-center justify-between gap-3">
+        <h3 class="text-base font-semibold text-slate-900"><%= t('snapshotDetailedTotals') %></h3>
+        <span class="text-xs text-slate-500"><%= t('dailyBusinessSubtitle') %></span>
+      </div>
+      <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div class="card p-4">
+          <p class="text-slate-500"><%= t('exportsTitle') %></p>
+          <p class="text-xl font-semibold"><%= finance.exports.total %></p>
+          <p class="text-xs text-slate-500"><%= t('tripCount') %>: <%= finance.exports.trips %></p>
+        </div>
+        <div class="card p-4">
+          <p class="text-slate-500"><%= t('jarSalesTitle') %></p>
+          <p class="text-xl font-semibold"><%= finance.jarSales.total %></p>
+          <p class="text-xs text-slate-500"><%= t('entries') %>: <%= finance.jarSales.count %></p>
+        </div>
+        <div class="card p-4">
+          <p class="text-slate-500"><%= t('leakageJarSalesTitle') %></p>
+          <p class="text-xl font-semibold"><%= finance.leakageJarSales?.total || 0 %></p>
+          <p class="text-xs text-slate-500"><%= t('cashCollected') %>: <%= finance.leakageJarSales?.collected || 0 %></p>
+        </div>
+        <div class="card p-4">
+          <p class="text-slate-500"><%= t('customerCredits') %></p>
+          <p class="text-xl font-semibold"><%= finance.customerCredits.total %></p>
+          <p class="text-xs text-slate-500"><%= t('remainingAmount') %>: <%= finance.customerCredits.remaining %></p>
+        </div>
+        <div class="card p-4">
+          <p class="text-slate-500"><%= t('workerPendingVehicleCredits') %></p>
+          <p class="text-xl font-semibold"><%= finance.vehicleCredits.total %></p>
+          <p class="text-xs text-slate-500"><%= t('remainingAmount') %>: <%= finance.vehicleCredits.remaining %></p>
+        </div>
+        <div class="card p-4">
+          <p class="text-slate-500"><%= t('salaryPaid') %></p>
+          <p class="text-xl font-semibold"><%= finance.salaries.total %></p>
+          <p class="text-xs text-slate-500"><%= t('paymentCount') %>: <%= finance.salaries.paymentCount %></p>
+        </div>
+        <div class="card p-4">
+          <p class="text-slate-500"><%= t('companyPurchasesTitle') %></p>
+          <p class="text-xl font-semibold"><%= finance.purchases.total %></p>
+          <p class="text-xs text-slate-500"><%= t('remainingAmount') %>: <%= finance.purchases.due %></p>
+        </div>
+        <div class="card p-4">
+          <p class="text-slate-500"><%= t('importsTitle') %></p>
+          <p class="text-xl font-semibold"><%= finance.imports.total %></p>
+          <p class="text-xs text-slate-500"><%= t('remainingAmount') %>: <%= finance.imports.due %></p>
+        </div>
+        <div class="card p-4">
+          <p class="text-slate-500"><%= t('vehicleExpensesTitle') %></p>
+          <p class="text-xl font-semibold"><%= finance.vehicleExpenses.total %></p>
+          <p class="text-xs text-slate-500"><%= t('remainingAmount') %>: <%= finance.vehicleExpenses.due %></p>
+        </div>
+        <div class="card p-4">
+          <p class="text-slate-500"><%= t('rentalsTitle') %></p>
+          <p class="text-xl font-semibold"><%= finance.rentals.total || 0 %></p>
+          <p class="text-xs text-slate-500"><%= t('rentCollectionAmount') %>: <%= finance.rentals.collection || 0 %></p>
+        </div>
+        <div class="card p-4">
+          <p class="text-slate-500"><%= t('savingsTitle') %></p>
+          <p class="text-xl font-semibold"><%= finance.savings.deposits || 0 %></p>
+          <p class="text-xs text-slate-500"><%= t('savingsWithdraw') %>: <%= finance.savings.withdrawals || 0 %></p>
+        </div>
+      </div>
+    </div>
+
+    <div class="mt-6" id="snapshot-balances">
+      <div class="mb-3 flex items-center justify-between gap-3">
+        <h3 class="text-base font-semibold text-slate-900"><%= t('snapshotOpenBalances') %></h3>
+        <span class="text-xs text-slate-500"><%= t('openCredits') %></span>
+      </div>
+      <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div class="card p-4">
+          <p class="text-slate-500"><%= t('openCredits') %> (<%= t('customerCredits') %>)</p>
+          <p class="text-xl font-semibold"><%= finance.customerCredits.openRemaining %></p>
+          <p class="text-xs text-slate-500"><%= t('entries') %>: <%= finance.customerCredits.openCount %></p>
+        </div>
+        <div class="card p-4">
+          <p class="text-slate-500"><%= t('openCredits') %> (<%= t('workerPendingVehicleCredits') %>)</p>
+          <p class="text-xl font-semibold"><%= finance.vehicleCredits.openRemaining %></p>
+          <p class="text-xs text-slate-500"><%= t('tripCount') %>: <%= finance.vehicleCredits.openTrips %></p>
+        </div>
+        <div class="card p-4">
+          <p class="text-slate-500"><%= t('companyPurchasesTitle') %></p>
+          <p class="text-xl font-semibold"><%= finance.purchases.due %></p>
+          <p class="text-xs text-slate-500"><%= t('remainingAmount') %></p>
+        </div>
+        <div class="card p-4">
+          <p class="text-slate-500"><%= t('importsTitle') %> + <%= t('vehicleExpensesTitle') %></p>
+          <p class="text-xl font-semibold"><%= (finance.imports.due || 0) + (finance.vehicleExpenses.due || 0) %></p>
+          <p class="text-xs text-slate-500"><%= t('importsTitle') %>: <%= finance.imports.due || 0 %> • <%= t('vehicleExpensesTitle') %>: <%= finance.vehicleExpenses.due || 0 %></p>
+        </div>
+      </div>
+    </div>
+
+    <div class="mt-6" id="snapshot-links">
+      <div class="mb-3 flex items-center justify-between gap-3">
+        <h3 class="text-base font-semibold text-slate-900"><%= t('snapshotQuickLinks') %></h3>
+        <span class="text-xs text-slate-500"><%= t('viewSummary') %></span>
+      </div>
+      <div class="flex flex-wrap gap-2">
+        <a class="btn-outline" href="/records/exports?from=<%= finance.date %>&to=<%= finance.date %>"><%= t('viewExports') %></a>
+        <a class="btn-outline" href="/records/credits?from=<%= finance.date %>&to=<%= finance.date %>"><%= t('viewCredits') %></a>
+        <a class="btn-outline" href="/records/reconciliation?date=<%= finance.date %>&from=<%= finance.date %>&to=<%= finance.date %>"><%= t('reconciliationTitle') %></a>
+        <a class="btn-outline" href="/records/company-purchases?from=<%= finance.date %>&to=<%= finance.date %>"><%= t('companyPurchasesTitle') %></a>
+        <a class="btn-outline" href="/records/vehicle-expenses?from=<%= finance.date %>&to=<%= finance.date %>"><%= t('vehicleExpensesTitle') %></a>
+        <a class="btn-outline" href="/records/rentals?from=<%= finance.date %>&to=<%= finance.date %>"><%= t('rentalsTitle') %></a>
+        <a class="btn-outline" href="/records/staffs"><%= t('staffsTitle') %></a>
+      </div>
     </div>
 
     <div class="mt-4 grid gap-4 lg:grid-cols-2">

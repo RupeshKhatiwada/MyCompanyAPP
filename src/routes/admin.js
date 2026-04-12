@@ -37,6 +37,16 @@ const {
   runRetentionArchive
 } = require("../utils/retention");
 const {
+  computeAccruedSalaryUntilMonth,
+  computeSalaryDue: computeSalaryDueWithHistory,
+  getDailyCollectionBalance,
+  getMonthlySalaryForMonth,
+  getSalaryAdjustments,
+  parseWholeMoney,
+  recordSalaryAdjustment,
+  roundMoney
+} = require("../utils/salary");
+const {
   MODULE_PERMISSION_ITEMS,
   ROLE_PERMISSION_ROLES,
   ensureRolePermissionRows,
@@ -62,6 +72,11 @@ const workerDocumentFields = [
   { name: "doc_back", maxCount: 1 },
   { name: "doc_single", maxCount: 1 }
 ];
+const themePresetOptions = ["classic", "ocean", "slate", "sunrise", "forest"];
+const normalizeThemePreset = (value) => {
+  const safe = String(value || "").trim().toLowerCase();
+  return themePresetOptions.includes(safe) ? safe : "classic";
+};
 const clearWorkerReferenceStatements = [
   "UPDATE daily_sales SET created_by = NULL WHERE created_by = ?",
   "UPDATE exports SET created_by = NULL WHERE created_by = ?",
@@ -84,6 +99,24 @@ const normalizeSalaryPaymentSource = (value) => {
   return "DAILY_COLLECTION";
 };
 
+const runInTransaction = (callback) => {
+  const savepoint = `sp_admin_${Date.now()}_${Math.floor(Math.random() * 100000)}`;
+  db.exec(`SAVEPOINT ${savepoint};`);
+  try {
+    const result = callback();
+    db.exec(`RELEASE ${savepoint};`);
+    return result;
+  } catch (err) {
+    try {
+      db.exec(`ROLLBACK TO ${savepoint};`);
+      db.exec(`RELEASE ${savepoint};`);
+    } catch (_) {
+      // Preserve the original error.
+    }
+    throw err;
+  }
+};
+
 const getSetting = (key, fallback = "") => {
   const row = db.prepare("SELECT value FROM settings WHERE key = ?").get(key);
   if (!row) return fallback;
@@ -99,6 +132,10 @@ const setSetting = (key, value) => {
     db.prepare("INSERT INTO settings (key, value) VALUES (?, ?)").run(key, String(value));
   }
 };
+
+const getProfileUserById = (userId) => db.prepare(
+  "SELECT id, username, full_name, phone, role, theme_preset FROM users WHERE id = ?"
+).get(userId);
 
 const getBackupStatus = () => {
   const lastBackupAt = getSetting("last_backup_at", "");
@@ -220,7 +257,7 @@ const getAlertSnapshot = () => {
   ).all();
   const unpaidStaff = staffRows.map((row) => ({
     ...row,
-    due_salary: computeSalaryDue(row, row.paid_total, today)
+    due_salary: computeSalaryDue("STAFF", row, row.paid_total, today)
   })).filter((row) => Number(row.due_salary || 0) > 0);
 
   const workerRows = db.prepare(
@@ -234,7 +271,7 @@ const getAlertSnapshot = () => {
   ).all();
   const unpaidWorkers = workerRows.map((row) => ({
     ...row,
-    due_salary: computeSalaryDue(row, row.paid_total, today)
+    due_salary: computeSalaryDue("WORKER", row, row.paid_total, today)
   })).filter((row) => Number(row.due_salary || 0) > 0);
   return {
     backup: {
@@ -1225,18 +1262,12 @@ router.post("/savings", (req, res) => {
   res.redirect(`/admin/savings?from=${entry_date}&to=${entry_date}&vehicle_id=${vehicle_id}`);
 });
 
-const computeSalaryDue = (staffRow, paidTotal, asOf) => {
-  if (!staffRow || !staffRow.start_date) return 0;
-  const salary = Number(staffRow.monthly_salary || 0);
-  if (salary <= 0) return 0;
-  const start = dayjs(staffRow.start_date).startOf("month");
-  const lastCompletedMonth = dayjs(asOf).startOf("month").subtract(1, "month");
-  if (!start.isValid() || lastCompletedMonth.isBefore(start)) return 0;
-  const months = lastCompletedMonth.diff(start, "month") + 1;
-  const accrued = months * salary;
-  const paid = Number(paidTotal || 0);
-  return Math.max(0, accrued - paid);
-};
+const computeSalaryDue = (personType, personRow, paidTotal, asOf) => computeSalaryDueWithHistory(db, {
+  personType,
+  personRow,
+  paidTotal,
+  asOf
+});
 
 const getStaffPaidTotal = (staffId, { excludePaymentId = null } = {}) => {
   if (!staffId) return 0;
@@ -1267,25 +1298,26 @@ const parseMonthToken = (value) => {
   return /^\d{4}-(0[1-9]|1[0-2])$/.test(safe) ? safe : dayjs().format("YYYY-MM");
 };
 
-const roundMoney = (value) => {
-  const num = Number(value || 0);
-  if (Number.isNaN(num)) return 0;
-  return Math.round(num * 100) / 100;
-};
-
-const accruedUntilMonth = (startDate, monthlySalary, monthStart) => {
-  const salary = roundMoney(monthlySalary);
-  if (!startDate || salary <= 0) return 0;
-  const startMonth = dayjs(startDate).startOf("month");
-  if (!startMonth.isValid() || monthStart.isBefore(startMonth)) return 0;
-  const months = monthStart.diff(startMonth, "month") + 1;
-  return roundMoney(months * salary);
-};
-
 const buildPayrollRows = (rows, attendanceMap, monthStart, prevMonthStart, personType) => rows.map((row) => {
-  const monthlySalary = roundMoney(row.monthly_salary || 0);
-  const accruedBefore = accruedUntilMonth(row.start_date, monthlySalary, prevMonthStart);
-  const accruedNow = accruedUntilMonth(row.start_date, monthlySalary, monthStart);
+  const adjustments = getSalaryAdjustments(db, personType, row.id);
+  const monthlySalary = getMonthlySalaryForMonth(db, {
+    personType,
+    personRow: row,
+    month: monthStart,
+    adjustments
+  });
+  const accruedBefore = computeAccruedSalaryUntilMonth(db, {
+    personType,
+    personRow: row,
+    month: prevMonthStart,
+    adjustments
+  });
+  const accruedNow = computeAccruedSalaryUntilMonth(db, {
+    personType,
+    personRow: row,
+    month: monthStart,
+    adjustments
+  });
   const monthAccrued = Math.max(0, roundMoney(accruedNow - accruedBefore));
   const paidBefore = roundMoney(row.paid_before || 0);
   const salaryPaid = roundMoney(row.salary_paid_month || 0);
@@ -1673,7 +1705,7 @@ router.get("/staffs", (req, res) => {
   const staffs = rows.map((row) => ({
     ...row,
     role_label: resolveStaffRoleLabel(row.staff_role, row.role_name, req.t),
-    due_salary: computeSalaryDue(row, row.paid_total, today)
+    due_salary: computeSalaryDue("STAFF", row, row.paid_total, today)
   }));
 
   const success = req.query.archived
@@ -1734,8 +1766,8 @@ router.post("/staffs", (req, res) => {
         basePath: "/admin/staffs"
       });
     }
-    const salary = Number(monthly_salary || 0);
-    if (Number.isNaN(salary) || salary < 0) {
+    const salaryRaw = Number(monthly_salary || 0);
+    if (Number.isNaN(salaryRaw) || salaryRaw < 0) {
       return res.render("admin/staff_form", {
         title: req.t("addStaffTitle"),
         staff: null,
@@ -1745,6 +1777,7 @@ router.post("/staffs", (req, res) => {
         basePath: "/admin/staffs"
       });
     }
+    const salary = parseWholeMoney(salaryRaw);
     const fingerprintId = normalizeFingerprintId(fingerprint_id);
     const fpConflict = findFingerprintConflict({ fingerprintId });
     if (fpConflict) {
@@ -1827,7 +1860,7 @@ router.get("/staffs/:id", (req, res) => {
     },
     { total: 0, salary: 0, advance: 0 }
   );
-  const dueSalary = computeSalaryDue(staff, totals.total, dayjs().format("YYYY-MM-DD"));
+  const dueSalary = computeSalaryDue("STAFF", staff, totals.total, dayjs().format("YYYY-MM-DD"));
   const todayDate = dayjs().format("YYYY-MM-DD");
   const attendanceSummary = db.prepare(
     `SELECT
@@ -1845,7 +1878,9 @@ router.get("/staffs/:id", (req, res) => {
      ORDER BY attendance_date DESC`
   ).all(req.params.id).map((row) => row.attendance_date);
   const errorKey = String(req.query.error || "").trim();
+  const status = String(req.query.status || "").trim();
   const error = errorKey ? req.t(errorKey) : null;
+  const success = status === "salary_adjusted" ? req.t("salaryAdjusted") : null;
 
   res.render("admin/staff_detail", {
     title: req.t("staffDetailTitle"),
@@ -1858,8 +1893,52 @@ router.get("/staffs/:id", (req, res) => {
     attendanceSummary,
     absentDates,
     error,
+    success,
     basePath: "/admin/staffs"
   });
+});
+
+router.post("/staffs/:id/salary-adjust", (req, res) => {
+  const staff = db.prepare("SELECT id, full_name, monthly_salary FROM staff WHERE id = ?").get(req.params.id);
+  if (!staff) return res.redirect("/admin/staffs");
+
+  const adjustType = String(req.body.adjust_type || "").trim().toUpperCase();
+  const adjustAmountRaw = Number(req.body.adjust_amount || 0);
+  const adjustAmount = parseWholeMoney(adjustAmountRaw);
+  const note = String(req.body.note || "").trim();
+  if (!["INCREASE", "DECREASE"].includes(adjustType) || Number.isNaN(adjustAmountRaw) || adjustAmount <= 0) {
+    return res.redirect(`/admin/staffs/${req.params.id}?error=salaryAdjustmentInvalid`);
+  }
+
+  const currentSalary = parseWholeMoney(staff.monthly_salary || 0);
+  const nextSalary = adjustType === "INCREASE"
+    ? currentSalary + adjustAmount
+    : currentSalary - adjustAmount;
+  if (nextSalary < 0) {
+    return res.redirect(`/admin/staffs/${req.params.id}?error=salaryAdjustmentWouldBeNegative`);
+  }
+
+  runInTransaction(() => {
+    recordSalaryAdjustment(db, {
+      personType: "STAFF",
+      personId: req.params.id,
+      previousSalary: currentSalary,
+      newSalary: nextSalary,
+      effectiveMonth: dayjs().startOf("month").format("YYYY-MM-DD"),
+      note,
+      createdBy: req.session.userId
+    });
+    db.prepare("UPDATE staff SET monthly_salary = ?, updated_at = datetime('now') WHERE id = ?").run(nextSalary, req.params.id);
+  });
+  logActivity({
+    userId: req.session.userId,
+    action: "update",
+    entityType: "staff_salary_adjustment",
+    entityId: req.params.id,
+    details: `type=${adjustType}, amount=${adjustAmount}, from=${currentSalary}, to=${nextSalary}, note=${note || ""}`
+  });
+
+  return res.redirect(`/admin/staffs/${req.params.id}?status=salary_adjusted`);
 });
 
 router.get("/staffs/:id/print", (req, res) => {
@@ -1891,7 +1970,7 @@ router.get("/staffs/:id/print", (req, res) => {
     },
     { total: 0, salary: 0, advance: 0 }
   );
-  const dueSalary = computeSalaryDue(staff, totals.total, dayjs().format("YYYY-MM-DD"));
+  const dueSalary = computeSalaryDue("STAFF", staff, totals.total, dayjs().format("YYYY-MM-DD"));
   const attendanceSummary = db.prepare(
     `SELECT
       COALESCE(SUM(CASE WHEN status = 'PRESENT' THEN 1 ELSE 0 END), 0) AS present_days,
@@ -1968,8 +2047,8 @@ router.post("/staffs/:id", (req, res) => {
         basePath: "/admin/staffs"
       });
     }
-    const salary = Number(monthly_salary || 0);
-    if (Number.isNaN(salary) || salary < 0) {
+    const salaryRaw = Number(monthly_salary || 0);
+    if (Number.isNaN(salaryRaw) || salaryRaw < 0) {
       return res.render("admin/staff_form", {
         title: req.t("editStaffTitle"),
         staff,
@@ -1979,6 +2058,7 @@ router.post("/staffs/:id", (req, res) => {
         basePath: "/admin/staffs"
       });
     }
+    const salary = parseWholeMoney(salaryRaw);
     const fingerprintId = normalizeFingerprintId(fingerprint_id);
     const fpConflict = findFingerprintConflict({ fingerprintId, skipStaffId: req.params.id });
     if (fpConflict) {
@@ -1998,9 +2078,23 @@ router.post("/staffs/:id", (req, res) => {
     const photoFile = req.files && req.files.photo ? req.files.photo[0] : null;
     if (photoFile) photoPath = `/uploads/${photoFile.filename}`;
 
-    db.prepare(
-      "UPDATE staff SET full_name = ?, staff_role = ?, phone = ?, fingerprint_id = ?, photo_path = ?, start_date = ?, monthly_salary = ?, updated_at = datetime('now') WHERE id = ?"
-    ).run(full_name.trim(), staffRole, phone || null, fingerprintId, photoPath, start_date || null, salary, req.params.id);
+    const currentSalary = parseWholeMoney(staff.monthly_salary || 0);
+    runInTransaction(() => {
+      if (currentSalary !== salary) {
+        recordSalaryAdjustment(db, {
+          personType: "STAFF",
+          personId: req.params.id,
+          previousSalary: currentSalary,
+          newSalary: salary,
+          effectiveMonth: dayjs().startOf("month").format("YYYY-MM-DD"),
+          note: "Updated from staff profile",
+          createdBy: req.session.userId
+        });
+      }
+      db.prepare(
+        "UPDATE staff SET full_name = ?, staff_role = ?, phone = ?, fingerprint_id = ?, photo_path = ?, start_date = ?, monthly_salary = ?, updated_at = datetime('now') WHERE id = ?"
+      ).run(full_name.trim(), staffRole, phone || null, fingerprintId, photoPath, start_date || null, salary, req.params.id);
+    });
 
     if (safeDocType) {
       let frontPath = document ? document.front_path : null;
@@ -2083,9 +2177,15 @@ router.post("/staffs/:id/payments", (req, res) => {
   }
   const type = payment_type === "ADVANCE" ? "ADVANCE" : "SALARY";
   const source = normalizeSalaryPaymentSource(payment_source);
+  if (source === "DAILY_COLLECTION") {
+    const collectionBalance = getDailyCollectionBalance(db, payment_date);
+    if (amt > roundMoney(collectionBalance) + 0.01) {
+      return res.redirect(`/admin/staffs/${req.params.id}?error=dailyCollectionInsufficient`);
+    }
+  }
   if (type === "SALARY") {
     const paidTotal = getStaffPaidTotal(req.params.id);
-    const due = computeSalaryDue(staff, paidTotal, payment_date || dayjs().format("YYYY-MM-DD"));
+    const due = computeSalaryDue("STAFF", staff, paidTotal, payment_date || dayjs().format("YYYY-MM-DD"));
     if (amt > roundMoney(due) + 0.01) {
       return res.redirect(`/admin/staffs/${req.params.id}?error=salaryOverpaymentBlocked`);
     }
@@ -2143,9 +2243,15 @@ router.post("/staffs/payments/:id", (req, res) => {
   }
   const type = payment_type === "ADVANCE" ? "ADVANCE" : "SALARY";
   const source = normalizeSalaryPaymentSource(payment_source);
+  if (source === "DAILY_COLLECTION") {
+    const collectionBalance = getDailyCollectionBalance(db, payment_date, { excludeStaffPaymentId: req.params.id });
+    if (amt > roundMoney(collectionBalance) + 0.01) {
+      return res.redirect(`/admin/staffs/payments/${req.params.id}/edit?error=dailyCollectionInsufficient`);
+    }
+  }
   if (type === "SALARY") {
     const paidTotal = getStaffPaidTotal(payment.staff_id, { excludePaymentId: req.params.id });
-    const due = computeSalaryDue(staff, paidTotal, payment_date || dayjs().format("YYYY-MM-DD"));
+    const due = computeSalaryDue("STAFF", staff, paidTotal, payment_date || dayjs().format("YYYY-MM-DD"));
     if (amt > roundMoney(due) + 0.01) {
       return res.redirect(`/admin/staffs/payments/${req.params.id}/edit?error=salaryOverpaymentBlocked`);
     }
@@ -3875,6 +3981,129 @@ router.get("/reports/all", (req, res) => {
     { total: 0, paid: 0, credit: 0, qty: 0 }
   );
 
+  const leakageSalesRows = db.prepare(
+    `SELECT leakage_jar_sales.*, users.full_name AS recorded_by
+     FROM leakage_jar_sales
+     LEFT JOIN users ON users.id = leakage_jar_sales.created_by
+     WHERE leakage_jar_sales.sale_date BETWEEN ? AND ?
+     ORDER BY leakage_jar_sales.sale_date DESC, leakage_jar_sales.created_at DESC`
+  ).all(from, to);
+  const leakageSalesTotals = leakageSalesRows.reduce(
+    (acc, row) => {
+      acc.qty += Number(row.quantity || 0);
+      acc.total += Number(row.total_amount || 0);
+      acc.paid += Number(row.paid_amount || 0);
+      acc.credit += Number(row.credit_amount || 0);
+      return acc;
+    },
+    { qty: 0, total: 0, paid: 0, credit: 0 }
+  );
+
+  const rangeExportMethod = db.prepare(
+    `SELECT
+        COALESCE(SUM(paid_cash_amount), 0) AS cash_paid,
+        COALESCE(SUM(paid_bank_amount), 0) AS bank_paid,
+        COALESCE(SUM(paid_ewallet_amount), 0) AS ewallet_paid
+     FROM exports
+     WHERE export_date BETWEEN ? AND ?`
+  ).get(from, to);
+  const rangeCustomerMethod = db.prepare(
+    `SELECT
+        COALESCE(SUM(CASE WHEN payment_method = 'CASH' THEN amount ELSE 0 END), 0) AS cash_paid,
+        COALESCE(SUM(CASE WHEN payment_method = 'BANK' THEN amount ELSE 0 END), 0) AS bank_paid,
+        COALESCE(SUM(CASE WHEN payment_method = 'E_WALLET' THEN amount ELSE 0 END), 0) AS ewallet_paid
+     FROM credit_payments
+     WHERE date(paid_at) BETWEEN ? AND ?`
+  ).get(from, to);
+  const rangeRentMethod = db.prepare(
+    `SELECT
+        COALESCE(SUM(CASE WHEN add_to_collection = 1 AND payment_method = 'CASH' THEN amount ELSE 0 END), 0) AS cash_paid,
+        COALESCE(SUM(CASE WHEN add_to_collection = 1 AND payment_method = 'BANK' THEN amount ELSE 0 END), 0) AS bank_paid,
+        COALESCE(SUM(CASE WHEN add_to_collection = 1 AND payment_method = 'E_WALLET' THEN amount ELSE 0 END), 0) AS ewallet_paid
+     FROM rent_entries
+     WHERE rent_date BETWEEN ? AND ?`
+  ).get(from, to);
+  const rangeLeakageMethod = db.prepare(
+    `SELECT
+        COALESCE(SUM(cash_amount), 0) AS cash_paid,
+        COALESCE(SUM(bank_amount), 0) AS bank_paid,
+        COALESCE(SUM(ewallet_amount), 0) AS ewallet_paid
+     FROM leakage_jar_sale_payments
+     WHERE payment_date BETWEEN ? AND ?`
+  ).get(from, to);
+  const rangeJarSalesCash = db.prepare(
+    `SELECT COALESCE(SUM(amount), 0) AS amount
+     FROM jar_sale_payments
+     WHERE payment_date BETWEEN ? AND ?`
+  ).get(from, to);
+  const rangeSavingsDeposits = db.prepare(
+    `SELECT COALESCE(SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END), 0) AS amount
+     FROM vehicle_savings
+     WHERE entry_date BETWEEN ? AND ?`
+  ).get(from, to);
+
+  const rangeImportsFromCollection = db.prepare(
+    `SELECT COALESCE(SUM(amount), 0) AS amount
+     FROM import_payments
+     WHERE payment_date BETWEEN ? AND ? AND payment_source = 'DAILY_COLLECTION'`
+  ).get(from, to);
+  const rangePurchasesFromCollection = db.prepare(
+    `SELECT COALESCE(SUM(amount), 0) AS amount
+     FROM company_purchase_payments
+     WHERE payment_date BETWEEN ? AND ? AND payment_source = 'DAILY_COLLECTION'`
+  ).get(from, to);
+  const rangeVehicleExpensesFromCollection = db.prepare(
+    `SELECT COALESCE(SUM(amount), 0) AS amount
+     FROM vehicle_expense_payments
+     WHERE payment_date BETWEEN ? AND ? AND payment_source = 'DAILY_COLLECTION'`
+  ).get(from, to);
+  const rangeStaffSalaryFromCollection = db.prepare(
+    `SELECT COALESCE(SUM(amount), 0) AS amount
+     FROM staff_salary_payments
+     WHERE payment_date BETWEEN ? AND ? AND payment_source = 'DAILY_COLLECTION'`
+  ).get(from, to);
+  const rangeWorkerSalaryFromCollection = db.prepare(
+    `SELECT COALESCE(SUM(amount), 0) AS amount
+     FROM worker_salary_payments
+     WHERE payment_date BETWEEN ? AND ? AND payment_source = 'DAILY_COLLECTION'`
+  ).get(from, to);
+  const rangeSavingsWithdrawFromCollection = db.prepare(
+    `SELECT COALESCE(SUM(CASE WHEN amount < 0 AND payment_source = 'DAILY_COLLECTION' THEN ABS(amount) ELSE 0 END), 0) AS amount
+     FROM vehicle_savings
+     WHERE entry_date BETWEEN ? AND ?`
+  ).get(from, to);
+
+  const snapshotCash = parseMoneyValue(
+    Number(rangeExportMethod.cash_paid || 0) +
+    Number(rangeCustomerMethod.cash_paid || 0) +
+    Number(rangeRentMethod.cash_paid || 0) +
+    Number(rangeLeakageMethod.cash_paid || 0) +
+    Number(rangeJarSalesCash.amount || 0) +
+    Number(rangeSavingsDeposits.amount || 0)
+  );
+  const snapshotBank = parseMoneyValue(
+    Number(rangeExportMethod.bank_paid || 0) +
+    Number(rangeCustomerMethod.bank_paid || 0) +
+    Number(rangeRentMethod.bank_paid || 0) +
+    Number(rangeLeakageMethod.bank_paid || 0)
+  );
+  const snapshotEWallet = parseMoneyValue(
+    Number(rangeExportMethod.ewallet_paid || 0) +
+    Number(rangeCustomerMethod.ewallet_paid || 0) +
+    Number(rangeRentMethod.ewallet_paid || 0) +
+    Number(rangeLeakageMethod.ewallet_paid || 0)
+  );
+  const snapshotCollection = parseMoneyValue(snapshotCash + snapshotBank + snapshotEWallet);
+  const snapshotDeductions = parseMoneyValue(
+    Number(rangeImportsFromCollection.amount || 0) +
+    Number(rangePurchasesFromCollection.amount || 0) +
+    Number(rangeVehicleExpensesFromCollection.amount || 0) +
+    Number(rangeStaffSalaryFromCollection.amount || 0) +
+    Number(rangeWorkerSalaryFromCollection.amount || 0) +
+    Number(rangeSavingsWithdrawFromCollection.amount || 0)
+  );
+  const snapshotNet = parseMoneyValue(snapshotCollection - snapshotDeductions);
+
   const importsRows = db.prepare(
     `SELECT import_entries.*, jar_types.name as jar_type_name, jar_cap_types.name as jar_cap_type_name,
             users.full_name as recorded_by
@@ -3928,10 +4157,50 @@ router.get("/reports/all", (req, res) => {
     creditTotals,
     jarSalesRows,
     jarSalesTotals,
+    leakageSalesRows,
+    leakageSalesTotals,
     importsRows,
     importTotals,
     savingsRows,
-    savingsTotals
+    savingsTotals,
+    snapshotSummary: {
+      collection: snapshotCollection,
+      cash: snapshotCash,
+      bank: snapshotBank,
+      eWallet: snapshotEWallet,
+      deductions: snapshotDeductions,
+      net: snapshotNet,
+      exports: {
+        cash: parseMoneyValue(rangeExportMethod.cash_paid || 0),
+        bank: parseMoneyValue(rangeExportMethod.bank_paid || 0),
+        eWallet: parseMoneyValue(rangeExportMethod.ewallet_paid || 0)
+      },
+      customerCredits: {
+        cash: parseMoneyValue(rangeCustomerMethod.cash_paid || 0),
+        bank: parseMoneyValue(rangeCustomerMethod.bank_paid || 0),
+        eWallet: parseMoneyValue(rangeCustomerMethod.ewallet_paid || 0)
+      },
+      rentIncome: {
+        cash: parseMoneyValue(rangeRentMethod.cash_paid || 0),
+        bank: parseMoneyValue(rangeRentMethod.bank_paid || 0),
+        eWallet: parseMoneyValue(rangeRentMethod.ewallet_paid || 0)
+      },
+      leakageJarSales: {
+        cash: parseMoneyValue(rangeLeakageMethod.cash_paid || 0),
+        bank: parseMoneyValue(rangeLeakageMethod.bank_paid || 0),
+        eWallet: parseMoneyValue(rangeLeakageMethod.ewallet_paid || 0)
+      },
+      jarSalesCash: parseMoneyValue(rangeJarSalesCash.amount || 0),
+      savingsDepositsCash: parseMoneyValue(rangeSavingsDeposits.amount || 0),
+      deductionRows: {
+        imports: parseMoneyValue(rangeImportsFromCollection.amount || 0),
+        companyPurchases: parseMoneyValue(rangePurchasesFromCollection.amount || 0),
+        vehicleExpenses: parseMoneyValue(rangeVehicleExpensesFromCollection.amount || 0),
+        staffSalaries: parseMoneyValue(rangeStaffSalaryFromCollection.amount || 0),
+        workerSalaries: parseMoneyValue(rangeWorkerSalaryFromCollection.amount || 0),
+        savingsWithdrawals: parseMoneyValue(rangeSavingsWithdrawFromCollection.amount || 0)
+      }
+    }
   });
 });
 
@@ -3969,6 +4238,15 @@ router.get("/reports/all/export", (req, res) => {
      LEFT JOIN vehicles ON jar_sales.vehicle_id = vehicles.id
      WHERE jar_sales.sale_date BETWEEN ? AND ?
      ORDER BY jar_sales.sale_date ASC`
+  ).all(from, to);
+
+  const leakageSalesRows = db.prepare(
+    `SELECT leakage_jar_sales.sale_date, leakage_jar_sales.quantity, leakage_jar_sales.unit_price,
+            leakage_jar_sales.total_amount, leakage_jar_sales.paid_amount, leakage_jar_sales.credit_amount,
+            leakage_jar_sales.payment_method, leakage_jar_sales.note
+     FROM leakage_jar_sales
+     WHERE leakage_jar_sales.sale_date BETWEEN ? AND ?
+     ORDER BY leakage_jar_sales.sale_date ASC`
   ).all(from, to);
 
   const importsRows = db.prepare(
@@ -4041,6 +4319,22 @@ router.get("/reports/all/export", (req, res) => {
       row.total_amount,
       row.paid_amount,
       row.credit_amount
+    ].map((val) => `"${String(val ?? "").replace(/\"/g, "\"\"")}"`).join(","));
+  });
+
+  sections.push("");
+  sections.push("LEAKAGE_JAR_SALES");
+  sections.push("Date,Quantity,Unit Price,Total,Paid,Credit,Payment Method,Note");
+  leakageSalesRows.forEach((row) => {
+    sections.push([
+      row.sale_date,
+      row.quantity,
+      row.unit_price,
+      row.total_amount,
+      row.paid_amount,
+      row.credit_amount,
+      row.payment_method || "",
+      row.note || ""
     ].map((val) => `"${String(val ?? "").replace(/\"/g, "\"\"")}"`).join(","));
   });
 
@@ -4648,7 +4942,7 @@ router.get("/workers", (req, res) => {
   const today = dayjs().format("YYYY-MM-DD");
   const workers = rows.map((row) => ({
     ...row,
-    due_salary: computeSalaryDue(row, row.paid_total, today)
+    due_salary: computeSalaryDue("WORKER", row, row.paid_total, today)
   }));
   const success = req.query.archived || req.query.deleted
     ? req.t("workerDeactivated")
@@ -4686,8 +4980,8 @@ router.post("/workers", (req, res) => {
         error: req.t("workerRequired")
       });
     }
-    const salary = Number(monthly_salary || 0);
-    if (Number.isNaN(salary) || salary < 0) {
+    const salaryRaw = Number(monthly_salary || 0);
+    if (Number.isNaN(salaryRaw) || salaryRaw < 0) {
       return res.render("admin/worker_form", {
         title: req.t("addWorkerTitle"),
         user: formUser,
@@ -4695,6 +4989,7 @@ router.post("/workers", (req, res) => {
         error: req.t("salaryInvalid")
       });
     }
+    const salary = parseWholeMoney(salaryRaw);
     const fingerprintId = normalizeFingerprintId(fingerprint_id);
     const fpConflict = findFingerprintConflict({ fingerprintId });
     if (fpConflict) {
@@ -4772,7 +5067,7 @@ router.get("/workers/:id", (req, res) => {
     },
     { total: 0, salary: 0, advance: 0 }
   );
-  const dueSalary = computeSalaryDue(worker, totals.total, dayjs().format("YYYY-MM-DD"));
+  const dueSalary = computeSalaryDue("WORKER", worker, totals.total, dayjs().format("YYYY-MM-DD"));
   const todayDate = dayjs().format("YYYY-MM-DD");
   const attendanceSummary = db.prepare(
     `SELECT
@@ -4790,7 +5085,9 @@ router.get("/workers/:id", (req, res) => {
      ORDER BY attendance_date DESC`
   ).all(req.params.id).map((row) => row.attendance_date);
   const errorKey = String(req.query.error || "").trim();
+  const status = String(req.query.status || "").trim();
   const error = errorKey ? req.t(errorKey) : null;
+  const success = status === "salary_adjusted" ? req.t("salaryAdjusted") : null;
 
   res.render("admin/worker_detail", {
     title: req.t("workerDetailTitle"),
@@ -4802,8 +5099,54 @@ router.get("/workers/:id", (req, res) => {
     todayDate,
     attendanceSummary,
     absentDates,
-    error
+    error,
+    success
   });
+});
+
+router.post("/workers/:id/salary-adjust", (req, res) => {
+  const worker = db.prepare(
+    "SELECT id, full_name, monthly_salary FROM users WHERE id = ? AND role = 'WORKER'"
+  ).get(req.params.id);
+  if (!worker) return res.redirect("/admin/workers");
+
+  const adjustType = String(req.body.adjust_type || "").trim().toUpperCase();
+  const adjustAmountRaw = Number(req.body.adjust_amount || 0);
+  const adjustAmount = parseWholeMoney(adjustAmountRaw);
+  const note = String(req.body.note || "").trim();
+  if (!["INCREASE", "DECREASE"].includes(adjustType) || Number.isNaN(adjustAmountRaw) || adjustAmount <= 0) {
+    return res.redirect(`/admin/workers/${req.params.id}?error=salaryAdjustmentInvalid`);
+  }
+
+  const currentSalary = parseWholeMoney(worker.monthly_salary || 0);
+  const nextSalary = adjustType === "INCREASE"
+    ? currentSalary + adjustAmount
+    : currentSalary - adjustAmount;
+  if (nextSalary < 0) {
+    return res.redirect(`/admin/workers/${req.params.id}?error=salaryAdjustmentWouldBeNegative`);
+  }
+
+  runInTransaction(() => {
+    recordSalaryAdjustment(db, {
+      personType: "WORKER",
+      personId: req.params.id,
+      previousSalary: currentSalary,
+      newSalary: nextSalary,
+      effectiveMonth: dayjs().startOf("month").format("YYYY-MM-DD"),
+      note,
+      createdBy: req.session.userId
+    });
+    db.prepare("UPDATE users SET monthly_salary = ?, updated_at = datetime('now') WHERE id = ?").run(nextSalary, req.params.id);
+  });
+  logActivity({
+    userId: req.session.userId,
+    action: "update",
+    entityType: "worker_salary_adjustment",
+    entityId: req.params.id,
+    details: `type=${adjustType}, amount=${adjustAmount}, from=${currentSalary}, to=${nextSalary}, note=${note || ""}`
+  });
+
+  return res.redirect(`/admin/workers/${req.params.id}?status=salary_adjusted`);
 });
 
 router.get("/workers/:id/print", (req, res) => {
@@ -4830,7 +5173,7 @@ router.get("/workers/:id/print", (req, res) => {
     },
     { total: 0, salary: 0, advance: 0 }
   );
-  const dueSalary = computeSalaryDue(worker, totals.total, dayjs().format("YYYY-MM-DD"));
+  const dueSalary = computeSalaryDue("WORKER", worker, totals.total, dayjs().format("YYYY-MM-DD"));
   const attendanceSummary = db.prepare(
     `SELECT
       COALESCE(SUM(CASE WHEN status = 'PRESENT' THEN 1 ELSE 0 END), 0) AS present_days,
@@ -4899,8 +5242,8 @@ router.post("/workers/:id", (req, res) => {
         error: req.t("nameUsernameRequired")
       });
     }
-    const salary = Number(monthly_salary || 0);
-    if (Number.isNaN(salary) || salary < 0) {
+    const salaryRaw = Number(monthly_salary || 0);
+    if (Number.isNaN(salaryRaw) || salaryRaw < 0) {
       return res.render("admin/worker_form", {
         title: req.t("editWorkerTitle"),
         user: formUser,
@@ -4908,6 +5251,7 @@ router.post("/workers/:id", (req, res) => {
         error: req.t("salaryInvalid")
       });
     }
+    const salary = parseWholeMoney(salaryRaw);
     const fingerprintId = normalizeFingerprintId(fingerprint_id);
     const fpConflict = findFingerprintConflict({ fingerprintId, skipWorkerId: req.params.id });
     if (fpConflict) {
@@ -4920,17 +5264,33 @@ router.post("/workers/:id", (req, res) => {
     }
 
     try {
-      db.prepare(
-        "UPDATE users SET full_name = ?, username = ?, phone = ?, fingerprint_id = ?, start_date = ?, monthly_salary = ?, updated_at = datetime('now') WHERE id = ?"
-      ).run(
-        full_name.trim(),
-        username.trim(),
-        phone ? phone.trim() : null,
-        fingerprintId,
-        start_date || null,
-        salary,
-        req.params.id
+      const currentSalary = parseWholeMoney(
+        db.prepare("SELECT monthly_salary FROM users WHERE id = ? AND role = 'WORKER'").get(req.params.id)?.monthly_salary || 0
       );
+      runInTransaction(() => {
+        if (currentSalary !== salary) {
+          recordSalaryAdjustment(db, {
+            personType: "WORKER",
+            personId: req.params.id,
+            previousSalary: currentSalary,
+            newSalary: salary,
+            effectiveMonth: dayjs().startOf("month").format("YYYY-MM-DD"),
+            note: "Updated from worker profile",
+            createdBy: req.session.userId
+          });
+        }
+        db.prepare(
+          "UPDATE users SET full_name = ?, username = ?, phone = ?, fingerprint_id = ?, start_date = ?, monthly_salary = ?, updated_at = datetime('now') WHERE id = ?"
+        ).run(
+          full_name.trim(),
+          username.trim(),
+          phone ? phone.trim() : null,
+          fingerprintId,
+          start_date || null,
+          salary,
+          req.params.id
+        );
+      });
 
       if (password) {
         const hash = bcrypt.hashSync(password, 10);
@@ -5006,11 +5366,17 @@ router.post("/workers/:id/payments", (req, res) => {
   }
   const type = payment_type === "ADVANCE" ? "ADVANCE" : "SALARY";
   const source = normalizeSalaryPaymentSource(payment_source);
+  if (source === "DAILY_COLLECTION") {
+    const collectionBalance = getDailyCollectionBalance(db, payment_date);
+    if (amt > roundMoney(collectionBalance) + 0.01) {
+      return res.redirect(`/admin/workers/${req.params.id}?error=dailyCollectionInsufficient`);
+    }
+  }
   if (type === "SALARY") {
     const workerRow = db.prepare("SELECT * FROM users WHERE id = ? AND role = 'WORKER'").get(req.params.id);
     if (!workerRow) return res.redirect("/admin/workers");
     const paidTotal = getWorkerPaidTotal(req.params.id);
-    const due = computeSalaryDue(workerRow, paidTotal, payment_date || dayjs().format("YYYY-MM-DD"));
+    const due = computeSalaryDue("WORKER", workerRow, paidTotal, payment_date || dayjs().format("YYYY-MM-DD"));
     if (amt > roundMoney(due) + 0.01) {
       return res.redirect(`/admin/workers/${req.params.id}?error=salaryOverpaymentBlocked`);
     }
@@ -5068,9 +5434,15 @@ router.post("/workers/payments/:id", (req, res) => {
   }
   const type = payment_type === "ADVANCE" ? "ADVANCE" : "SALARY";
   const source = normalizeSalaryPaymentSource(payment_source);
+  if (source === "DAILY_COLLECTION") {
+    const collectionBalance = getDailyCollectionBalance(db, payment_date, { excludeWorkerPaymentId: req.params.id });
+    if (amt > roundMoney(collectionBalance) + 0.01) {
+      return res.redirect(`/admin/workers/payments/${req.params.id}/edit?error=dailyCollectionInsufficient`);
+    }
+  }
   if (type === "SALARY") {
     const paidTotal = getWorkerPaidTotal(payment.worker_id, { excludePaymentId: req.params.id });
-    const due = computeSalaryDue(worker, paidTotal, payment_date || dayjs().format("YYYY-MM-DD"));
+    const due = computeSalaryDue("WORKER", worker, paidTotal, payment_date || dayjs().format("YYYY-MM-DD"));
     if (amt > roundMoney(due) + 0.01) {
       return res.redirect(`/admin/workers/payments/${req.params.id}/edit?error=salaryOverpaymentBlocked`);
     }
@@ -5546,8 +5918,9 @@ router.get("/profile", (req, res) => {
   res.render("admin/profile", {
     title: req.t("profileTitle"),
     user,
-    error: null,
-    success: null
+    error: req.query.error ? req.t(String(req.query.error)) : null,
+    success: req.query.theme_saved === "1" ? req.t("themeSaved") : null,
+    preferenceAction: "/admin/profile/preferences"
   });
 });
 
@@ -5701,7 +6074,8 @@ router.post("/profile", (req, res) => {
       title: req.t("profileTitle"),
       user: { ...user, full_name, phone },
       error: req.t("fullNameRequired"),
-      success: null
+      success: null,
+      preferenceAction: "/admin/profile/preferences"
     });
   }
 
@@ -5711,25 +6085,42 @@ router.post("/profile", (req, res) => {
   if (new_password) {
     const dbUser = db.prepare("SELECT password_hash FROM users WHERE id = ?").get(user.id);
     if (!current_password || !dbUser || !bcrypt.compareSync(current_password, dbUser.password_hash)) {
-      const refreshed = db.prepare("SELECT id, username, full_name, phone, role FROM users WHERE id = ?").get(user.id);
+      const refreshed = getProfileUserById(user.id);
       return res.render("admin/profile", {
         title: req.t("profileTitle"),
         user: refreshed,
         error: req.t("currentPasswordInvalid"),
-        success: null
+        success: null,
+        preferenceAction: "/admin/profile/preferences"
       });
     }
     const hash = bcrypt.hashSync(new_password, 10);
     db.prepare("UPDATE users SET password_hash = ? WHERE id = ?").run(hash, user.id);
   }
 
-  const refreshed = db.prepare("SELECT id, username, full_name, phone, role FROM users WHERE id = ?").get(user.id);
+  const refreshed = getProfileUserById(user.id);
   res.render("admin/profile", {
     title: req.t("profileTitle"),
     user: refreshed,
     error: null,
-    success: req.t("profileSaved")
+    success: req.t("profileSaved"),
+    preferenceAction: "/admin/profile/preferences"
   });
+});
+
+router.post("/profile/preferences", (req, res) => {
+  const user = res.locals.currentUser;
+  if (!user) return res.redirect("/login");
+  const themePreset = normalizeThemePreset(req.body.theme_preset);
+  db.prepare("UPDATE users SET theme_preset = ?, updated_at = datetime('now') WHERE id = ?").run(themePreset, user.id);
+  logActivity({
+    userId: user.id,
+    action: "update",
+    entityType: "user_preferences",
+    entityId: user.id,
+    details: `theme=${themePreset}`
+  });
+  res.redirect("/admin/profile?theme_saved=1");
 });
 
 router.get("/recovery", (req, res) => {

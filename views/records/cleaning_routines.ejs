@@ -1,0 +1,248 @@
+<%- include('../partials/shell-start', { title }) %>
+<section class="py-8">
+  <div class="flex flex-wrap items-center justify-between gap-3">
+    <div>
+      <h1 class="text-3xl font-semibold"><%= t('cleaningRoutinesTitle') %></h1>
+      <p class="text-slate-600"><%= t('cleaningRoutinesSubtitle') %></p>
+    </div>
+  </div>
+
+  <% if (error) { %>
+    <div class="mt-4 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700"><%= error %></div>
+  <% } %>
+  <% if (success) { %>
+    <div class="mt-4 rounded-lg bg-emerald-50 px-4 py-3 text-sm text-emerald-700"><%= success %></div>
+  <% } %>
+  <% const staffNameOptions = (staffOptions || []).map((staff) => staff.full_name).filter(Boolean); %>
+  <div class="mt-6 grid gap-6 xl:grid-cols-[420px_minmax(0,1fr)]">
+    <div class="card p-5">
+      <h2 class="text-lg font-semibold"><%= t('addCleaningRoutineTitle') %></h2>
+      <form class="mt-4 space-y-3" method="post" action="/records/cleaning-routines">
+        <div>
+          <label class="label"><%= t('date') %></label>
+          <input class="input" type="date" name="routine_date" value="<%= to %>" required />
+        </div>
+        <div class="grid gap-3 sm:grid-cols-2">
+          <div>
+            <label class="label"><%= t('cleaningShift') %></label>
+            <select class="input" name="shift">
+              <option value="MORNING"><%= t('morningShift') %></option>
+              <option value="EVENING"><%= t('eveningShift') %></option>
+            </select>
+          </div>
+          <div>
+            <label class="label"><%= t('status') %></label>
+            <select class="input" name="status">
+              <option value="PENDING"><%= t('cleaningPending') %></option>
+              <option value="DONE"><%= t('cleaningDone') %></option>
+              <option value="SKIPPED"><%= t('cleaningSkipped') %></option>
+            </select>
+          </div>
+        </div>
+        <div>
+          <label class="label"><%= t('cleaningArea') %></label>
+          <input class="input" type="text" name="area_name" placeholder="<%= t('cleaningAreaPlaceholder') %>" required />
+        </div>
+        <div>
+          <label class="label"><%= t('cleaningTask') %></label>
+          <input class="input" type="text" name="task_name" placeholder="<%= t('cleaningTaskPlaceholder') %>" required />
+        </div>
+        <div>
+          <label class="label"><%= t('cleanedBy') %></label>
+          <div class="rounded-2xl border border-slate-200 bg-white p-3" data-staff-picker>
+            <div class="flex min-h-[2.75rem] flex-wrap gap-2 rounded-xl border border-slate-200 bg-slate-50 p-2" data-selected-display></div>
+            <input class="input mt-2" type="search" data-staff-search placeholder="<%= t('search') %>" autocomplete="off" />
+            <div class="mt-2 hidden max-h-40 overflow-auto rounded-xl border border-slate-200 bg-white p-2" data-staff-options></div>
+            <div data-hidden-inputs></div>
+          </div>
+          <p class="mt-2 text-xs text-slate-500"><%= t('cleaningMultipleHint') %></p>
+        </div>
+        <div>
+          <label class="label"><%= t('note') %></label>
+          <input class="input" type="text" name="note" />
+        </div>
+        <button class="btn-primary w-full" type="submit"><%= t('save') %></button>
+      </form>
+    </div>
+
+    <div class="card p-5">
+      <form class="flex flex-wrap items-end gap-3" method="get" action="/records/cleaning-routines">
+        <div>
+          <label class="label"><%= t('from') %></label>
+          <input class="input" type="date" name="from" value="<%= from %>" />
+        </div>
+        <div>
+          <label class="label"><%= t('to') %></label>
+          <input class="input" type="date" name="to" value="<%= to %>" />
+        </div>
+        <div>
+          <label class="label"><%= t('status') %></label>
+          <select class="input" name="status_filter">
+            <option value="all" <%= statusFilter === 'ALL' ? 'selected' : '' %>><%= t('all') %></option>
+            <option value="PENDING" <%= statusFilter === 'PENDING' ? 'selected' : '' %>><%= t('cleaningPending') %></option>
+            <option value="DONE" <%= statusFilter === 'DONE' ? 'selected' : '' %>><%= t('cleaningDone') %></option>
+            <option value="SKIPPED" <%= statusFilter === 'SKIPPED' ? 'selected' : '' %>><%= t('cleaningSkipped') %></option>
+          </select>
+        </div>
+        <div class="min-w-[220px]">
+          <label class="label"><%= t('search') %></label>
+          <input class="input" type="text" name="q" value="<%= q %>" placeholder="<%= t('searchPlaceholder') %>" />
+        </div>
+        <button class="btn-outline" type="submit"><%= t('filter') %></button>
+      </form>
+
+      <div class="mt-4 overflow-x-auto rounded-2xl border border-slate-200">
+        <table class="table-base">
+          <thead class="table-head sticky top-0 z-10">
+            <tr>
+              <th class="px-4 py-3"><%= t('date') %></th>
+              <th class="px-4 py-3"><%= t('cleaningShift') %></th>
+              <th class="px-4 py-3"><%= t('cleaningArea') %></th>
+              <th class="px-4 py-3"><%= t('cleaningTask') %></th>
+              <th class="px-4 py-3"><%= t('cleanedBy') %></th>
+              <th class="px-4 py-3"><%= t('status') %></th>
+              <th class="px-4 py-3"><%= t('note') %></th>
+              <th class="table-action-sticky px-4 py-3 text-right"><%= t('actions') %></th>
+            </tr>
+          </thead>
+          <tbody>
+            <% if (!rows.length) { %>
+              <tr><td class="px-4 py-4 text-slate-500" colspan="8"><%= t('noData') %></td></tr>
+            <% } %>
+            <% rows.forEach((row) => { %>
+              <tr class="table-row">
+                <td class="px-4 py-3"><%= row.routine_date %></td>
+                <td class="px-4 py-3"><%= row.shift === 'EVENING' ? t('eveningShift') : t('morningShift') %></td>
+                <td class="px-4 py-3"><%= row.area_name %></td>
+                <td class="px-4 py-3"><%= row.task_name %></td>
+                <td class="px-4 py-3"><%= row.cleaned_by || '-' %></td>
+                <td class="px-4 py-3">
+                  <span class="badge <%= row.status === 'DONE' ? 'bg-emerald-50 text-emerald-700' : row.status === 'SKIPPED' ? 'bg-amber-50 text-amber-700' : 'bg-slate-100 text-slate-700' %>">
+                    <%= row.status === 'DONE' ? t('cleaningDone') : row.status === 'SKIPPED' ? t('cleaningSkipped') : t('cleaningPending') %>
+                  </span>
+                </td>
+                <td class="px-4 py-3"><%= row.note || '-' %></td>
+                <td class="table-action-sticky px-4 py-3 text-right">
+                  <details class="action-menu">
+                    <summary class="btn-outline h-9 w-9 flex items-center justify-center">⋯</summary>
+                    <div class="action-menu-panel">
+                      <form method="post" action="/records/cleaning-routines/<%= row.id %>/status">
+                        <button class="action-menu-item" name="status" value="DONE" type="submit"><%= t('markDone') %></button>
+                        <button class="action-menu-item" name="status" value="PENDING" type="submit"><%= t('markPending') %></button>
+                        <button class="action-menu-item" name="status" value="SKIPPED" type="submit"><%= t('markSkipped') %></button>
+                      </form>
+                      <form method="post" action="/records/cleaning-routines/<%= row.id %>/delete" onsubmit="return confirm('<%= t('deleteCleaningRoutineConfirm') %>');">
+                        <button class="action-menu-item action-menu-danger" type="submit"><%= t('delete') %></button>
+                      </form>
+                    </div>
+                  </details>
+                </td>
+              </tr>
+            <% }) %>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</section>
+<script>
+  (() => {
+    const staffNames = <%- JSON.stringify(staffNameOptions) %>;
+    const noMatchLabel = <%- JSON.stringify(t('noStaffs')) %>;
+    const pickers = Array.from(document.querySelectorAll('[data-staff-picker]'));
+    const createChip = (name, onRemove) => {
+      const chip = document.createElement('button');
+      chip.type = 'button';
+      chip.className = 'inline-flex items-center gap-2 rounded-full bg-red-50 px-3 py-1 text-xs font-semibold text-red-700';
+      chip.innerHTML = `<span>${name}</span><span aria-hidden="true">×</span>`;
+      chip.addEventListener('click', () => onRemove(name));
+      return chip;
+    };
+
+    pickers.forEach((picker) => {
+      const selected = new Set();
+      const selectedDisplay = picker.querySelector('[data-selected-display]');
+      const searchInput = picker.querySelector('[data-staff-search]');
+      const optionsWrap = picker.querySelector('[data-staff-options]');
+      const hiddenInputs = picker.querySelector('[data-hidden-inputs]');
+
+      const syncHiddenInputs = () => {
+        if (!hiddenInputs) return;
+        hiddenInputs.innerHTML = '';
+        Array.from(selected).forEach((name) => {
+          const input = document.createElement('input');
+          input.type = 'hidden';
+          input.name = 'cleaned_by';
+          input.value = name;
+          hiddenInputs.appendChild(input);
+        });
+      };
+
+      const renderSelected = () => {
+        if (!selectedDisplay) return;
+        selectedDisplay.innerHTML = '';
+        if (!selected.size) {
+          const empty = document.createElement('span');
+          empty.className = 'text-xs text-slate-400';
+          empty.textContent = <%- JSON.stringify(t('cleanedByPlaceholder')) %>;
+          selectedDisplay.appendChild(empty);
+        } else {
+          Array.from(selected).forEach((name) => {
+            selectedDisplay.appendChild(createChip(name, (value) => {
+              selected.delete(value);
+              renderSelected();
+              renderOptions();
+              syncHiddenInputs();
+            }));
+          });
+        }
+      };
+
+      const renderOptions = () => {
+        if (!optionsWrap) return;
+        const term = String(searchInput?.value || '').trim().toLowerCase();
+        optionsWrap.innerHTML = '';
+        if (!term) {
+          optionsWrap.classList.add('hidden');
+          return;
+        }
+        const matched = staffNames.filter((name) => name.toLowerCase().includes(term));
+        if (!matched.length) {
+          optionsWrap.classList.remove('hidden');
+          const empty = document.createElement('div');
+          empty.className = 'rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-500';
+          empty.textContent = noMatchLabel;
+          optionsWrap.appendChild(empty);
+          return;
+        }
+        optionsWrap.classList.remove('hidden');
+        matched.forEach((name) => {
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.className = selected.has(name)
+              ? 'mb-1 mr-1 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-left text-sm font-medium text-red-700'
+              : 'mb-1 mr-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50';
+            button.textContent = name;
+            button.addEventListener('click', () => {
+              if (selected.has(name)) selected.delete(name);
+              else selected.add(name);
+              if (searchInput) searchInput.value = '';
+              renderSelected();
+              renderOptions();
+              syncHiddenInputs();
+            });
+            optionsWrap.appendChild(button);
+          });
+      };
+
+      if (searchInput) {
+        searchInput.addEventListener('input', renderOptions);
+      }
+
+      renderSelected();
+      renderOptions();
+      syncHiddenInputs();
+    });
+  })();
+</script>
+<%- include('../partials/shell-end') %>

@@ -15,7 +15,7 @@ function attachUser(req, res, next) {
   }
 
   const user = db.prepare(
-    "SELECT id, username, full_name, phone, role, is_active FROM users WHERE id = ?"
+    "SELECT id, username, full_name, phone, role, is_active, theme_preset FROM users WHERE id = ?"
   ).get(req.session.userId);
   if (!user) {
     req.session.destroy(() => {});
@@ -29,6 +29,7 @@ function attachUser(req, res, next) {
   }
 
   res.locals.currentUser = user;
+  req.currentUser = user;
   const rolePermissionMap = getRolePermissionMap(db, user.role);
   req.rolePermissionMap = rolePermissionMap;
   res.locals.rolePermissionMap = rolePermissionMap;

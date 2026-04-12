@@ -1,9 +1,32 @@
 <!DOCTYPE html>
-<html lang="<%= lang %>" data-calendar-mode="<%= calendarMode || 'AD' %>" data-calendar-available="<%= canConvertBs ? '1' : '0' %>">
+<html lang="<%= lang %>" data-calendar-mode="<%= calendarMode || 'AD' %>" data-calendar-available="<%= canConvertBs ? '1' : '0' %>" data-theme="<%= (currentUser && currentUser.theme_preset) ? currentUser.theme_preset : 'classic' %>" data-font-size="md">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title><%= title %> | AQUA MSK</title>
+  <script>
+    (function () {
+      var root = document.documentElement;
+      var serverTheme = "<%= (currentUser && currentUser.theme_preset) ? currentUser.theme_preset : '' %>";
+      if (serverTheme) {
+        root.dataset.theme = serverTheme;
+        try {
+          localStorage.setItem('themePreset', serverTheme);
+        } catch (e) {}
+      } else {
+        try {
+          root.dataset.theme = localStorage.getItem('themePreset') || 'classic';
+        } catch (e) {
+          root.dataset.theme = 'classic';
+        }
+      }
+      try {
+        root.dataset.fontSize = localStorage.getItem('fontSize') || 'md';
+      } catch (e) {
+        root.dataset.fontSize = 'md';
+      }
+    })();
+  </script>
   <link rel="stylesheet" href="/css/styles.css?v=<%= assetVersion %>" />
   <script src="/js/calendar-ui.js?v=<%= assetVersion %>" defer></script>
   <style>
@@ -13,7 +36,7 @@
     :root[data-font-size="xl"] { font-size: 20px; }
     .print-only { display: none; }
     .action-menu { position: relative; display: inline-block; overflow: visible; }
-    .action-menu[open] { z-index: 12000; }
+    .action-menu[open] { z-index: 20000; }
     .action-menu > summary { list-style: none; }
     .action-menu > summary::-webkit-details-marker { display: none; }
     .action-menu-panel {
@@ -31,7 +54,7 @@
       padding: 6px;
       overflow-y: auto;
       overscroll-behavior: contain;
-      z-index: 12010;
+      z-index: 20010;
     }
     .action-menu-item {
       display: block;
@@ -111,26 +134,60 @@
   </style>
   <script>
     (function () {
-      try {
-        var size = localStorage.getItem('fontSize') || 'md';
-        document.documentElement.dataset.fontSize = size;
-      } catch (e) {}
-    })();
-    (function () {
       var selector = "details.action-menu";
+      function getMenuPortal() {
+        var portal = document.getElementById("actionMenuPortal");
+        if (portal) return portal;
+        portal = document.createElement("div");
+        portal.id = "actionMenuPortal";
+        portal.style.position = "fixed";
+        portal.style.inset = "0";
+        portal.style.zIndex = "21000";
+        portal.style.pointerEvents = "none";
+        document.body.appendChild(portal);
+        return portal;
+      }
+
       function isForcedUp(menu) {
         return menu && menu.dataset && menu.dataset.forceUp === "1";
       }
 
       function getPanel(menu) {
         if (!(menu instanceof HTMLElement)) return null;
+        if (menu.__actionMenuPanel instanceof HTMLElement) {
+          return menu.__actionMenuPanel;
+        }
         var panel = menu.querySelector(".action-menu-panel");
+        if (panel instanceof HTMLElement) {
+          menu.__actionMenuPanel = panel;
+        }
         return panel instanceof HTMLElement ? panel : null;
+      }
+
+      function mountPanel(menu) {
+        var panel = getPanel(menu);
+        if (!panel) return null;
+        var portal = getMenuPortal();
+        if (panel.parentNode !== portal) {
+          portal.appendChild(panel);
+        }
+        panel.style.pointerEvents = "auto";
+        return panel;
+      }
+
+      function restorePanel(menu) {
+        var panel = getPanel(menu);
+        if (!panel) return;
+        if (panel.parentNode !== menu) {
+          menu.appendChild(panel);
+        }
+        panel.style.pointerEvents = "";
       }
 
       function resetPanelPosition(menu) {
         var panel = getPanel(menu);
         if (!panel) return;
+        panel.scrollTop = 0;
         panel.style.position = "";
         panel.style.left = "";
         panel.style.top = "";
@@ -140,6 +197,18 @@
         panel.style.width = "";
         panel.style.visibility = "";
         panel.style.display = "";
+      }
+
+      function queuePanelReset(menu) {
+        var panel = getPanel(menu);
+        if (!panel) return;
+        panel.scrollTop = 0;
+        requestAnimationFrame(function () {
+          panel.scrollTop = 0;
+          setTimeout(function () {
+            panel.scrollTop = 0;
+          }, 0);
+        });
       }
 
       function setMenuHostLayer(menu, active) {
@@ -167,6 +236,7 @@
         for (var i = 0; i < menus.length; i += 1) {
           if (!except || menus[i] !== except) {
             resetPanelPosition(menus[i]);
+            restorePanel(menus[i]);
             setMenuHostLayer(menus[i], false);
             menus[i].classList.remove("action-menu-up");
             menus[i].open = false;
@@ -174,9 +244,18 @@
         }
       }
 
+      function closeMenu(menu) {
+        if (!(menu instanceof HTMLElement)) return;
+        resetPanelPosition(menu);
+        restorePanel(menu);
+        setMenuHostLayer(menu, false);
+        menu.classList.remove("action-menu-up");
+        menu.open = false;
+      }
+
       function placeMenu(menu) {
         if (!(menu instanceof HTMLElement)) return;
-        var panel = getPanel(menu);
+        var panel = mountPanel(menu);
         if (!(panel instanceof HTMLElement)) return;
         var anchor = menu.querySelector("summary");
         var anchorRect = (anchor instanceof HTMLElement ? anchor : menu).getBoundingClientRect();
@@ -188,14 +267,15 @@
         panel.style.top = viewportMargin + "px";
         panel.style.right = "auto";
         panel.style.bottom = "auto";
+        panel.scrollTop = 0;
         panel.style.maxHeight = "";
         panel.style.width = "";
         panel.style.visibility = "hidden";
         panel.style.display = "block";
 
         var panelRect = panel.getBoundingClientRect();
-        var panelWidth = Math.max(panelRect.width || 180, 180);
-        var panelHeight = Math.max(panelRect.height || 120, 120);
+        var panelWidth = Math.max(panelRect.width || panel.offsetWidth || 180, 180);
+        var panelHeight = Math.max(panel.scrollHeight || panelRect.height || 120, 120);
 
         var spaceBelow = Math.max(0, window.innerHeight - anchorRect.bottom - viewportMargin - gap);
         var spaceAbove = Math.max(0, anchorRect.top - viewportMargin);
@@ -206,11 +286,12 @@
 
         var availableSpace = Math.max(140, Math.floor(openUp ? spaceAbove : spaceBelow));
         panel.style.maxHeight = availableSpace + "px";
+        panel.scrollTop = 0;
         panel.style.display = "block";
         panel.style.visibility = "hidden";
         panelRect = panel.getBoundingClientRect();
         panelWidth = Math.max(panelRect.width || panelWidth, 180);
-        panelHeight = Math.min(Math.max(panelRect.height || 120, 120), availableSpace);
+        panelHeight = Math.min(Math.max(panel.scrollHeight || panelRect.height || 120, 120), availableSpace);
 
         var left = anchorRect.right - panelWidth;
         left = Math.max(viewportMargin, Math.min(left, window.innerWidth - viewportMargin - panelWidth));
@@ -223,8 +304,24 @@
         panel.style.top = Math.round(top) + "px";
         panel.style.right = "auto";
         panel.style.bottom = "auto";
+        panel.scrollTop = 0;
         panel.style.visibility = "";
         panel.style.display = "";
+        queuePanelReset(menu);
+      }
+
+      function openMenu(menu) {
+        if (!(menu instanceof HTMLElement)) return;
+        closeAll(menu);
+        menu.open = true;
+        setMenuHostLayer(menu, true);
+        placeMenu(menu);
+        queuePanelReset(menu);
+        requestAnimationFrame(function () {
+          if (!menu.open) return;
+          placeMenu(menu);
+          queuePanelReset(menu);
+        });
       }
 
       document.addEventListener("toggle", function (event) {
@@ -237,6 +334,7 @@
           placeMenu(target);
         } else {
           resetPanelPosition(target);
+          restorePanel(target);
           setMenuHostLayer(target, false);
           target.classList.remove("action-menu-up");
         }
@@ -245,10 +343,41 @@
       document.addEventListener("click", function (event) {
         var target = event && event.target;
         if (!(target instanceof Element)) return;
+
+        var summary = target.closest(selector + " > summary");
+        if (summary instanceof HTMLElement) {
+          event.preventDefault();
+          event.stopPropagation();
+          var menu = summary.parentElement;
+          if (!(menu instanceof HTMLElement)) return;
+          if (menu.open) closeMenu(menu);
+          else openMenu(menu);
+          return;
+        }
+
+        if (target.closest(".action-menu-panel")) {
+          if (target.closest("a, button")) {
+            setTimeout(function () {
+              closeAll();
+            }, 0);
+          }
+          return;
+        }
+
         if (!target.closest(selector)) closeAll();
       });
 
       document.addEventListener("keydown", function (event) {
+        var target = event && event.target;
+        if (
+          (event.key === "Enter" || event.key === " ") &&
+          target instanceof HTMLElement &&
+          target.matches(selector + " > summary")
+        ) {
+          event.preventDefault();
+          target.click();
+          return;
+        }
         if (event.key === "Escape") closeAll();
       });
 
@@ -359,4 +488,4 @@
 <body class="text-slate-900">
   <div class="min-h-screen">
     <%- include('nav') %>
-    <main class="mx-auto w-full max-w-6xl px-4 pb-16 pt-6">
+    <main class="mx-auto w-full max-w-[88rem] px-4 pb-16 pt-6">

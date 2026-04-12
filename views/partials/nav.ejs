@@ -15,11 +15,7 @@
           <% } %>
         </div>
         <div>
-          <% if (brandWordmarkPath) { %>
-            <img src="<%= brandWordmarkPath %>" alt="AQUA MSK" class="h-6 w-auto object-contain" />
-          <% } else { %>
-            <p class="text-lg font-semibold">AQUA MSK</p>
-          <% } %>
+          <p class="text-lg font-semibold">AQUA MSK</p>
           <p class="text-xs text-slate-500"><%= t('brandTagline') %></p>
         </div>
       </a>
@@ -37,18 +33,6 @@
                 <button class="btn-danger w-full" type="submit"><%= t('deleteLogo') %></button>
               </form>
             <% } %>
-            <div class="mt-4 border-t border-slate-200 pt-3">
-              <p class="text-xs font-semibold text-slate-600"><%= t('brandWordmarkTitle') %></p>
-              <form method="post" action="/admin/brand-image" enctype="multipart/form-data" class="mt-2 space-y-2">
-                <input class="input h-9" type="file" name="brand_file" accept="image/*" required />
-                <button class="btn-outline w-full" type="submit"><%= t('uploadBrandImage') %></button>
-              </form>
-              <% if (brandWordmarkPath) { %>
-                <form method="post" action="/admin/brand-image/delete" class="mt-2">
-                  <button class="btn-danger w-full" type="submit"><%= t('deleteBrandImage') %></button>
-                </form>
-              <% } %>
-            </div>
           </div>
         </details>
       <% } %>
@@ -85,130 +69,238 @@
         </div>
         <button class="btn-outline" type="button" data-close><%= t('close') %></button>
       </div>
-      <div class="mt-4 space-y-3 text-sm">
+      <div class="mt-4 text-sm menu-accordion">
         <% if (isAdmin) { %>
-          <div>
-            <p class="pill"><%= t('menuOperations') %></p>
-            <div class="mt-2 grid gap-2 sm:grid-cols-2">
-              <a class="btn-outline" href="/admin"><%= t('dashboard') %></a>
-              <% if (canAccessModule('exports')) { %><a class="btn-outline" href="/records/exports"><%= t('exports') %></a><% } %>
-              <% if (canAccessModule('credits')) { %><a class="btn-outline" href="/records/credits"><%= t('credits') %></a><% } %>
-              <% if (canAccessModule('imports')) { %><a class="btn-outline" href="/records/imports"><%= t('importsTitle') %></a><% } %>
-              <% if (canAccessModule('water_tests')) { %><a class="btn-outline" href="/records/water-tests"><%= t('waterTestsTitle') %></a><% } %>
-              <a class="btn-outline" href="/admin/alerts"><%= t('alertCenterTitle') %></a>
+          <details class="menu-section" open>
+            <summary class="menu-section-summary">
+              <span><%= t('dashboard') %></span>
+              <svg xmlns="http://www.w3.org/2000/svg" class="menu-section-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m6 9 6 6 6-6"/></svg>
+            </summary>
+            <div class="menu-section-body">
+              <div class="menu-section-grid">
+                <a class="btn-outline" href="/admin"><%= t('dashboard') %></a>
+                <a class="btn-outline" href="/search"><%= t('search') %></a>
+                <a class="btn-outline" href="/admin/alerts"><%= t('alertCenterTitle') %></a>
+              </div>
             </div>
-          </div>
-          <div>
-            <p class="pill"><%= t('menuFinance') %></p>
-            <div class="mt-2 grid gap-2 sm:grid-cols-2">
-              <% if (canAccessModule('jar_sales')) { %><a class="btn-outline" href="/records/jar-sales"><%= t('jarSalesTitle') %></a><% } %>
-              <% if (canAccessModule('rentals')) { %><a class="btn-outline" href="/records/rentals"><%= t('rentalsTitle') %></a><% } %>
-              <% if (canAccessModule('invoices')) { %><a class="btn-outline" href="/records/customer-invoice"><%= t('customerInvoiceTitle') %></a><% } %>
-              <% if (canAccessModule('invoices')) { %><a class="btn-outline" href="/records/vehicle-invoice"><%= t('vehicleInvoiceTitle') %></a><% } %>
-              <% if (canAccessModule('reconciliation')) { %><a class="btn-outline" href="/records/reconciliation"><%= t('reconciliationTitle') %></a><% } %>
-              <% if (canAccessModule('payment_ledger')) { %><a class="btn-outline" href="/records/payment-ledger"><%= t('paymentLedgerTitle') %></a><% } %>
-              <% if (canAccessModule('vehicle_expenses')) { %><a class="btn-outline" href="/records/vehicle-expenses"><%= t('vehicleExpensesTitle') %></a><% } %>
-              <% if (canAccessModule('company_expenses')) { %><a class="btn-outline" href="/records/company-purchases"><%= t('companyPurchasesTitle') %></a><% } %>
-              <% if (canAccessModule('vendor_aging')) { %><a class="btn-outline" href="/records/vendor-aging"><%= t('vendorAgingTitle') %></a><% } %>
-              <% if (canAccessModule('savings')) { %><a class="btn-outline" href="/admin/savings"><%= t('savingsTitle') %></a><% } %>
-              <a class="btn-outline" href="/admin/reports/all"><%= t('allReportsTitle') %></a>
-              <a class="btn-outline" href="/admin/reports/payroll-summary"><%= t('payrollSummaryTitle') %></a>
-              <a class="btn-outline" href="/admin/backup"><%= t('backup') %></a>
+          </details>
+
+          <details class="menu-section">
+            <summary class="menu-section-summary">
+              <span><%= t('menuWorkforce') %></span>
+              <svg xmlns="http://www.w3.org/2000/svg" class="menu-section-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m6 9 6 6 6-6"/></svg>
+            </summary>
+            <div class="menu-section-body">
+              <div class="menu-section-grid">
+                <a class="btn-outline" href="/admin/workers"><%= t('workers') %></a>
+                <% if (canAccessModule('staffs')) { %><a class="btn-outline" href="/admin/staffs"><%= t('staffsTitle') %></a><% } %>
+                <% if (canAccessModule('staffs')) { %><a class="btn-outline" href="/admin/staff-roles"><%= t('manageStaffRoles') %></a><% } %>
+                <% if (canAccessModule('attendance')) { %><a class="btn-outline" href="/admin/worker-attendance"><%= t('workerAttendanceTitle') %></a><% } %>
+                <a class="btn-outline" href="/admin/profile"><%= t('profileTitle') %></a>
+                <% if (isSuper) { %><a class="btn-outline" href="/admin/admins"><%= t('admins') %></a><% } %>
+              </div>
             </div>
-          </div>
-          <div>
-            <p class="pill"><%= t('menuPeopleAccess') %></p>
-            <div class="mt-2 grid gap-2 sm:grid-cols-2">
-              <% if (canAccessModule('vehicles')) { %><a class="btn-outline" href="/admin/vehicles"><%= t('vehicles') %></a><% } %>
-              <a class="btn-outline" href="/admin/workers"><%= t('workers') %></a>
-              <% if (canAccessModule('staffs')) { %><a class="btn-outline" href="/admin/staffs"><%= t('staffsTitle') %></a><% } %>
-              <% if (canAccessModule('staffs')) { %><a class="btn-outline" href="/admin/staff-roles"><%= t('manageStaffRoles') %></a><% } %>
-              <% if (canAccessModule('attendance')) { %><a class="btn-outline" href="/admin/worker-attendance"><%= t('workerAttendanceTitle') %></a><% } %>
-              <a class="btn-outline" href="/admin/profile"><%= t('profileTitle') %></a>
-              <% if (isSuper) { %>
-                <a class="btn-outline" href="/admin/admins"><%= t('admins') %></a>
-                <a class="btn-outline" href="/admin/recovery"><%= t('recoveryTitle') %></a>
-              <% } %>
+          </details>
+
+          <details class="menu-section">
+            <summary class="menu-section-summary">
+              <span><%= t('menuOperations') %></span>
+              <svg xmlns="http://www.w3.org/2000/svg" class="menu-section-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m6 9 6 6 6-6"/></svg>
+            </summary>
+            <div class="menu-section-body">
+              <div class="menu-section-grid">
+                <% if (canAccessModule('vehicles')) { %><a class="btn-outline" href="/admin/vehicles"><%= t('vehicles') %></a><% } %>
+                <% if (canAccessModule('exports')) { %><a class="btn-outline" href="/records/exports"><%= t('exports') %></a><% } %>
+                <% if (canAccessModule('water_tests')) { %><a class="btn-outline" href="/records/water-tests"><%= t('waterTestsTitle') %></a><% } %>
+                <% if (canAccessModule('company_expenses')) { %><a class="btn-outline" href="/records/cleaning-routines"><%= t('cleaningRoutinesTitle') %></a><% } %>
+                <a class="btn-outline" href="/worker"><%= t('workerView') %></a>
+              </div>
             </div>
-          </div>
-          <div>
-            <p class="pill"><%= t('menuInsights') %></p>
-            <div class="mt-2 grid gap-2 sm:grid-cols-2">
-              <% if (canAccessModule('history')) { %><a class="btn-outline" href="/records/history"><%= t('activityLogTitle') %></a><% } %>
-              <a class="btn-outline" href="/search"><%= t('search') %></a>
-              <a class="btn-outline" href="/admin/audit"><%= t('auditCenterTitle') %></a>
-              <a class="btn-outline" href="/records/leakage-guard"><%= t('leakageGuardTitle') %></a>
-              <a class="btn-outline" href="/admin/import-item-types"><%= t('importItemTypesTitle') %></a>
-              <a class="btn-outline" href="/admin/jar-types"><%= t('jarTypesTitle') %></a>
-              <a class="btn-outline" href="/worker"><%= t('workerView') %></a>
-              <a class="btn-outline" href="/admin/settings"><%= t('settingsTitle') %></a>
-              <a class="btn-outline" href="/admin/windows-kit"><%= t('windowsKitTitle') %></a>
-              <a class="btn-outline" href="/admin/recycle-bin"><%= t('recycleBinTitle') %></a>
+          </details>
+
+          <details class="menu-section">
+            <summary class="menu-section-summary">
+              <span><%= t('menuFinance') %></span>
+              <svg xmlns="http://www.w3.org/2000/svg" class="menu-section-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m6 9 6 6 6-6"/></svg>
+            </summary>
+            <div class="menu-section-body">
+              <div class="menu-section-grid">
+                <% if (canAccessModule('credits')) { %><a class="btn-outline" href="/records/credits"><%= t('credits') %></a><% } %>
+                <% if (canAccessModule('payment_ledger')) { %><a class="btn-outline" href="/records/payment-ledger"><%= t('paymentLedgerTitle') %></a><% } %>
+                <% if (canAccessModule('reconciliation')) { %><a class="btn-outline" href="/records/reconciliation"><%= t('reconciliationTitle') %></a><% } %>
+                <% if (canAccessModule('vehicle_expenses')) { %><a class="btn-outline" href="/records/vehicle-expenses"><%= t('vehicleExpensesTitle') %></a><% } %>
+                <% if (canAccessModule('company_expenses')) { %><a class="btn-outline" href="/records/company-purchases"><%= t('companyPurchasesTitle') %></a><% } %>
+                <% if (canAccessModule('jar_sales')) { %><a class="btn-outline" href="/records/jar-sales"><%= t('jarSalesTitle') %></a><% } %>
+                <% if (canAccessModule('jar_sales')) { %><a class="btn-outline" href="/records/leakage-sales"><%= t('leakageJarSalesTitle') %></a><% } %>
+                <% if (canAccessModule('rentals')) { %><a class="btn-outline" href="/records/rentals"><%= t('rentalsTitle') %></a><% } %>
+                <% if (canAccessModule('savings')) { %><a class="btn-outline" href="/admin/savings"><%= t('savingsTitle') %></a><% } %>
+                <% if (canAccessModule('vendor_aging')) { %><a class="btn-outline" href="/records/vendor-aging"><%= t('vendorAgingTitle') %></a><% } %>
+                <% if (canAccessModule('invoices')) { %><a class="btn-outline" href="/records/customer-invoice"><%= t('customerInvoiceTitle') %></a><% } %>
+                <% if (canAccessModule('invoices')) { %><a class="btn-outline" href="/records/vehicle-invoice"><%= t('vehicleInvoiceTitle') %></a><% } %>
+              </div>
             </div>
-          </div>
+          </details>
+
+          <details class="menu-section">
+            <summary class="menu-section-summary">
+              <span><%= t('menuInventory') %></span>
+              <svg xmlns="http://www.w3.org/2000/svg" class="menu-section-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m6 9 6 6 6-6"/></svg>
+            </summary>
+            <div class="menu-section-body">
+              <div class="menu-section-grid">
+                <% if (canAccessModule('imports')) { %><a class="btn-outline" href="/records/imports"><%= t('importsTitle') %></a><% } %>
+                <a class="btn-outline" href="/admin/import-item-types"><%= t('importItemTypesTitle') %></a>
+                <a class="btn-outline" href="/admin/jar-types"><%= t('jarTypesTitle') %></a>
+              </div>
+            </div>
+          </details>
+
+          <details class="menu-section">
+            <summary class="menu-section-summary">
+              <span><%= t('menuReportsSettings') %></span>
+              <svg xmlns="http://www.w3.org/2000/svg" class="menu-section-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m6 9 6 6 6-6"/></svg>
+            </summary>
+            <div class="menu-section-body space-y-3">
+              <div class="menu-section-grid">
+                <% if (canAccessModule('history')) { %><a class="btn-outline" href="/records/history"><%= t('activityLogTitle') %></a><% } %>
+                <a class="btn-outline" href="/admin/reports/all"><%= t('allReportsTitle') %></a>
+                <a class="btn-outline" href="/admin/reports/payroll-summary"><%= t('payrollSummaryTitle') %></a>
+                <a class="btn-outline" href="/admin/audit"><%= t('auditCenterTitle') %></a>
+                <a class="btn-outline" href="/records/leakage-guard"><%= t('leakageGuardTitle') %></a>
+                <a class="btn-outline" href="/admin/backup"><%= t('backup') %></a>
+                <a class="btn-outline" href="/admin/settings"><%= t('settingsTitle') %></a>
+                <a class="btn-outline" href="/admin/windows-kit"><%= t('windowsKitTitle') %></a>
+                <a class="btn-outline" href="/admin/recycle-bin"><%= t('recycleBinTitle') %></a>
+                <% if (isSuper) { %><a class="btn-outline" href="/admin/recovery"><%= t('recoveryTitle') %></a><% } %>
+              </div>
+              <div class="border-t border-slate-200 pt-3">
+                <p class="text-xs font-semibold uppercase tracking-wide text-slate-500"><%= t('language') %> / <%= t('fontSize') %></p>
+                <div class="mt-2 flex flex-wrap gap-2">
+                  <a class="btn-outline <%= lang === 'en' ? 'bg-slate-100' : '' %>" href="/lang/en">EN</a>
+                  <a class="btn-outline <%= lang === 'ne' ? 'bg-slate-100' : '' %>" href="/lang/ne">ने</a>
+                  <a class="btn-outline <%= (calendarMode || 'AD') === 'AD' ? 'bg-slate-100' : '' %>" href="/calendar/ad">AD</a>
+                  <% if (canConvertBs) { %>
+                    <a class="btn-outline <%= (calendarMode || 'AD') === 'BS' ? 'bg-slate-100' : '' %>" href="/calendar/bs">BS</a>
+                  <% } else { %>
+                    <span class="btn-outline cursor-not-allowed opacity-60" title="Install nepali-date-converter and restart app">BS</span>
+                  <% } %>
+                  <button class="btn-outline font-size-toggle" type="button" data-font-size="sm" title="<%= t('fontSmall') %>">A-</button>
+                  <button class="btn-outline font-size-toggle" type="button" data-font-size="md" title="<%= t('fontMedium') %>">A</button>
+                  <button class="btn-outline font-size-toggle" type="button" data-font-size="lg" title="<%= t('fontLarge') %>">A+</button>
+                  <button class="btn-outline font-size-toggle" type="button" data-font-size="xl" title="<%= t('fontXLarge') %>">A++</button>
+                </div>
+              </div>
+            </div>
+          </details>
+        <% } else { %>
+          <details class="menu-section" open>
+            <summary class="menu-section-summary">
+              <span><%= t('dashboard') %></span>
+              <svg xmlns="http://www.w3.org/2000/svg" class="menu-section-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m6 9 6 6 6-6"/></svg>
+            </summary>
+            <div class="menu-section-body">
+              <div class="menu-section-grid">
+                <a class="btn-outline" href="/worker"><%= t('home') %></a>
+                <a class="btn-outline" href="/search"><%= t('search') %></a>
+                <a class="btn-outline" href="/records/alerts"><%= t('alertCenterTitle') %></a>
+              </div>
+            </div>
+          </details>
+
+          <details class="menu-section">
+            <summary class="menu-section-summary">
+              <span><%= t('menuWorkforce') %></span>
+              <svg xmlns="http://www.w3.org/2000/svg" class="menu-section-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m6 9 6 6 6-6"/></svg>
+            </summary>
+            <div class="menu-section-body">
+              <div class="menu-section-grid">
+                <% if (canAccessModule('staffs')) { %><a class="btn-outline" href="/records/staffs"><%= t('staffsTitle') %></a><% } %>
+                <% if (canAccessModule('attendance')) { %><a class="btn-outline" href="/records/staff-attendance"><%= t('staffAttendanceTitle') %></a><% } %>
+                <a class="btn-outline" href="/records/profile"><%= t('profileTitle') %></a>
+              </div>
+            </div>
+          </details>
+
+          <details class="menu-section">
+            <summary class="menu-section-summary">
+              <span><%= t('menuOperations') %></span>
+              <svg xmlns="http://www.w3.org/2000/svg" class="menu-section-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m6 9 6 6 6-6"/></svg>
+            </summary>
+            <div class="menu-section-body">
+              <div class="menu-section-grid">
+                <% if (canAccessModule('vehicles')) { %><a class="btn-outline" href="/records/vehicles"><%= t('vehicles') %></a><% } %>
+                <% if (canAccessModule('exports')) { %><a class="btn-outline" href="/records/exports"><%= t('exports') %></a><% } %>
+                <% if (canAccessModule('water_tests')) { %><a class="btn-outline" href="/records/water-tests"><%= t('waterTestsTitle') %></a><% } %>
+                <% if (canAccessModule('company_expenses')) { %><a class="btn-outline" href="/records/cleaning-routines"><%= t('cleaningRoutinesTitle') %></a><% } %>
+              </div>
+            </div>
+          </details>
+
+          <details class="menu-section">
+            <summary class="menu-section-summary">
+              <span><%= t('menuFinance') %></span>
+              <svg xmlns="http://www.w3.org/2000/svg" class="menu-section-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m6 9 6 6 6-6"/></svg>
+            </summary>
+            <div class="menu-section-body">
+              <div class="menu-section-grid">
+                <% if (canAccessModule('credits')) { %><a class="btn-outline" href="/records/credits"><%= t('credits') %></a><% } %>
+                <% if (canAccessModule('payment_ledger')) { %><a class="btn-outline" href="/records/payment-ledger"><%= t('paymentLedgerTitle') %></a><% } %>
+                <% if (canAccessModule('reconciliation')) { %><a class="btn-outline" href="/records/reconciliation"><%= t('reconciliationTitle') %></a><% } %>
+                <% if (canAccessModule('vehicle_expenses')) { %><a class="btn-outline" href="/records/vehicle-expenses"><%= t('vehicleExpensesTitle') %></a><% } %>
+                <% if (canAccessModule('company_expenses')) { %><a class="btn-outline" href="/records/company-purchases"><%= t('companyPurchasesTitle') %></a><% } %>
+                <% if (canAccessModule('jar_sales')) { %><a class="btn-outline" href="/records/jar-sales"><%= t('jarSalesTitle') %></a><% } %>
+                <% if (canAccessModule('jar_sales')) { %><a class="btn-outline" href="/records/leakage-sales"><%= t('leakageJarSalesTitle') %></a><% } %>
+                <% if (canAccessModule('rentals')) { %><a class="btn-outline" href="/records/rentals"><%= t('rentalsTitle') %></a><% } %>
+                <% if (canAccessModule('savings')) { %><a class="btn-outline" href="/records/savings"><%= t('savingsTitle') %></a><% } %>
+                <% if (canAccessModule('vendor_aging')) { %><a class="btn-outline" href="/records/vendor-aging"><%= t('vendorAgingTitle') %></a><% } %>
+                <% if (canAccessModule('invoices')) { %><a class="btn-outline" href="/records/customer-invoice"><%= t('customerInvoiceTitle') %></a><% } %>
+                <% if (canAccessModule('invoices')) { %><a class="btn-outline" href="/records/vehicle-invoice"><%= t('vehicleInvoiceTitle') %></a><% } %>
+              </div>
+            </div>
+          </details>
+
+          <details class="menu-section">
+            <summary class="menu-section-summary">
+              <span><%= t('menuInventory') %></span>
+              <svg xmlns="http://www.w3.org/2000/svg" class="menu-section-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m6 9 6 6 6-6"/></svg>
+            </summary>
+            <div class="menu-section-body">
+              <div class="menu-section-grid">
+                <% if (canAccessModule('imports')) { %><a class="btn-outline" href="/records/imports"><%= t('importsTitle') %></a><% } %>
+              </div>
+            </div>
+          </details>
+
+          <details class="menu-section">
+            <summary class="menu-section-summary">
+              <span><%= t('menuReportsSettings') %></span>
+              <svg xmlns="http://www.w3.org/2000/svg" class="menu-section-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m6 9 6 6 6-6"/></svg>
+            </summary>
+            <div class="menu-section-body space-y-3">
+              <div class="menu-section-grid">
+                <% if (canAccessModule('history')) { %><a class="btn-outline" href="/records/history"><%= t('activityLogTitle') %></a><% } %>
+              </div>
+              <div class="border-t border-slate-200 pt-3">
+                <p class="text-xs font-semibold uppercase tracking-wide text-slate-500"><%= t('language') %> / <%= t('fontSize') %></p>
+                <div class="mt-2 flex flex-wrap gap-2">
+                  <a class="btn-outline <%= lang === 'en' ? 'bg-slate-100' : '' %>" href="/lang/en">EN</a>
+                  <a class="btn-outline <%= lang === 'ne' ? 'bg-slate-100' : '' %>" href="/lang/ne">ने</a>
+                  <a class="btn-outline <%= (calendarMode || 'AD') === 'AD' ? 'bg-slate-100' : '' %>" href="/calendar/ad">AD</a>
+                  <% if (canConvertBs) { %>
+                    <a class="btn-outline <%= (calendarMode || 'AD') === 'BS' ? 'bg-slate-100' : '' %>" href="/calendar/bs">BS</a>
+                  <% } else { %>
+                    <span class="btn-outline cursor-not-allowed opacity-60" title="Install nepali-date-converter and restart app">BS</span>
+                  <% } %>
+                  <button class="btn-outline font-size-toggle" type="button" data-font-size="sm" title="<%= t('fontSmall') %>">A-</button>
+                  <button class="btn-outline font-size-toggle" type="button" data-font-size="md" title="<%= t('fontMedium') %>">A</button>
+                  <button class="btn-outline font-size-toggle" type="button" data-font-size="lg" title="<%= t('fontLarge') %>">A+</button>
+                  <button class="btn-outline font-size-toggle" type="button" data-font-size="xl" title="<%= t('fontXLarge') %>">A++</button>
+                </div>
+              </div>
+            </div>
+          </details>
         <% } %>
-        <% if (!isAdmin) { %>
-          <div>
-            <p class="pill"><%= t('menuOperations') %></p>
-            <div class="mt-2 grid gap-2 sm:grid-cols-2">
-              <a class="btn-outline" href="/worker"><%= t('home') %></a>
-              <% if (canAccessModule('exports')) { %><a class="btn-outline" href="/records/exports"><%= t('exports') %></a><% } %>
-              <% if (canAccessModule('credits')) { %><a class="btn-outline" href="/records/credits"><%= t('credits') %></a><% } %>
-              <% if (canAccessModule('imports')) { %><a class="btn-outline" href="/records/imports"><%= t('importsTitle') %></a><% } %>
-              <% if (canAccessModule('water_tests')) { %><a class="btn-outline" href="/records/water-tests"><%= t('waterTestsTitle') %></a><% } %>
-              <a class="btn-outline" href="/records/alerts"><%= t('alertCenterTitle') %></a>
-            </div>
-          </div>
-          <div>
-            <p class="pill"><%= t('menuFinance') %></p>
-            <div class="mt-2 grid gap-2 sm:grid-cols-2">
-              <% if (canAccessModule('jar_sales')) { %><a class="btn-outline" href="/records/jar-sales"><%= t('jarSalesTitle') %></a><% } %>
-              <% if (canAccessModule('rentals')) { %><a class="btn-outline" href="/records/rentals"><%= t('rentalsTitle') %></a><% } %>
-              <% if (canAccessModule('invoices')) { %><a class="btn-outline" href="/records/customer-invoice"><%= t('customerInvoiceTitle') %></a><% } %>
-              <% if (canAccessModule('invoices')) { %><a class="btn-outline" href="/records/vehicle-invoice"><%= t('vehicleInvoiceTitle') %></a><% } %>
-              <% if (canAccessModule('reconciliation')) { %><a class="btn-outline" href="/records/reconciliation"><%= t('reconciliationTitle') %></a><% } %>
-              <% if (canAccessModule('payment_ledger')) { %><a class="btn-outline" href="/records/payment-ledger"><%= t('paymentLedgerTitle') %></a><% } %>
-              <% if (canAccessModule('vehicle_expenses')) { %><a class="btn-outline" href="/records/vehicle-expenses"><%= t('vehicleExpensesTitle') %></a><% } %>
-              <% if (canAccessModule('company_expenses')) { %><a class="btn-outline" href="/records/company-purchases"><%= t('companyPurchasesTitle') %></a><% } %>
-              <% if (canAccessModule('vendor_aging')) { %><a class="btn-outline" href="/records/vendor-aging"><%= t('vendorAgingTitle') %></a><% } %>
-              <% if (canAccessModule('savings')) { %><a class="btn-outline" href="/records/savings"><%= t('savingsTitle') %></a><% } %>
-            </div>
-          </div>
-          <div>
-            <p class="pill"><%= t('menuPeopleAccess') %></p>
-            <div class="mt-2 grid gap-2 sm:grid-cols-2">
-              <% if (canAccessModule('vehicles')) { %><a class="btn-outline" href="/records/vehicles"><%= t('vehicles') %></a><% } %>
-              <% if (canAccessModule('staffs')) { %><a class="btn-outline" href="/records/staffs"><%= t('staffsTitle') %></a><% } %>
-              <% if (canAccessModule('attendance')) { %><a class="btn-outline" href="/records/staff-attendance"><%= t('staffAttendanceTitle') %></a><% } %>
-              <a class="btn-outline" href="/records/profile"><%= t('profileTitle') %></a>
-            </div>
-          </div>
-          <div>
-            <p class="pill"><%= t('menuInsights') %></p>
-            <div class="mt-2 grid gap-2 sm:grid-cols-2">
-              <% if (canAccessModule('history')) { %><a class="btn-outline" href="/records/history"><%= t('activityLogTitle') %></a><% } %>
-              <a class="btn-outline" href="/search"><%= t('search') %></a>
-            </div>
-          </div>
-        <% } %>
-          <div>
-            <p class="pill"><%= t('preferencesTitle') %></p>
-            <div class="mt-2 flex flex-wrap gap-2">
-              <a class="btn-outline <%= lang === 'en' ? 'bg-slate-100' : '' %>" href="/lang/en">EN</a>
-              <a class="btn-outline <%= lang === 'ne' ? 'bg-slate-100' : '' %>" href="/lang/ne">ने</a>
-              <a class="btn-outline <%= (calendarMode || 'AD') === 'AD' ? 'bg-slate-100' : '' %>" href="/calendar/ad">AD</a>
-              <% if (canConvertBs) { %>
-                <a class="btn-outline <%= (calendarMode || 'AD') === 'BS' ? 'bg-slate-100' : '' %>" href="/calendar/bs">BS</a>
-              <% } else { %>
-                <span class="btn-outline cursor-not-allowed opacity-60" title="Install nepali-date-converter and restart app">BS</span>
-              <% } %>
-              <button class="btn-outline font-size-toggle" type="button" data-font-size="sm" title="<%= t('fontSmall') %>">A-</button>
-              <button class="btn-outline font-size-toggle" type="button" data-font-size="md" title="<%= t('fontMedium') %>">A</button>
-              <button class="btn-outline font-size-toggle" type="button" data-font-size="lg" title="<%= t('fontLarge') %>">A+</button>
-              <button class="btn-outline font-size-toggle" type="button" data-font-size="xl" title="<%= t('fontXLarge') %>">A++</button>
-            </div>
-          </div>
-        </div>
+      </div>
       </div>
   </div>
   <script>
@@ -216,7 +308,22 @@
       var toggle = document.getElementById('menuToggle');
       var panel = document.getElementById('menuPanel');
       if (!toggle || !panel) return;
+      function initAccordion() {
+        var sections = panel.querySelectorAll('.menu-section');
+        if (!sections.length) return;
+        sections.forEach(function (section) {
+          if (section.dataset.ready === '1') return;
+          section.dataset.ready = '1';
+          section.addEventListener('toggle', function () {
+            if (!section.open) return;
+            sections.forEach(function (other) {
+              if (other !== section) other.open = false;
+            });
+          });
+        });
+      }
       function openPanel() {
+        initAccordion();
         panel.hidden = false;
         panel.classList.remove('hidden');
         toggle.setAttribute('aria-expanded', 'true');
@@ -246,34 +353,59 @@
 <% } %>
 <script>
   (function () {
+    function setActive(buttons, matcher) {
+      buttons.forEach(function (btn) {
+        if (matcher(btn)) btn.classList.add('preference-toggle-active');
+        else btn.classList.remove('preference-toggle-active');
+      });
+    }
+
     function initFontToggles() {
-      var buttons = document.querySelectorAll('.font-size-toggle');
+      var buttons = Array.prototype.slice.call(document.querySelectorAll('.font-size-toggle'));
       if (!buttons.length) return;
-      function setActive(size) {
-        buttons.forEach(function (btn) {
-          if (btn.dataset.fontSize === size) {
-            btn.classList.add('bg-slate-100');
-          } else {
-            btn.classList.remove('bg-slate-100');
-          }
-        });
+      function apply(size) {
+        var safe = size || 'md';
+        document.documentElement.dataset.fontSize = safe;
+        try { localStorage.setItem('fontSize', safe); } catch (e) {}
+        setActive(buttons, function (btn) { return btn.dataset.fontSize === safe; });
       }
-      var current = document.documentElement.dataset.fontSize || 'md';
-      setActive(current);
+      apply(document.documentElement.dataset.fontSize || 'md');
       buttons.forEach(function (btn) {
         btn.addEventListener('click', function () {
-          var size = btn.dataset.fontSize || 'md';
-          document.documentElement.dataset.fontSize = size;
-          try { localStorage.setItem('fontSize', size); } catch (e) {}
-          setActive(size);
+          apply(btn.dataset.fontSize || 'md');
+        });
+      });
+    }
+
+      function initThemeToggles() {
+        var buttons = Array.prototype.slice.call(document.querySelectorAll('.theme-toggle'));
+        if (!buttons.length) return;
+        function apply(theme) {
+          var allowed = ['classic', 'ocean', 'slate', 'sunrise', 'forest'];
+          var safe = allowed.indexOf(theme) >= 0 ? theme : 'classic';
+          document.documentElement.dataset.theme = safe;
+          try { localStorage.setItem('themePreset', safe); } catch (e) {}
+          document.querySelectorAll('input[name="theme_preset"]').forEach(function (input) {
+            input.value = safe;
+          });
+          setActive(buttons, function (btn) { return btn.dataset.theme === safe; });
+        }
+      apply(document.documentElement.dataset.theme || 'classic');
+      buttons.forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          apply(btn.dataset.theme || 'classic');
         });
       });
     }
 
     if (document.readyState === 'loading') {
-      document.addEventListener('DOMContentLoaded', initFontToggles);
+      document.addEventListener('DOMContentLoaded', function () {
+        initFontToggles();
+        initThemeToggles();
+      });
     } else {
       initFontToggles();
+      initThemeToggles();
     }
   })();
 </script>

@@ -457,6 +457,29 @@ app.get("/worker", requireAuth, (req, res) => {
      FROM jar_sales
      WHERE sale_date = ?`
   ).get(selectedDate);
+  const jarSalePaymentDaily = db.prepare(
+    `SELECT COUNT(*) as payment_count,
+            COALESCE(SUM(amount), 0) as total_amount
+     FROM jar_sale_payments
+     WHERE payment_date = ?`
+  ).get(selectedDate);
+  const leakageSaleDaily = db.prepare(
+    `SELECT COUNT(*) as sale_count,
+            COALESCE(SUM(total_amount), 0) as total_amount,
+            COALESCE(SUM(paid_amount), 0) as paid_amount,
+            COALESCE(SUM(credit_amount), 0) as credit_amount
+     FROM leakage_jar_sales
+     WHERE sale_date = ?`
+  ).get(selectedDate);
+  const leakageSalePaymentDaily = db.prepare(
+    `SELECT COUNT(*) as payment_count,
+            COALESCE(SUM(amount), 0) as total_amount,
+            COALESCE(SUM(cash_amount), 0) as cash_amount,
+            COALESCE(SUM(bank_amount), 0) as bank_amount,
+            COALESCE(SUM(ewallet_amount), 0) as ewallet_amount
+     FROM leakage_jar_sale_payments
+     WHERE payment_date = ?`
+  ).get(selectedDate);
 
   const customerCreditDaily = db.prepare(
     `SELECT COUNT(*) as entry_count,
@@ -631,13 +654,20 @@ app.get("/worker", requireAuth, (req, res) => {
      LIMIT 8`
   ).all(selectedDate);
 
-  const totalSalesAmount = Number(exportDaily.total_amount || 0) + Number(jarSaleDaily.total_amount || 0);
-  const totalSalesPaid = Number(exportDaily.paid_amount || 0) + Number(jarSaleDaily.paid_amount || 0);
-  const totalSalesCredit = Number(exportDaily.credit_amount || 0) + Number(jarSaleDaily.credit_amount || 0);
+  const totalSalesAmount =
+    Number(exportDaily.total_amount || 0) +
+    Number(jarSaleDaily.total_amount || 0) +
+    Number(leakageSaleDaily.total_amount || 0);
+  const totalSalesCredit =
+    Number(exportDaily.credit_amount || 0) +
+    Number(jarSaleDaily.credit_amount || 0) +
+    Number(leakageSaleDaily.credit_amount || 0);
   const savingsDeposits = Number(savingsDaily.deposits || 0);
   const savingsWithdrawFromCollection = Number(savingsDaily.withdrawals_from_collection || 0);
   const rentTotal = Number(rentDaily.total_amount || 0);
   const rentCollection = Number(rentDaily.collection_amount || 0);
+  const jarSaleCollected = Number(jarSalePaymentDaily.total_amount || 0);
+  const leakageSaleCollected = Number(leakageSalePaymentDaily.total_amount || 0);
   const companyPurchasePaymentCount = Number(companyPurchasePaymentDaily.payment_count || 0);
   const vehicleExpensePaymentCount = Number(vehicleExpensePaymentDaily.payment_count || 0);
   const companyPurchasePaidRaw = Number(companyPurchaseDaily.paid_amount || 0);
@@ -668,22 +698,33 @@ app.get("/worker", requireAuth, (req, res) => {
     companyPurchasePaidFromCollection +
     vehicleExpensePaidFromCollection +
     savingsWithdrawFromCollection;
-  const totalPaidIn = totalSalesPaid + savingsDeposits + rentCollection + customerCreditCollected;
+  const totalPaidIn =
+    Number(exportMethodDaily.cash_amount || 0) +
+    Number(exportMethodDaily.bank_amount || 0) +
+    Number(exportMethodDaily.ewallet_amount || 0) +
+    jarSaleCollected +
+    leakageSaleCollected +
+    savingsDeposits +
+    rentCollection +
+    customerCreditCollected;
   const paidByMethod = {
     cash:
       Number(exportMethodDaily.cash_amount || 0) +
       Number(customerCreditPaymentDaily.cash_amount || 0) +
       Number(rentMethodDaily.cash_amount || 0) +
-      Number(jarSaleDaily.paid_amount || 0) +
+      jarSaleCollected +
+      Number(leakageSalePaymentDaily.cash_amount || 0) +
       savingsDeposits,
     bank:
       Number(exportMethodDaily.bank_amount || 0) +
       Number(customerCreditPaymentDaily.bank_amount || 0) +
-      Number(rentMethodDaily.bank_amount || 0),
+      Number(rentMethodDaily.bank_amount || 0) +
+      Number(leakageSalePaymentDaily.bank_amount || 0),
     eWallet:
       Number(exportMethodDaily.ewallet_amount || 0) +
       Number(customerCreditPaymentDaily.ewallet_amount || 0) +
-      Number(rentMethodDaily.ewallet_amount || 0)
+      Number(rentMethodDaily.ewallet_amount || 0) +
+      Number(leakageSalePaymentDaily.ewallet_amount || 0)
   };
   const netDayResult = totalPaidIn - totalOutflow;
 
@@ -700,6 +741,19 @@ app.get("/worker", requireAuth, (req, res) => {
       total: Number(jarSaleDaily.total_amount || 0),
       paid: Number(jarSaleDaily.paid_amount || 0),
       credit: Number(jarSaleDaily.credit_amount || 0)
+    },
+    leakageJarSales: {
+      count: Number(leakageSaleDaily.sale_count || 0),
+      total: Number(leakageSaleDaily.total_amount || 0),
+      paid: Number(leakageSaleDaily.paid_amount || 0),
+      collected: leakageSaleCollected,
+      paymentCount: Number(leakageSalePaymentDaily.payment_count || 0),
+      collectedByMethod: {
+        cash: Number(leakageSalePaymentDaily.cash_amount || 0),
+        bank: Number(leakageSalePaymentDaily.bank_amount || 0),
+        eWallet: Number(leakageSalePaymentDaily.ewallet_amount || 0)
+      },
+      credit: Number(leakageSaleDaily.credit_amount || 0)
     },
     customerCredits: {
       count: Number(customerCreditDaily.entry_count || 0),

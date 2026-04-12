@@ -9,6 +9,8 @@ const allowedTables = new Set([
   "import_entries",
   "jar_sales",
   "vehicle_savings",
+  "vehicle_expenses",
+  "vehicle_expense_payments",
   "company_purchases",
   "staff",
   "staff_documents",
@@ -158,7 +160,37 @@ const restoreEntry = (entryId, userId) => {
   try {
     switch (entry.entity_type) {
       case "export": {
-        restoredEntityId = insertRow("exports", payload.export || {}, { keepId: true });
+        const exportId = insertRow("exports", payload.export || {}, { keepId: true });
+        (payload.savings || []).forEach((savingsRow) => {
+          try {
+            insertRow("vehicle_savings", { ...savingsRow, export_id: exportId }, { keepId: false });
+          } catch (err) {
+            // Skip problematic linked savings rows and continue restore.
+          }
+        });
+        (payload.expenses || []).forEach((expenseRow) => {
+          try {
+            const restoredExpenseId = insertRow(
+              "vehicle_expenses",
+              { ...expenseRow, export_id: exportId },
+              { keepId: false }
+            );
+            (expenseRow.payments || []).forEach((paymentRow) => {
+              try {
+                insertRow(
+                  "vehicle_expense_payments",
+                  { ...paymentRow, vehicle_expense_id: restoredExpenseId },
+                  { keepId: false }
+                );
+              } catch (err) {
+                // Skip problematic linked payment rows and continue restore.
+              }
+            });
+          } catch (err) {
+            // Skip problematic linked expense rows and continue restore.
+          }
+        });
+        restoredEntityId = exportId;
         break;
       }
       case "credit": {

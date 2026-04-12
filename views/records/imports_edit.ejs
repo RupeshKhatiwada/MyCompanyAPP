@@ -82,8 +82,12 @@
         <input class="input" type="text" name="seller_name" value="<%= safeEntry.seller_name || '' %>" />
       </div>
       <div>
+        <label class="label"><%= t('pricePerUnit') %></label>
+        <input class="input" type="number" min="0" step="0.01" name="unit_price" value="<%= safeEntry.unit_price || 0 %>" />
+      </div>
+      <div>
         <label class="label"><%= t('totalAmount') %></label>
-        <input class="input" type="number" min="0" step="0.01" name="total_amount" value="<%= safeEntry.total_amount || 0 %>" />
+        <input class="input bg-slate-50" type="number" min="0" step="0.01" name="total_amount" value="<%= safeEntry.total_amount || 0 %>" readonly />
       </div>
       <div>
         <label class="label"><%= t('paidAmount') %></label>
@@ -220,7 +224,20 @@
     const jarTypeSelect = document.getElementById('jarTypeSelect');
     const quantityLabel = document.getElementById('quantityLabel');
     const quantityInput = document.querySelector('input[name="quantity"]');
+    const unitPriceInput = document.querySelector('input[name="unit_price"]');
+    const totalAmountInput = document.querySelector('input[name="total_amount"]');
     if (!itemSelect || !quantityLabel) return;
+    const toNumber = (value) => {
+      const parsed = Number(value || 0);
+      if (Number.isNaN(parsed) || parsed < 0) return 0;
+      return parsed;
+    };
+    const syncTotal = () => {
+      if (!totalAmountInput) return;
+      const qty = toNumber(quantityInput ? quantityInput.value : 0);
+      const unitPrice = toNumber(unitPriceInput ? unitPriceInput.value : 0);
+      totalAmountInput.value = (qty * unitPrice).toFixed(2);
+    };
 
     const updateLabel = () => {
       const meta = itemMeta[itemSelect.value] || { unit: "", usesDirection: true };
@@ -255,9 +272,12 @@
           }
         }
       }
+      syncTotal();
     };
     itemSelect.addEventListener('change', updateLabel);
     if (jarTypeSelect) jarTypeSelect.addEventListener('change', updateLabel);
+    if (quantityInput) quantityInput.addEventListener('input', syncTotal);
+    if (unitPriceInput) unitPriceInput.addEventListener('input', syncTotal);
     updateLabel();
   })();
 </script>

@@ -30,6 +30,99 @@
   <% const importLabels = { JAR_CONTAINER: t('importItemJarContainer'), JAR_CAP: t('importItemJarCap'), CHEMICAL_LABEL: t('importItemChemicalLabel'), LABEL_STICKER: t('importItemLabelSticker'), DATE_LABEL: t('importItemDateLabel') }; %>
   <div class="mt-6 grid gap-4">
     <div class="card p-6">
+      <div class="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 class="text-lg font-semibold"><%= t('snapshotViewsTitle') %></h2>
+          <p class="text-sm text-slate-600"><%= from %> → <%= to %></p>
+        </div>
+      </div>
+      <div class="mt-4 grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-5">
+        <div class="card p-4"><p class="text-slate-500"><%= t('expectedCollection') %></p><p class="text-lg font-semibold"><%= snapshotSummary.collection %></p></div>
+        <div class="card p-4"><p class="text-slate-500"><%= t('methodCash') %></p><p class="text-lg font-semibold"><%= snapshotSummary.cash %></p></div>
+        <div class="card p-4"><p class="text-slate-500"><%= t('methodBank') %></p><p class="text-lg font-semibold"><%= snapshotSummary.bank %></p></div>
+        <div class="card p-4"><p class="text-slate-500"><%= t('methodEWallet') %></p><p class="text-lg font-semibold"><%= snapshotSummary.eWallet %></p></div>
+        <div class="card p-4"><p class="text-slate-500"><%= t('expectedNetCollection') %></p><p class="text-lg font-semibold"><%= snapshotSummary.net %></p></div>
+      </div>
+      <div class="mt-4 grid gap-4 lg:grid-cols-2">
+        <div class="card p-4">
+          <h3 class="text-sm font-semibold text-slate-700"><%= t('inflowBreakdown') %></h3>
+          <div class="mt-3 overflow-x-auto">
+            <table class="table-base text-sm">
+              <thead class="table-head">
+                <tr>
+                  <th class="px-4 py-3"><%= t('source') %></th>
+                  <th class="px-4 py-3"><%= t('methodCash') %></th>
+                  <th class="px-4 py-3"><%= t('methodBank') %></th>
+                  <th class="px-4 py-3"><%= t('methodEWallet') %></th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr class="table-row">
+                  <td class="px-4 py-3"><%= t('exportsTitle') %></td>
+                  <td class="px-4 py-3"><%= snapshotSummary.exports.cash %></td>
+                  <td class="px-4 py-3"><%= snapshotSummary.exports.bank %></td>
+                  <td class="px-4 py-3"><%= snapshotSummary.exports.eWallet %></td>
+                </tr>
+                <tr class="table-row">
+                  <td class="px-4 py-3"><%= t('customerPayments') %></td>
+                  <td class="px-4 py-3"><%= snapshotSummary.customerCredits.cash %></td>
+                  <td class="px-4 py-3"><%= snapshotSummary.customerCredits.bank %></td>
+                  <td class="px-4 py-3"><%= snapshotSummary.customerCredits.eWallet %></td>
+                </tr>
+                <tr class="table-row">
+                  <td class="px-4 py-3"><%= t('rentalsTitle') %></td>
+                  <td class="px-4 py-3"><%= snapshotSummary.rentIncome.cash %></td>
+                  <td class="px-4 py-3"><%= snapshotSummary.rentIncome.bank %></td>
+                  <td class="px-4 py-3"><%= snapshotSummary.rentIncome.eWallet %></td>
+                </tr>
+                <tr class="table-row">
+                  <td class="px-4 py-3"><%= t('leakageJarSalesTitle') %></td>
+                  <td class="px-4 py-3"><%= snapshotSummary.leakageJarSales.cash %></td>
+                  <td class="px-4 py-3"><%= snapshotSummary.leakageJarSales.bank %></td>
+                  <td class="px-4 py-3"><%= snapshotSummary.leakageJarSales.eWallet %></td>
+                </tr>
+                <tr class="table-row">
+                  <td class="px-4 py-3"><%= t('jarSalesTitle') %></td>
+                  <td class="px-4 py-3"><%= snapshotSummary.jarSalesCash %></td>
+                  <td class="px-4 py-3">0</td>
+                  <td class="px-4 py-3">0</td>
+                </tr>
+                <tr class="table-row">
+                  <td class="px-4 py-3"><%= t('savingsDeposit') %></td>
+                  <td class="px-4 py-3"><%= snapshotSummary.savingsDepositsCash %></td>
+                  <td class="px-4 py-3">0</td>
+                  <td class="px-4 py-3">0</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <div class="card p-4">
+          <h3 class="text-sm font-semibold text-slate-700"><%= t('deductionBreakdown') %></h3>
+          <div class="mt-3 overflow-x-auto">
+            <table class="table-base text-sm">
+              <thead class="table-head">
+                <tr>
+                  <th class="px-4 py-3"><%= t('source') %></th>
+                  <th class="px-4 py-3"><%= t('amount') %></th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr class="table-row"><td class="px-4 py-3"><%= t('importsTitle') %></td><td class="px-4 py-3"><%= snapshotSummary.deductionRows.imports %></td></tr>
+                <tr class="table-row"><td class="px-4 py-3"><%= t('companyPurchasesTitle') %></td><td class="px-4 py-3"><%= snapshotSummary.deductionRows.companyPurchases %></td></tr>
+                <tr class="table-row"><td class="px-4 py-3"><%= t('vehicleExpensesTitle') %></td><td class="px-4 py-3"><%= snapshotSummary.deductionRows.vehicleExpenses %></td></tr>
+                <tr class="table-row"><td class="px-4 py-3"><%= t('staffsTitle') %> <%= t('salaryPaid') %></td><td class="px-4 py-3"><%= snapshotSummary.deductionRows.staffSalaries %></td></tr>
+                <tr class="table-row"><td class="px-4 py-3"><%= t('workersTitle') %> <%= t('salaryPaid') %></td><td class="px-4 py-3"><%= snapshotSummary.deductionRows.workerSalaries %></td></tr>
+                <tr class="table-row"><td class="px-4 py-3"><%= t('savingsWithdraw') %></td><td class="px-4 py-3"><%= snapshotSummary.deductionRows.savingsWithdrawals %></td></tr>
+                <tr class="table-row font-semibold"><td class="px-4 py-3"><%= t('deductedFromCollection') %></td><td class="px-4 py-3"><%= snapshotSummary.deductions %></td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card p-6">
       <h2 class="text-lg font-semibold"><%= t('exportsTitle') %></h2>
       <div class="mt-4 grid gap-3 text-sm sm:grid-cols-3 lg:grid-cols-6">
         <div class="card p-4"><p class="text-slate-500"><%= t('tripCount') %></p><p class="text-lg font-semibold"><%= exportTotals.total_trips %></p></div>
@@ -154,6 +247,50 @@
                   <td class="px-4 py-3"><%= vehicleLabel %></td>
                   <td class="px-4 py-3"><%= row.quantity %></td>
                   <td class="px-4 py-3"><%= row.total_amount %></td>
+                </tr>
+              <% }) %>
+            </tbody>
+          </table>
+        </div>
+      </details>
+    </div>
+
+    <div class="card p-6">
+      <h2 class="text-lg font-semibold"><%= t('leakageJarSalesTitle') %></h2>
+      <div class="mt-4 grid gap-3 text-sm sm:grid-cols-4">
+        <div class="card p-4"><p class="text-slate-500"><%= t('quantity') %></p><p class="text-lg font-semibold"><%= leakageSalesTotals.qty %></p></div>
+        <div class="card p-4"><p class="text-slate-500"><%= t('total') %></p><p class="text-lg font-semibold"><%= leakageSalesTotals.total %></p></div>
+        <div class="card p-4"><p class="text-slate-500"><%= t('paidAmount') %></p><p class="text-lg font-semibold"><%= leakageSalesTotals.paid %></p></div>
+        <div class="card p-4"><p class="text-slate-500"><%= t('creditAmount') %></p><p class="text-lg font-semibold"><%= leakageSalesTotals.credit %></p></div>
+      </div>
+      <details class="mt-6">
+        <summary class="cursor-pointer text-sm font-semibold text-slate-700"><%= t('viewAll') %></summary>
+        <div class="mt-4 overflow-x-auto">
+          <table class="table-base text-sm">
+            <thead class="table-head">
+              <tr>
+                <th class="px-4 py-3"><%= t('date') %></th>
+                <th class="px-4 py-3"><%= t('quantity') %></th>
+                <th class="px-4 py-3"><%= t('price') %></th>
+                <th class="px-4 py-3"><%= t('total') %></th>
+                <th class="px-4 py-3"><%= t('paidAmount') %></th>
+                <th class="px-4 py-3"><%= t('creditAmount') %></th>
+                <th class="px-4 py-3"><%= t('note') %></th>
+              </tr>
+            </thead>
+            <tbody>
+              <% if (!leakageSalesRows || leakageSalesRows.length === 0) { %>
+                <tr><td class="px-4 py-4 text-slate-500" colspan="7"><%= t('noData') %></td></tr>
+              <% } %>
+              <% leakageSalesRows.forEach((row) => { %>
+                <tr class="table-row">
+                  <td class="px-4 py-3"><%= row.sale_date %></td>
+                  <td class="px-4 py-3"><%= row.quantity %></td>
+                  <td class="px-4 py-3"><%= row.unit_price %></td>
+                  <td class="px-4 py-3"><%= row.total_amount %></td>
+                  <td class="px-4 py-3"><%= row.paid_amount %></td>
+                  <td class="px-4 py-3"><%= row.credit_amount %></td>
+                  <td class="px-4 py-3"><%= row.note || '-' %></td>
                 </tr>
               <% }) %>
             </tbody>

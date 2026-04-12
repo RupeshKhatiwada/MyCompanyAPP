@@ -51,7 +51,7 @@
       </div>
       <div>
         <label class="label"><%= t('monthlySalary') %></label>
-        <input class="input" type="number" min="0" step="0.01" name="monthly_salary" value="<%= staff ? staff.monthly_salary : 0 %>" />
+        <input class="input" type="number" min="0" step="1" name="monthly_salary" value="<%= staff ? staff.monthly_salary : 0 %>" />
       </div>
       <div>
         <label class="label"><%= t('staffPhoto') %> (<%= t('maxFileSize') %> 5MB)</label>

@@ -1,46 +1,105 @@
 <%- include('../partials/shell-start', { title }) %>
 <section class="py-8">
-  <div class="page-header flex flex-wrap items-center justify-between gap-6">
-    <div>
-      <h1 class="text-3xl font-semibold"><%= t('adminDashboard') %></h1>
-      <p class="mt-2 text-slate-600"><%= t('welcomeLine') %></p>
-    </div>
-    <div class="flex items-center gap-2">
-      <a class="btn-outline" href="/admin/alerts"><%= t('alertCenterTitle') %></a>
-      <a class="btn-outline" href="/records/history"><%= t('activityLogTitle') %></a>
-    </div>
-  </div>
-
-  <div class="mt-4 card p-4">
-    <form class="flex flex-wrap items-end gap-3" method="get" action="/search">
-      <div class="min-w-[220px] flex-1">
-        <label class="label"><%= t('search') %></label>
-        <input class="input" type="text" name="q" placeholder="<%= t('searchGlobal') %>" />
+  <% const backupText = stats.lastBackupAt ? new Date(stats.lastBackupAt).toLocaleString() : t('backupNever'); %>
+  <div class="dashboard-hero">
+    <div class="grid gap-5 xl:grid-cols-[1.2fr_0.8fr] xl:items-start">
+      <div>
+        <p class="dashboard-kicker"><%= t('dashboard') %></p>
+        <h1 class="mt-2 text-3xl font-semibold text-slate-900"><%= t('adminDashboard') %></h1>
+        <p class="mt-3 max-w-2xl text-sm leading-6 text-slate-600"><%= t('adminDashboardLead') %></p>
+        <div class="mt-4 flex flex-wrap gap-2">
+          <span class="pill"><%= t('selectedDate') %>: <%= formatDateDual(snapshotRanges.daily.date) %></span>
+          <span class="pill"><%= t('lastBackup') %>: <%= backupText %></span>
+          <span class="pill"><%= t('openCredits') %>: <%= stats.outstandingCustomerCredit + stats.outstandingVehicleCredit %></span>
+        </div>
       </div>
-      <button class="btn-primary" type="submit"><%= t('search') %></button>
-    </form>
-  </div>
-
-  <div class="mt-4 card p-6">
-    <h2 class="text-lg font-semibold"><%= t('quickActions') %></h2>
-    <div class="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-      <a class="btn-primary w-full justify-start" href="/admin/vehicles/new"><%= t('addVehicle') %></a>
-      <a class="btn-outline w-full justify-start" href="/records/exports/new"><%= t('addExport') %></a>
-      <a class="btn-outline w-full justify-start" href="/records/credits/new"><%= t('addCredit') %></a>
-      <a class="btn-outline w-full justify-start" href="/records/imports"><%= t('importsTitle') %></a>
-      <a class="btn-outline w-full justify-start" href="/records/water-tests"><%= t('waterTestsTitle') %></a>
-      <a class="btn-outline w-full justify-start" href="/records/reconciliation"><%= t('reconciliationTitle') %></a>
-      <a class="btn-outline w-full justify-start" href="/admin/audit"><%= t('auditCenterTitle') %></a>
-      <a class="btn-outline w-full justify-start" href="/search"><%= t('search') %></a>
+      <div class="card card-soft p-5">
+        <p class="dashboard-kicker"><%= t('search') %></p>
+        <p class="mt-2 text-sm text-slate-600"><%= t('dashboardSearchHint') %></p>
+        <form class="mt-4 flex flex-col gap-3 sm:flex-row" method="get" action="/search">
+          <input class="input flex-1" type="text" name="q" placeholder="<%= t('searchGlobal') %>" />
+          <button class="btn-primary sm:min-w-[120px]" type="submit"><%= t('search') %></button>
+        </form>
+        <div class="mt-4 flex flex-wrap gap-2">
+          <a class="btn-outline" href="/admin/alerts"><%= t('alertCenterTitle') %></a>
+          <a class="btn-outline" href="/records/history"><%= t('activityLogTitle') %></a>
+          <a class="btn-outline" href="/admin/reports/all"><%= t('openSnapshotView') %></a>
+        </div>
+      </div>
     </div>
   </div>
 
-  <div class="mt-4 card p-6">
-    <h2 class="text-lg font-semibold"><%= t('snapshotViewsTitle') %></h2>
-    <p class="mt-1 text-sm text-slate-600"><%= t('snapshotViewsSubtitle') %></p>
+  <div class="mt-6 grid gap-4 xl:grid-cols-[1.15fr_0.85fr]">
+    <div class="dashboard-panel">
+      <div class="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 class="dashboard-panel-title"><%= t('quickActions') %></h2>
+          <p class="dashboard-panel-subtitle"><%= t('quickActionsAdminHint') %></p>
+        </div>
+      </div>
+      <div class="action-grid mt-4">
+        <a class="action-card action-card-primary" href="/records/exports/new">
+          <p class="action-title"><%= t('addExport') %></p>
+          <p class="action-copy"><%= t('dashboardActionExportCopy') %></p>
+        </a>
+        <a class="action-card" href="/records/credits/new">
+          <p class="action-title"><%= t('recordPayment') %> / <%= t('addCredit') %></p>
+          <p class="action-copy"><%= t('dashboardActionCreditCopy') %></p>
+        </a>
+        <a class="action-card" href="/admin/worker-attendance">
+          <p class="action-title"><%= t('markAttendance') %></p>
+          <p class="action-copy"><%= t('dashboardActionAttendanceCopy') %></p>
+        </a>
+        <a class="action-card" href="/records/company-purchases">
+          <p class="action-title"><%= t('addExpense') %></p>
+          <p class="action-copy"><%= t('dashboardActionExpenseCopy') %></p>
+        </a>
+        <a class="action-card" href="/records/imports">
+          <p class="action-title"><%= t('updateStock') %></p>
+          <p class="action-copy"><%= t('dashboardActionStockCopy') %></p>
+        </a>
+        <a class="action-card" href="/admin/reports/all">
+          <p class="action-title"><%= t('openSnapshotView') %></p>
+          <p class="action-copy"><%= t('dashboardActionSnapshotCopy') %></p>
+        </a>
+      </div>
+    </div>
+
+    <div class="dashboard-panel">
+      <p class="dashboard-kicker"><%= t('snapshotViewsTitle') %></p>
+      <h2 class="mt-2 text-xl font-semibold text-slate-900"><%= t('officePulseTitle') %></h2>
+      <p class="mt-2 text-sm text-slate-600"><%= t('officePulseSubtitle') %></p>
+      <div class="dashboard-mini-grid mt-4">
+        <div class="metric-card metric-card-emphasis">
+          <p class="metric-label"><%= t('todaySales') %></p>
+          <p class="metric-value"><%= stats.todaySales || 0 %></p>
+          <p class="metric-meta"><%= t('exportsTitle') %>: <%= stats.todayExport.total || 0 %></p>
+        </div>
+        <div class="metric-card">
+          <p class="metric-label"><%= t('monthPaid') %></p>
+          <p class="metric-value"><%= stats.monthCombined.paid %></p>
+          <p class="metric-meta"><%= t('customerPayments') %>: <%= stats.monthCustomer.paid %></p>
+        </div>
+        <div class="metric-card">
+          <p class="metric-label"><%= t('monthCredit') %></p>
+          <p class="metric-value"><%= stats.monthCombined.credit %></p>
+          <p class="metric-meta"><%= t('exportsOutstanding') %>: <%= stats.monthExport.credit %></p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="mt-6 dashboard-panel">
+    <div class="flex flex-wrap items-center justify-between gap-3">
+      <div>
+        <h2 class="dashboard-panel-title"><%= t('snapshotViewsTitle') %></h2>
+        <p class="dashboard-panel-subtitle"><%= t('snapshotViewsSubtitle') %></p>
+      </div>
+      <span class="pill" id="snapshotRangeText"><%= snapshotRanges.daily.from %> → <%= snapshotRanges.daily.to %></span>
+    </div>
     <div class="mt-4 flex flex-wrap gap-2" id="snapshotRangeToggle">
       <button
-        class="btn-outline snapshot-range-btn !border-red-600 !bg-red-600 !text-white"
+        class="btn-outline snapshot-range-btn"
         type="button"
         data-default-selected="1"
         data-from="<%= snapshotRanges.daily.from %>"
@@ -75,7 +134,6 @@
       <input type="hidden" name="from" value="<%= snapshotRanges.daily.from %>" />
       <input type="hidden" name="to" value="<%= snapshotRanges.daily.to %>" />
       <button class="btn-primary" type="submit"><%= t('openSnapshotView') %></button>
-      <span class="pill" id="snapshotRangeText"><%= snapshotRanges.daily.from %> → <%= snapshotRanges.daily.to %></span>
     </form>
   </div>
 
@@ -94,65 +152,78 @@
     </div>
   <% } %>
 
-  <div class="mt-6 grid gap-4 md:grid-cols-2 lg:grid-cols-5">
-    <div class="card border border-red-200/70 bg-gradient-to-br from-white via-red-50 to-white p-5">
-      <p class="text-xs font-semibold uppercase tracking-wide text-red-700"><%= t('totalVehicles') %></p>
-      <p class="mt-2 text-3xl font-semibold text-slate-900"><%= stats.vehicleCount %></p>
+  <div class="mt-6 metric-grid">
+    <div class="metric-card metric-card-emphasis">
+      <p class="metric-label"><%= t('totalVehicles') %></p>
+      <p class="metric-value"><%= stats.vehicleCount %></p>
+      <p class="metric-meta"><%= t('totalWorkers') %>: <%= stats.workerCount %> • <%= t('totalStaffs') %>: <%= stats.staffCount %></p>
     </div>
-    <div class="card border border-red-200/70 bg-gradient-to-br from-white via-red-50 to-white p-5">
-      <p class="text-xs font-semibold uppercase tracking-wide text-red-700"><%= t('totalWorkers') %></p>
-      <p class="mt-2 text-3xl font-semibold text-slate-900"><%= stats.workerCount %></p>
+    <div class="metric-card">
+      <p class="metric-label"><%= t('monthPaid') %></p>
+      <p class="metric-value"><%= stats.monthCombined.paid %></p>
+      <p class="metric-meta"><%= t('methodCash') %>: <%= stats.monthPaidByMethod?.cash || 0 %> • <%= t('methodBank') %>: <%= stats.monthPaidByMethod?.bank || 0 %> • <%= t('methodEWallet') %>: <%= stats.monthPaidByMethod?.eWallet || 0 %></p>
     </div>
-    <div class="card border border-red-200/70 bg-gradient-to-br from-white via-red-50 to-white p-5">
-      <p class="text-xs font-semibold uppercase tracking-wide text-red-700"><%= t('totalStaffs') %></p>
-      <p class="mt-2 text-3xl font-semibold text-slate-900"><%= stats.staffCount %></p>
+    <div class="metric-card">
+      <p class="metric-label"><%= t('customerCumulativeCreditsTitle') %></p>
+      <p class="metric-value"><%= stats.outstandingCustomerCredit %></p>
+      <p class="metric-meta"><%= t('customerOutstanding') %></p>
     </div>
-    <div class="card border border-emerald-200/80 bg-gradient-to-br from-white via-emerald-50 to-white p-5">
-      <p class="text-xs font-semibold uppercase tracking-wide text-emerald-700"><%= t('monthPaid') %></p>
-      <p class="mt-2 text-3xl font-semibold text-slate-900"><%= stats.monthCombined.paid %></p>
-      <p class="mt-2 text-xs text-slate-600">
-        <%= t('exportsTitle') %>: <span class="font-semibold"><%= stats.monthExport.paid %></span> •
-        <%= t('customerPayments') %>: <span class="font-semibold"><%= stats.monthCustomer.paid %></span>
-      </p>
-      <p class="mt-1 text-xs text-slate-600">
-        <%= t('methodCash') %>: <span class="font-semibold"><%= stats.monthPaidByMethod?.cash || 0 %></span> •
-        <%= t('methodBank') %>: <span class="font-semibold"><%= stats.monthPaidByMethod?.bank || 0 %></span> •
-        <%= t('methodEWallet') %>: <span class="font-semibold"><%= stats.monthPaidByMethod?.eWallet || 0 %></span>
-      </p>
-    </div>
-    <div class="card border border-amber-200/80 bg-gradient-to-br from-white via-amber-50 to-white p-5">
-      <p class="text-xs font-semibold uppercase tracking-wide text-amber-700"><%= t('monthCredit') %></p>
-      <p class="mt-2 text-3xl font-semibold text-slate-900"><%= stats.monthCombined.credit %></p>
-      <p class="mt-2 text-xs text-slate-600">
-        <%= t('exportsOutstanding') %>: <span class="font-semibold"><%= stats.monthExport.credit %></span> •
-        <%= t('customerOutstanding') %>: <span class="font-semibold"><%= stats.monthCustomer.credit %></span>
-      </p>
+    <div class="metric-card">
+      <p class="metric-label"><%= t('vehicleCumulativeCreditsTitle') %></p>
+      <p class="metric-value"><%= stats.outstandingVehicleCredit %></p>
+      <p class="metric-meta"><%= t('exportsOutstanding') %></p>
     </div>
   </div>
 
-  <div class="mt-4 grid gap-4 md:grid-cols-2">
-    <div class="card p-5">
-      <p class="text-sm text-slate-500"><%= t('customerCumulativeCreditsTitle') %></p>
-      <p class="mt-2 text-2xl font-semibold text-amber-700"><%= stats.outstandingCustomerCredit %></p>
+  <div class="mt-6 grid gap-4 xl:grid-cols-[0.95fr_1.05fr]">
+    <div class="dashboard-panel">
+      <h2 class="dashboard-panel-title"><%= t('reports') %></h2>
+      <p class="dashboard-panel-subtitle"><%= t('printExportSales') %></p>
+      <div class="dashboard-mini-grid mt-4">
+        <div class="metric-card">
+          <p class="metric-label"><%= t('todayPaid') %></p>
+          <p class="metric-value"><%= stats.todayExport.paid || 0 %></p>
+          <p class="metric-meta"><%= t('todayCredit') %>: <%= stats.todayExport.credit || 0 %></p>
+        </div>
+        <div class="metric-card">
+          <p class="metric-label"><%= t('monthSales') %></p>
+          <p class="metric-value"><%= stats.monthSales || 0 %></p>
+          <p class="metric-meta"><%= t('exportsTitle') %></p>
+        </div>
+        <div class="metric-card">
+          <p class="metric-label"><%= t('backup') %></p>
+          <p class="metric-value text-xl"><%= stats.backupOverdue ? t('backupReminderTitle') : t('backup') %></p>
+          <p class="metric-meta"><%= backupText %></p>
+        </div>
+      </div>
+      <div class="mt-4 flex flex-wrap gap-2">
+        <a class="btn-outline" href="/admin/reports/summary"><%= t('summaryChart') %></a>
+        <a class="btn-outline" href="/admin/reports/sales"><%= t('salesReport') %></a>
+        <a class="btn-outline" href="/admin/reports/payroll-summary"><%= t('payrollSummaryTitle') %></a>
+        <a class="btn-outline" href="/admin/backup"><%= t('backupDatabase') %></a>
+      </div>
     </div>
-    <div class="card p-5">
-      <p class="text-sm text-slate-500"><%= t('vehicleCumulativeCreditsTitle') %></p>
-      <p class="mt-2 text-2xl font-semibold text-amber-700"><%= stats.outstandingVehicleCredit %></p>
-    </div>
-  </div>
 
-  <div class="mt-4 card p-6">
-    <h2 class="text-lg font-semibold"><%= t('reports') %></h2>
-    <p class="mt-2 text-sm text-slate-600"><%= t('printExportSales') %></p>
-    <div class="mt-3">
-      <% const backupText = stats.lastBackupAt ? new Date(stats.lastBackupAt).toLocaleString() : t('backupNever'); %>
-      <span class="pill"><%= t('lastBackup') %>: <%= backupText %></span>
-    </div>
-    <div class="mt-4 flex flex-wrap gap-2">
-      <a class="btn-outline" href="/admin/reports/summary"><%= t('summaryChart') %></a>
-      <a class="btn-outline" href="/admin/reports/sales"><%= t('salesReport') %></a>
-      <a class="btn-outline" href="/admin/reports/payroll-summary"><%= t('payrollSummaryTitle') %></a>
-      <a class="btn-outline" href="/admin/backup"><%= t('backupDatabase') %></a>
+    <div class="dashboard-panel">
+      <h2 class="dashboard-panel-title"><%= t('officePulseTitle') %></h2>
+      <p class="dashboard-panel-subtitle"><%= t('officePulseFinanceCopy') %></p>
+      <div class="dashboard-mini-grid mt-4">
+        <div class="metric-card">
+          <p class="metric-label"><%= t('exportsTitle') %></p>
+          <p class="metric-value"><%= stats.monthExport.paid %></p>
+          <p class="metric-meta"><%= t('exportsOutstanding') %>: <%= stats.monthExport.credit %></p>
+        </div>
+        <div class="metric-card">
+          <p class="metric-label"><%= t('customerPayments') %></p>
+          <p class="metric-value"><%= stats.monthCustomer.paid %></p>
+          <p class="metric-meta"><%= t('customerOutstanding') %>: <%= stats.monthCustomer.credit %></p>
+        </div>
+        <div class="metric-card">
+          <p class="metric-label"><%= t('methodEWallet') %></p>
+          <p class="metric-value"><%= stats.monthPaidByMethod?.eWallet || 0 %></p>
+          <p class="metric-meta"><%= t('monthPaid') %></p>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -313,9 +384,7 @@
       buttons.forEach(function (btn) {
         var active = btn === button;
         btn.setAttribute("aria-pressed", active ? "true" : "false");
-        btn.classList.toggle("!border-red-600", active);
-        btn.classList.toggle("!bg-red-600", active);
-        btn.classList.toggle("!text-white", active);
+        btn.classList.toggle("is-active", active);
       });
       fromInput.value = button.getAttribute("data-from") || "";
       toInput.value = button.getAttribute("data-to") || "";

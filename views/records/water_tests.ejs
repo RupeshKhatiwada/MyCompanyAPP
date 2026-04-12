@@ -37,7 +37,7 @@
             <th class="px-4 py-3"><%= t('externalLabSectionTitle') %></th>
             <th class="px-4 py-3"><%= t('note') %></th>
             <th class="px-4 py-3"><%= t('recordedBy') %></th>
-            <th class="px-4 py-3 text-right"><%= t('actions') %></th>
+            <th class="table-action-sticky px-4 py-3 text-right"><%= t('actions') %></th>
           </tr>
         </thead>
         <tbody>
@@ -68,7 +68,7 @@
               </td>
               <td class="px-4 py-3"><%= row.note || '-' %></td>
               <td class="px-4 py-3"><%= row.recorded_by || '-' %></td>
-              <td class="px-4 py-3 text-right">
+              <td class="table-action-sticky px-4 py-3 text-right">
                 <details class="action-menu">
                   <summary class="btn-outline h-9 w-9 flex items-center justify-center">⋯</summary>
                   <div class="action-menu-panel">

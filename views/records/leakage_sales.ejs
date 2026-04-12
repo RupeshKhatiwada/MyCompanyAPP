@@ -1,0 +1,225 @@
+<%- include('../partials/shell-start', { title }) %>
+<section class="py-8">
+  <div class="flex flex-wrap items-center justify-between gap-3">
+    <div>
+      <h1 class="text-3xl font-semibold"><%= t('leakageJarSalesTitle') %></h1>
+      <p class="text-slate-600"><%= t('leakageJarSalesSubtitle') %></p>
+    </div>
+  </div>
+
+  <% if (error) { %>
+    <div class="mt-4 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700"><%= error %></div>
+  <% } %>
+  <% if (success) { %>
+    <div class="mt-4 rounded-lg bg-emerald-50 px-4 py-3 text-sm text-emerald-700"><%= success %></div>
+  <% } %>
+
+  <div class="mt-6 grid gap-6 xl:grid-cols-[430px_minmax(0,1fr)]">
+    <div class="card p-5">
+      <h2 class="text-lg font-semibold"><%= t('addLeakageJarSaleTitle') %></h2>
+      <form class="mt-4 space-y-3" method="post" action="/records/leakage-sales">
+        <div class="grid gap-3 sm:grid-cols-2">
+          <div>
+            <label class="label"><%= t('date') %></label>
+            <input class="input" type="date" name="sale_date" value="<%= to %>" required />
+          </div>
+          <div>
+            <label class="label"><%= t('quantity') %></label>
+            <input class="input" type="number" min="1" name="quantity" value="1" data-qty required />
+          </div>
+        </div>
+        <div>
+          <label class="label"><%= t('pricePerLeakageJar') %></label>
+          <input class="input" type="number" min="0" step="0.01" name="unit_price" value="0" data-price required />
+        </div>
+        <div class="card p-4">
+          <p class="text-sm text-slate-500"><%= t('totalAmount') %></p>
+          <p class="mt-1 text-2xl font-semibold" id="leakageTotalPreview">0.00</p>
+        </div>
+        <div class="grid gap-3 sm:grid-cols-3">
+          <div>
+            <label class="label text-xs"><%= t('methodCash') %></label>
+            <input class="input" type="number" min="0" step="0.01" name="paid_cash_amount" value="" data-cash />
+          </div>
+          <div>
+            <label class="label text-xs"><%= t('methodBank') %></label>
+            <input class="input" type="number" min="0" step="0.01" name="paid_bank_amount" value="" data-bank />
+          </div>
+          <div>
+            <label class="label text-xs"><%= t('methodEWallet') %></label>
+            <input class="input" type="number" min="0" step="0.01" name="paid_ewallet_amount" value="" data-ewallet />
+          </div>
+        </div>
+        <div class="grid gap-3 sm:grid-cols-2">
+          <div>
+            <label class="label"><%= t('paidAmount') %></label>
+            <input class="input bg-slate-50" type="number" name="paid_amount" value="" data-paid-total readonly />
+          </div>
+          <div>
+            <label class="label"><%= t('creditAmount') %></label>
+            <input class="input bg-slate-50" type="number" value="" data-credit-total readonly />
+          </div>
+        </div>
+        <input type="hidden" name="payment_method" value="CASH" />
+        <div>
+          <label class="label"><%= t('note') %></label>
+          <input class="input" type="text" name="note" />
+        </div>
+        <button class="btn-primary w-full" type="submit"><%= t('save') %></button>
+      </form>
+    </div>
+
+    <div class="card p-5">
+      <form class="flex flex-wrap items-end gap-3" method="get" action="/records/leakage-sales">
+        <div>
+          <label class="label"><%= t('from') %></label>
+          <input class="input" type="date" name="from" value="<%= from %>" />
+        </div>
+        <div>
+          <label class="label"><%= t('to') %></label>
+          <input class="input" type="date" name="to" value="<%= to %>" />
+        </div>
+        <div class="min-w-[220px]">
+          <label class="label"><%= t('search') %></label>
+          <input class="input" type="text" name="q" value="<%= q %>" placeholder="<%= t('searchPlaceholder') %>" />
+        </div>
+        <button class="btn-outline" type="submit"><%= t('filter') %></button>
+      </form>
+
+      <div class="mt-4 overflow-x-auto rounded-2xl border border-slate-200">
+        <table class="table-base">
+          <thead class="table-head sticky top-0 z-10">
+            <tr>
+              <th class="px-4 py-3"><%= t('date') %></th>
+              <th class="px-4 py-3"><%= t('quantity') %></th>
+              <th class="px-4 py-3"><%= t('price') %></th>
+              <th class="px-4 py-3"><%= t('total') %></th>
+              <th class="px-4 py-3"><%= t('paidAmount') %></th>
+              <th class="px-4 py-3"><%= t('creditAmount') %></th>
+              <th class="px-4 py-3"><%= t('paymentMode') %></th>
+              <th class="px-4 py-3"><%= t('note') %></th>
+              <th class="table-action-sticky px-4 py-3 text-right"><%= t('actions') %></th>
+            </tr>
+          </thead>
+          <tbody>
+            <% if (!rows.length) { %>
+              <tr><td class="px-4 py-4 text-slate-500" colspan="9"><%= t('noData') %></td></tr>
+            <% } %>
+            <% rows.forEach((row) => { %>
+              <% const paidCash = Number(row.paid_cash_amount || 0); %>
+              <% const paidBank = Number(row.paid_bank_amount || 0); %>
+              <% const paidEWallet = Number(row.paid_ewallet_amount || 0); %>
+              <% const activeMethods = [paidCash > 0, paidBank > 0, paidEWallet > 0].filter(Boolean).length; %>
+              <% const methodLabel = activeMethods > 1 ? t('methodMixed') : (paidBank > 0 ? t('methodBank') : (paidEWallet > 0 ? t('methodEWallet') : (paidCash > 0 ? t('methodCash') : '-'))); %>
+              <tr class="table-row">
+                <td class="px-4 py-3"><%= row.sale_date %></td>
+                <td class="px-4 py-3"><%= row.quantity %></td>
+                <td class="px-4 py-3"><%= row.unit_price %></td>
+                <td class="px-4 py-3"><%= row.total_amount %></td>
+                <td class="px-4 py-3">
+                  <div><%= row.paid_amount %></div>
+                  <div class="text-xs text-slate-500">
+                    <%= t('methodCash') %>: <%= row.paid_cash_amount || 0 %> •
+                    <%= t('methodBank') %>: <%= row.paid_bank_amount || 0 %> •
+                    <%= t('methodEWallet') %>: <%= row.paid_ewallet_amount || 0 %>
+                  </div>
+                </td>
+                <td class="px-4 py-3"><%= row.credit_amount %></td>
+                <td class="px-4 py-3"><%= methodLabel %></td>
+                <td class="px-4 py-3"><%= row.note || '-' %></td>
+                <td class="table-action-sticky px-4 py-3 text-right">
+                  <details class="action-menu">
+                    <summary class="btn-outline h-9 w-9 flex items-center justify-center">⋯</summary>
+                    <div class="action-menu-panel">
+                      <% if (Number(row.credit_amount || 0) > 0) { %>
+                        <a class="action-menu-item" href="/records/leakage-sales/<%= row.id %>/payments"><%= t('addPayment') %></a>
+                      <% } %>
+                      <a class="action-menu-item" href="/records/leakage-sales/<%= row.id %>/payments"><%= t('paymentHistory') %></a>
+                      <a class="action-menu-item" href="/records/leakage-sales/<%= row.id %>/edit"><%= t('edit') %></a>
+                      <form method="post" action="/records/leakage-sales/<%= row.id %>/delete" onsubmit="return confirm('<%= t('deleteLeakageJarSaleConfirm') %>');">
+                        <button class="action-menu-item action-menu-danger" type="submit"><%= t('delete') %></button>
+                      </form>
+                    </div>
+                  </details>
+                </td>
+              </tr>
+            <% }) %>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="mt-4 grid gap-3 text-sm sm:grid-cols-4">
+        <div class="card p-4">
+          <p class="text-slate-500"><%= t('quantity') %></p>
+          <p class="text-lg font-semibold"><%= totals.quantity %></p>
+        </div>
+        <div class="card p-4">
+          <p class="text-slate-500"><%= t('total') %></p>
+          <p class="text-lg font-semibold"><%= totals.total %></p>
+        </div>
+        <div class="card p-4">
+          <p class="text-slate-500"><%= t('paidAmount') %></p>
+          <p class="text-lg font-semibold"><%= totals.paid %></p>
+        </div>
+        <div class="card p-4">
+          <p class="text-slate-500"><%= t('creditAmount') %></p>
+          <p class="text-lg font-semibold"><%= totals.credit %></p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<script>
+  (() => {
+    const qtyInput = document.querySelector('[data-qty]');
+    const priceInput = document.querySelector('[data-price]');
+    const cashInput = document.querySelector('[data-cash]');
+    const bankInput = document.querySelector('[data-bank]');
+    const ewalletInput = document.querySelector('[data-ewallet]');
+    const paidTotalInput = document.querySelector('[data-paid-total]');
+    const creditInput = document.querySelector('[data-credit-total]');
+    const totalPreview = document.getElementById('leakageTotalPreview');
+    const paymentMethodInput = document.querySelector('input[name="payment_method"]');
+
+    const clamp = (value) => {
+      const num = Math.round(Math.max(0, Number(value || 0)) * 100) / 100;
+      return Number.isNaN(num) ? 0 : num;
+    };
+
+    const recalc = () => {
+      const qty = Math.max(0, Math.floor(Number(qtyInput?.value || 0)));
+      const price = clamp(priceInput?.value || 0);
+      const total = clamp(qty * price);
+      let cash = clamp(cashInput?.value || 0);
+      let bank = clamp(bankInput?.value || 0);
+      let ewallet = clamp(ewalletInput?.value || 0);
+      let remaining = total;
+      const fit = (value) => {
+        const use = Math.min(value, remaining);
+        remaining = clamp(remaining - use);
+        return use;
+      };
+      cash = fit(cash);
+      bank = fit(bank);
+      ewallet = fit(ewallet);
+      const paid = clamp(cash + bank + ewallet);
+      const credit = clamp(total - paid);
+      if (cashInput) cashInput.value = cash > 0 ? cash : '';
+      if (bankInput) bankInput.value = bank > 0 ? bank : '';
+      if (ewalletInput) ewalletInput.value = ewallet > 0 ? ewallet : '';
+      if (paidTotalInput) paidTotalInput.value = paid;
+      if (creditInput) creditInput.value = credit;
+      if (totalPreview) totalPreview.textContent = total.toFixed(2);
+      if (paymentMethodInput) {
+        paymentMethodInput.value = ewallet > 0 ? 'E_WALLET' : bank > 0 ? 'BANK' : 'CASH';
+      }
+    };
+
+    [qtyInput, priceInput, cashInput, bankInput, ewalletInput].forEach((el) => {
+      if (el) el.addEventListener('input', recalc);
+    });
+    recalc();
+  })();
+</script>
+<%- include('../partials/shell-end') %>
