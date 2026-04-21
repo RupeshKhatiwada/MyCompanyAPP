@@ -1,0 +1,289 @@
+<%- include('../partials/shell-start', { title }) %>
+<section class="py-8">
+  <div class="flex flex-wrap items-center justify-between gap-3">
+    <div>
+      <h1 class="text-3xl font-semibold"><%= title %></h1>
+      <p class="text-slate-600"><%= t(record && record.id ? 'jarContainerLendingEditSubtitle' : 'jarContainerLendingFormSubtitle') %></p>
+    </div>
+    <a class="btn-outline" href="/records/jar-container-lending?from=<%= defaultDate %>&to=<%= defaultDate %>"><%= t('back') %></a>
+  </div>
+
+  <% if (error) { %>
+    <div class="mt-4 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700"><%= error %></div>
+  <% } %>
+
+  <div class="mt-6 grid gap-6 xl:grid-cols-[minmax(0,1fr)_340px]">
+    <div class="card p-6">
+      <form class="space-y-4" method="post" action="<%= record && record.id ? `/records/jar-container-lending/${record.id}` : '/records/jar-container-lending' %>">
+        <div class="grid gap-3 sm:grid-cols-2">
+          <div>
+            <label class="label"><%= t('date') %></label>
+            <input class="input" type="date" name="lend_date" value="<%= record?.lend_date || defaultDate %>" required />
+          </div>
+          <div>
+            <label class="label"><%= t('jarType') %></label>
+            <select class="input" name="jar_type_id" data-jar-type required>
+              <option value=""><%= t('selectJarType') %></option>
+              <% jarTypes.forEach((type) => { %>
+                <option value="<%= type.id %>" <%= Number(record?.jar_type_id || 0) === Number(type.id) ? 'selected' : '' %>><%= type.name %></option>
+              <% }) %>
+            </select>
+            <p class="mt-1 text-xs text-slate-500"><%= t('availableInStorage') %>: <span data-available>0</span></p>
+          </div>
+        </div>
+
+        <div class="grid gap-3 sm:grid-cols-2">
+          <div>
+            <label class="label"><%= t('lendingSource') %></label>
+            <select class="input" name="source_type" data-source-type>
+              <option value="STORAGE" <%= String(record?.source_type || 'STORAGE').toUpperCase() === 'STORAGE' ? 'selected' : '' %>><%= t('sourceStorage') %></option>
+              <option value="VEHICLE" <%= String(record?.source_type || '').toUpperCase() === 'VEHICLE' ? 'selected' : '' %>><%= t('sourceVehicle') %></option>
+            </select>
+          </div>
+          <div>
+            <label class="label"><%= t('vehicle') %></label>
+            <select class="input" name="vehicle_id" data-vehicle-id>
+              <option value=""><%= t('selectVehicle') %></option>
+              <% vehicles.forEach((vehicle) => { %>
+                <% const label = `${vehicle.owner_name} • ${vehicle.vehicle_number}${Number(vehicle.is_company || 0) === 1 ? ` (${t('companyVehicle')})` : ''}`; %>
+                <option value="<%= vehicle.id %>" <%= Number(record?.vehicle_id || 0) === Number(vehicle.id) ? 'selected' : '' %>><%= label %></option>
+              <% }) %>
+            </select>
+            <p class="mt-1 text-xs text-slate-500"><%= t('jarContainerLendingVehicleHint') %></p>
+          </div>
+        </div>
+
+        <div class="grid gap-3 sm:grid-cols-2">
+          <div>
+            <label class="label"><%= t('customer') %></label>
+            <input class="input" type="text" name="customer_name" value="<%= record?.customer_name || '' %>" list="jarContainerCustomerList" data-customer-name required />
+            <datalist id="jarContainerCustomerList">
+              <% customerOptions.forEach((entry) => { %>
+                <option value="<%= entry.customer_name %>"><%= entry.customer_name %></option>
+              <% }) %>
+            </datalist>
+          </div>
+          <div>
+            <label class="label"><%= t('quantity') %></label>
+            <input class="input" type="number" min="1" name="quantity" value="<%= record?.quantity || 1 %>" required />
+          </div>
+        </div>
+
+        <div class="grid gap-3 sm:grid-cols-2">
+          <div>
+            <label class="label"><%= t('phoneOptional') %></label>
+            <input class="input" type="text" name="phone" value="<%= record?.phone || '' %>" data-customer-phone />
+          </div>
+          <div>
+            <label class="label"><%= t('locationOptional') %></label>
+            <input class="input" type="text" name="location" value="<%= record?.location || '' %>" data-customer-location />
+          </div>
+        </div>
+
+        <div>
+          <label class="label"><%= t('depositTarget') %></label>
+          <input class="input" type="number" min="0" step="0.01" name="deposit_amount" value="<%= record?.deposit_amount || '' %>" data-deposit-target />
+          <p class="mt-1 text-xs text-slate-500"><%= t('jarContainerLendingDepositHint') %></p>
+        </div>
+
+        <% if (!(record && record.id)) { %>
+          <div class="rounded-2xl border border-slate-200 p-4">
+            <h2 class="text-base font-semibold"><%= t('openingDepositReceived') %></h2>
+            <div class="mt-3 grid gap-3 sm:grid-cols-3">
+              <div>
+                <label class="label text-xs"><%= t('methodCash') %></label>
+                <input class="input" type="number" min="0" step="0.01" name="deposit_cash_amount" value="" data-cash />
+              </div>
+              <div>
+                <label class="label text-xs"><%= t('methodBank') %></label>
+                <input class="input" type="number" min="0" step="0.01" name="deposit_bank_amount" value="" data-bank />
+              </div>
+              <div>
+                <label class="label text-xs"><%= t('methodEWallet') %></label>
+                <input class="input" type="number" min="0" step="0.01" name="deposit_ewallet_amount" value="" data-ewallet />
+              </div>
+            </div>
+            <input type="hidden" name="payment_method" value="CASH" />
+            <div class="mt-3 grid gap-3 sm:grid-cols-2">
+              <div>
+                <label class="label"><%= t('depositReceived') %></label>
+                <input class="input bg-slate-50" type="number" name="deposit_paid_amount" value="" data-paid-total readonly />
+              </div>
+              <div>
+                <label class="label"><%= t('remainingAmount') %></label>
+                <input class="input bg-slate-50" type="number" value="" data-deposit-due readonly />
+              </div>
+            </div>
+          </div>
+        <% } %>
+
+        <div>
+          <label class="label"><%= t('note') %></label>
+          <textarea class="input min-h-[110px]" name="note"><%= record?.note || '' %></textarea>
+        </div>
+
+        <button class="btn-primary" type="submit"><%= t('save') %></button>
+      </form>
+    </div>
+
+    <div class="space-y-4">
+      <div class="card p-6">
+        <h2 class="text-lg font-semibold"><%= t('quickSummary') %></h2>
+        <div class="mt-4 grid gap-3 text-sm">
+          <div class="card p-4">
+            <p class="text-slate-500"><%= t('availableInStorage') %></p>
+            <p class="text-lg font-semibold" data-sidebar-available>0</p>
+          </div>
+          <div class="card p-4">
+            <p class="text-slate-500"><%= t('availableOnVehicle') %></p>
+            <p class="text-lg font-semibold" data-sidebar-vehicle-available>0</p>
+            <div class="mt-2 space-y-1 text-xs text-slate-500">
+              <p><%= t('totalAddedJarContainers') %>: <span data-vehicle-added>0</span></p>
+              <p><%= t('soldJars') %>: <span data-vehicle-sold>0</span></p>
+              <p><%= t('totalLeakageJars') %>: <span data-vehicle-leakage>0</span></p>
+              <p><%= t('currentContainerBalance') %>: <span data-vehicle-balance>0</span></p>
+            </div>
+          </div>
+          <% if (record && record.id) { %>
+            <div class="card p-4">
+              <p class="text-slate-500"><%= t('returnedQuantity') %></p>
+              <p class="text-lg font-semibold"><%= Number(record.returned_quantity || 0) %></p>
+            </div>
+            <div class="card p-4">
+              <p class="text-slate-500"><%= t('outstandingQuantity') %></p>
+              <p class="text-lg font-semibold"><%= Number(record.outstanding_quantity || 0) %></p>
+            </div>
+            <div class="card p-4">
+              <p class="text-slate-500"><%= t('depositReceived') %></p>
+              <p class="text-lg font-semibold"><%= Number(record.deposit_paid_amount || 0) %></p>
+            </div>
+            <div class="card p-4">
+              <p class="text-slate-500"><%= t('depositHeld') %></p>
+              <p class="text-lg font-semibold"><%= Number(record.deposit_held || 0) %></p>
+            </div>
+          <% } else { %>
+            <div class="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+              <%= t('jarContainerLendingCreateHint') %>
+            </div>
+          <% } %>
+        </div>
+      </div>
+
+      <% if (record && record.id) { %>
+        <div class="card p-6">
+          <h2 class="text-lg font-semibold"><%= t('managePaymentsAndReturns') %></h2>
+          <p class="mt-2 text-sm text-slate-600"><%= t('jarContainerLendingManageHint') %></p>
+          <div class="mt-4 grid gap-2">
+            <a class="btn-outline justify-center" href="/records/jar-container-lending/<%= record.id %>/payments"><%= t('depositHistory') %></a>
+            <a class="btn-outline justify-center" href="/records/jar-container-lending/<%= record.id %>/returns"><%= t('manageReturns') %></a>
+          </div>
+        </div>
+      <% } %>
+    </div>
+  </div>
+</section>
+
+<script>
+  (() => {
+    const jarTypeBalances = <%- JSON.stringify(jarTypeBalances || {}) %>;
+    const customerOptions = <%- JSON.stringify(customerOptions || []) %>;
+    const vehicleMetricsById = <%- JSON.stringify(vehicleMetricsById || {}) %>;
+    const jarTypeInput = document.querySelector('[data-jar-type]');
+    const availableNode = document.querySelector('[data-available]');
+    const sidebarAvailableNode = document.querySelector('[data-sidebar-available]');
+    const sourceTypeInput = document.querySelector('[data-source-type]');
+    const vehicleInput = document.querySelector('[data-vehicle-id]');
+    const customerNameInput = document.querySelector('[data-customer-name]');
+    const phoneInput = document.querySelector('[data-customer-phone]');
+    const locationInput = document.querySelector('[data-customer-location]');
+    const sidebarVehicleAvailableNode = document.querySelector('[data-sidebar-vehicle-available]');
+    const vehicleAddedNode = document.querySelector('[data-vehicle-added]');
+    const vehicleSoldNode = document.querySelector('[data-vehicle-sold]');
+    const vehicleLeakageNode = document.querySelector('[data-vehicle-leakage]');
+    const vehicleBalanceNode = document.querySelector('[data-vehicle-balance]');
+    const depositTargetInput = document.querySelector('[data-deposit-target]');
+    const cashInput = document.querySelector('[data-cash]');
+    const bankInput = document.querySelector('[data-bank]');
+    const ewalletInput = document.querySelector('[data-ewallet]');
+    const paidTotalInput = document.querySelector('[data-paid-total]');
+    const depositDueInput = document.querySelector('[data-deposit-due]');
+    const paymentMethodInput = document.querySelector('input[name="payment_method"]');
+
+    const clampMoney = (value) => {
+      const num = Math.round(Math.max(0, Number(value || 0)) * 100) / 100;
+      return Number.isNaN(num) ? 0 : num;
+    };
+
+    const updateAvailable = () => {
+      const selected = String(jarTypeInput?.value || '');
+      const amount = Number(jarTypeBalances[selected] || 0);
+      if (availableNode) availableNode.textContent = amount;
+      if (sidebarAvailableNode) sidebarAvailableNode.textContent = amount;
+    };
+
+    const updateVehicleSummary = () => {
+      const selected = String(vehicleInput?.value || '');
+      const metrics = vehicleMetricsById[selected] || {};
+      const added = Number(metrics.total_added_jar_containers || 0);
+      const sold = Number(metrics.total_jar_sold || 0);
+      const leakage = Number(metrics.total_leakage_jars || 0);
+      const balance = Number(metrics.current_container_balance || 0);
+      if (sidebarVehicleAvailableNode) sidebarVehicleAvailableNode.textContent = balance;
+      if (vehicleAddedNode) vehicleAddedNode.textContent = added;
+      if (vehicleSoldNode) vehicleSoldNode.textContent = sold;
+      if (vehicleLeakageNode) vehicleLeakageNode.textContent = leakage;
+      if (vehicleBalanceNode) vehicleBalanceNode.textContent = balance;
+    };
+
+    const updateSourceState = () => {
+      const isVehicle = String(sourceTypeInput?.value || 'STORAGE').toUpperCase() === 'VEHICLE';
+      if (vehicleInput) vehicleInput.required = isVehicle;
+    };
+
+    const autofillCustomer = () => {
+      const current = String(customerNameInput?.value || '').trim().toLowerCase();
+      if (!current) return;
+      const hit = customerOptions.find((entry) => String(entry.customer_name || '').trim().toLowerCase() === current);
+      if (!hit) return;
+      if (phoneInput && !String(phoneInput.value || '').trim()) phoneInput.value = hit.phone || '';
+      if (locationInput && !String(locationInput.value || '').trim()) locationInput.value = hit.location || '';
+    };
+
+    const recalcDeposit = () => {
+      if (!cashInput || !bankInput || !ewalletInput || !paidTotalInput || !depositDueInput) return;
+      const target = clampMoney(depositTargetInput?.value || 0);
+      let cash = clampMoney(cashInput.value);
+      let bank = clampMoney(bankInput.value);
+      let ewallet = clampMoney(ewalletInput.value);
+      const paid = clampMoney(cash + bank + ewallet);
+      const effectiveTarget = Math.max(target, paid);
+      const due = clampMoney(effectiveTarget - paid);
+      cashInput.value = cash > 0 ? cash : '';
+      bankInput.value = bank > 0 ? bank : '';
+      ewalletInput.value = ewallet > 0 ? ewallet : '';
+      paidTotalInput.value = paid;
+      depositDueInput.value = due;
+      if (paymentMethodInput) {
+        paymentMethodInput.value = ewallet > 0 ? 'E_WALLET' : bank > 0 ? 'BANK' : 'CASH';
+      }
+    };
+
+    if (jarTypeInput) jarTypeInput.addEventListener('change', updateAvailable);
+    if (sourceTypeInput) sourceTypeInput.addEventListener('change', updateSourceState);
+    if (vehicleInput) vehicleInput.addEventListener('change', updateVehicleSummary);
+    if (customerNameInput) {
+      customerNameInput.addEventListener('change', autofillCustomer);
+      customerNameInput.addEventListener('blur', autofillCustomer);
+    }
+    [depositTargetInput, cashInput, bankInput, ewalletInput].forEach((node) => {
+      if (node) node.addEventListener('input', recalcDeposit);
+    });
+
+    updateAvailable();
+    updateVehicleSummary();
+    updateSourceState();
+    autofillCustomer();
+    recalcDeposit();
+  })();
+</script>
+<%- include('../partials/shell-end') %>

@@ -181,6 +181,12 @@ const getDailyCollectionBalance = (db, businessDate, options = {}) => {
     ),
     sumScalar(
       `SELECT COALESCE(SUM(amount), 0) AS amount
+       FROM jar_container_lending_payments
+       WHERE payment_date = ?`,
+      safeDate
+    ),
+    sumScalar(
+      `SELECT COALESCE(SUM(amount), 0) AS amount
        FROM leakage_jar_sale_payments
        WHERE payment_date = ?`,
       safeDate
@@ -220,11 +226,25 @@ const getDailyCollectionBalance = (db, businessDate, options = {}) => {
       ? sumScalar(workerSalarySql, safeDate, options.excludeWorkerPaymentId)
       : sumScalar(workerSalarySql, safeDate),
     sumScalar(
-      `SELECT COALESCE(SUM(CASE WHEN amount < 0 AND payment_source = 'DAILY_COLLECTION' THEN ABS(amount) ELSE 0 END), 0) AS amount
-       FROM vehicle_savings
-       WHERE entry_date = ?`,
+      `SELECT COALESCE(SUM(refund_amount), 0) AS amount
+       FROM jar_container_lending_returns
+       WHERE return_date = ?`,
       safeDate
-    )
+    ),
+    options.excludeSavingsId
+      ? sumScalar(
+        `SELECT COALESCE(SUM(CASE WHEN amount < 0 AND payment_source = 'DAILY_COLLECTION' AND id != ? THEN ABS(amount) ELSE 0 END), 0) AS amount
+         FROM vehicle_savings
+         WHERE entry_date = ?`,
+        options.excludeSavingsId,
+        safeDate
+      )
+      : sumScalar(
+        `SELECT COALESCE(SUM(CASE WHEN amount < 0 AND payment_source = 'DAILY_COLLECTION' THEN ABS(amount) ELSE 0 END), 0) AS amount
+         FROM vehicle_savings
+         WHERE entry_date = ?`,
+        safeDate
+      )
   ].reduce((sum, amount) => sum + amount, 0);
 
   return fromMoneyCents(inflowCents - deductionCents);

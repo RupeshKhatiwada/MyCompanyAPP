@@ -8,6 +8,9 @@ const allowedTables = new Set([
   "credit_payments",
   "import_entries",
   "jar_sales",
+  "jar_container_lendings",
+  "jar_container_lending_payments",
+  "jar_container_lending_returns",
   "vehicle_savings",
   "vehicle_expenses",
   "vehicle_expense_payments",
@@ -125,6 +128,19 @@ const removeRecycleEntry = (id) => {
   db.prepare("DELETE FROM recycle_bin WHERE id = ?").run(id);
 };
 
+const removeAllRecycleEntries = (options = {}) => {
+  const safeStatus = String(options.status || "all").trim().toLowerCase();
+  const conditions = [];
+  if (safeStatus === "active") {
+    conditions.push("restored_at IS NULL");
+  } else if (safeStatus === "restored") {
+    conditions.push("restored_at IS NOT NULL");
+  }
+  const whereSql = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+  const result = db.prepare(`DELETE FROM recycle_bin ${whereSql}`).run();
+  return Number(result.changes || 0);
+};
+
 const markRestored = (id, userId) => {
   db.prepare(
     "UPDATE recycle_bin SET restored_at = datetime('now'), restored_by = ? WHERE id = ?"
@@ -214,6 +230,33 @@ const restoreEntry = (entryId, userId) => {
         restoredEntityId = insertRow("jar_sales", payload.jar_sale || {}, { keepId: true });
         break;
       }
+      case "jar_container_lending": {
+        const lendingId = insertRow("jar_container_lendings", payload.jar_container_lending || {}, { keepId: true });
+        (payload.payments || []).forEach((paymentRow) => {
+          try {
+            insertRow(
+              "jar_container_lending_payments",
+              { ...paymentRow, lending_id: lendingId },
+              { keepId: false }
+            );
+          } catch (err) {
+            // Continue restoring remaining rows.
+          }
+        });
+        (payload.returns || []).forEach((returnRow) => {
+          try {
+            insertRow(
+              "jar_container_lending_returns",
+              { ...returnRow, lending_id: lendingId },
+              { keepId: false }
+            );
+          } catch (err) {
+            // Continue restoring remaining rows.
+          }
+        });
+        restoredEntityId = lendingId;
+        break;
+      }
       case "vehicle_savings": {
         restoredEntityId = insertRow("vehicle_savings", payload.vehicle_savings || {}, { keepId: true });
         break;
@@ -276,6 +319,7 @@ module.exports = {
   createRecycleEntry,
   listRecycleEntries,
   getRecycleEntryById,
+  removeAllRecycleEntries,
   removeRecycleEntry,
   restoreEntry
 };

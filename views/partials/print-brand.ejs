@@ -9,8 +9,8 @@
       <% } %>
     </div>
     <div>
-      <p class="text-lg font-semibold">AQUA MSK</p>
-      <p class="text-xs text-slate-500"><%= subtitle %></p>
+      <p class="text-lg font-semibold"><%= brandName || 'AQUA MSK' %></p>
+      <p class="text-xs text-slate-500"><%= subtitle || brandTaglineText || t('brandTagline') %></p>
     </div>
   </div>
   <div class="text-right text-xs text-slate-500">

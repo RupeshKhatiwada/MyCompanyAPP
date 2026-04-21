@@ -112,6 +112,9 @@ const getLatestBusinessDate = () => {
        SELECT MAX(export_date) as d FROM exports
        UNION ALL SELECT MAX(credit_date) as d FROM credits
        UNION ALL SELECT MAX(sale_date) as d FROM jar_sales
+       UNION ALL SELECT MAX(lend_date) as d FROM jar_container_lendings
+       UNION ALL SELECT MAX(payment_date) as d FROM jar_container_lending_payments
+       UNION ALL SELECT MAX(return_date) as d FROM jar_container_lending_returns
        UNION ALL SELECT MAX(date(paid_at)) as d FROM credit_payments
        UNION ALL SELECT MAX(entry_date) as d FROM import_entries
        UNION ALL SELECT MAX(payment_date) as d FROM import_payments
@@ -188,6 +191,20 @@ app.use((req, res, next) => {
     res.locals.logoPath = row ? row.value : "";
   } catch (err) {
     res.locals.logoPath = "";
+  }
+  try {
+    const row = db.prepare("SELECT value FROM settings WHERE key = 'brand_name'").get();
+    const savedName = row ? String(row.value || "").trim() : "";
+    res.locals.brandName = savedName || "AQUA MSK";
+  } catch (err) {
+    res.locals.brandName = "AQUA MSK";
+  }
+  try {
+    const row = db.prepare("SELECT value FROM settings WHERE key = 'brand_tagline'").get();
+    const savedTagline = row ? String(row.value || "").trim() : "";
+    res.locals.brandTaglineText = savedTagline || req.t("brandTagline");
+  } catch (err) {
+    res.locals.brandTaglineText = req.t("brandTagline");
   }
   try {
     const row = db.prepare("SELECT value FROM settings WHERE key = 'brand_wordmark_path'").get();
@@ -459,9 +476,35 @@ app.get("/worker", requireAuth, (req, res) => {
   ).get(selectedDate);
   const jarSalePaymentDaily = db.prepare(
     `SELECT COUNT(*) as payment_count,
-            COALESCE(SUM(amount), 0) as total_amount
+            COALESCE(SUM(amount), 0) as total_amount,
+            COALESCE(SUM(cash_amount), 0) as cash_amount,
+            COALESCE(SUM(bank_amount), 0) as bank_amount,
+            COALESCE(SUM(ewallet_amount), 0) as ewallet_amount
      FROM jar_sale_payments
      WHERE payment_date = ?`
+  ).get(selectedDate);
+  const containerLendingDaily = db.prepare(
+    `SELECT COUNT(*) as entry_count,
+            COALESCE(SUM(quantity), 0) as total_quantity,
+            COALESCE(SUM(deposit_amount), 0) as deposit_target
+     FROM jar_container_lendings
+     WHERE lend_date = ?`
+  ).get(selectedDate);
+  const containerLendingPaymentDaily = db.prepare(
+    `SELECT COUNT(*) as payment_count,
+            COALESCE(SUM(amount), 0) as total_amount,
+            COALESCE(SUM(cash_amount), 0) as cash_amount,
+            COALESCE(SUM(bank_amount), 0) as bank_amount,
+            COALESCE(SUM(ewallet_amount), 0) as ewallet_amount
+     FROM jar_container_lending_payments
+     WHERE payment_date = ?`
+  ).get(selectedDate);
+  const containerLendingReturnDaily = db.prepare(
+    `SELECT COUNT(*) as return_count,
+            COALESCE(SUM(quantity), 0) as total_quantity,
+            COALESCE(SUM(refund_amount), 0) as refund_amount
+     FROM jar_container_lending_returns
+     WHERE return_date = ?`
   ).get(selectedDate);
   const leakageSaleDaily = db.prepare(
     `SELECT COUNT(*) as sale_count,
@@ -667,6 +710,8 @@ app.get("/worker", requireAuth, (req, res) => {
   const rentTotal = Number(rentDaily.total_amount || 0);
   const rentCollection = Number(rentDaily.collection_amount || 0);
   const jarSaleCollected = Number(jarSalePaymentDaily.total_amount || 0);
+  const containerDepositCollected = Number(containerLendingPaymentDaily.total_amount || 0);
+  const containerDepositRefunded = Number(containerLendingReturnDaily.refund_amount || 0);
   const leakageSaleCollected = Number(leakageSalePaymentDaily.total_amount || 0);
   const companyPurchasePaymentCount = Number(companyPurchasePaymentDaily.payment_count || 0);
   const vehicleExpensePaymentCount = Number(vehicleExpensePaymentDaily.payment_count || 0);
@@ -697,12 +742,14 @@ app.get("/worker", requireAuth, (req, res) => {
     importPaidFromCollection +
     companyPurchasePaidFromCollection +
     vehicleExpensePaidFromCollection +
+    containerDepositRefunded +
     savingsWithdrawFromCollection;
   const totalPaidIn =
     Number(exportMethodDaily.cash_amount || 0) +
     Number(exportMethodDaily.bank_amount || 0) +
     Number(exportMethodDaily.ewallet_amount || 0) +
     jarSaleCollected +
+    containerDepositCollected +
     leakageSaleCollected +
     savingsDeposits +
     rentCollection +
@@ -712,18 +759,23 @@ app.get("/worker", requireAuth, (req, res) => {
       Number(exportMethodDaily.cash_amount || 0) +
       Number(customerCreditPaymentDaily.cash_amount || 0) +
       Number(rentMethodDaily.cash_amount || 0) +
-      jarSaleCollected +
+      Number(jarSalePaymentDaily.cash_amount || 0) +
+      Number(containerLendingPaymentDaily.cash_amount || 0) +
       Number(leakageSalePaymentDaily.cash_amount || 0) +
       savingsDeposits,
     bank:
       Number(exportMethodDaily.bank_amount || 0) +
       Number(customerCreditPaymentDaily.bank_amount || 0) +
       Number(rentMethodDaily.bank_amount || 0) +
+      Number(jarSalePaymentDaily.bank_amount || 0) +
+      Number(containerLendingPaymentDaily.bank_amount || 0) +
       Number(leakageSalePaymentDaily.bank_amount || 0),
     eWallet:
       Number(exportMethodDaily.ewallet_amount || 0) +
       Number(customerCreditPaymentDaily.ewallet_amount || 0) +
       Number(rentMethodDaily.ewallet_amount || 0) +
+      Number(jarSalePaymentDaily.ewallet_amount || 0) +
+      Number(containerLendingPaymentDaily.ewallet_amount || 0) +
       Number(leakageSalePaymentDaily.ewallet_amount || 0)
   };
   const netDayResult = totalPaidIn - totalOutflow;
@@ -740,7 +792,28 @@ app.get("/worker", requireAuth, (req, res) => {
       count: Number(jarSaleDaily.sale_count || 0),
       total: Number(jarSaleDaily.total_amount || 0),
       paid: Number(jarSaleDaily.paid_amount || 0),
+      collected: jarSaleCollected,
+      collectedByMethod: {
+        cash: Number(jarSalePaymentDaily.cash_amount || 0),
+        bank: Number(jarSalePaymentDaily.bank_amount || 0),
+        eWallet: Number(jarSalePaymentDaily.ewallet_amount || 0)
+      },
       credit: Number(jarSaleDaily.credit_amount || 0)
+    },
+    containerLending: {
+      count: Number(containerLendingDaily.entry_count || 0),
+      quantity: Number(containerLendingDaily.total_quantity || 0),
+      depositTarget: Number(containerLendingDaily.deposit_target || 0),
+      collected: containerDepositCollected,
+      paymentCount: Number(containerLendingPaymentDaily.payment_count || 0),
+      refunds: containerDepositRefunded,
+      returnCount: Number(containerLendingReturnDaily.return_count || 0),
+      returnedQuantity: Number(containerLendingReturnDaily.total_quantity || 0),
+      collectedByMethod: {
+        cash: Number(containerLendingPaymentDaily.cash_amount || 0),
+        bank: Number(containerLendingPaymentDaily.bank_amount || 0),
+        eWallet: Number(containerLendingPaymentDaily.ewallet_amount || 0)
+      }
     },
     leakageJarSales: {
       count: Number(leakageSaleDaily.sale_count || 0),

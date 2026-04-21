@@ -28,6 +28,7 @@
             <th class="px-4 py-3"><%= t('owner') %></th>
             <th class="px-4 py-3"><%= t('phone') %></th>
             <th class="px-4 py-3"><%= t('vehicleType') %></th>
+            <th class="px-4 py-3"><%= t('vehicleJarContainerSummary') %></th>
             <th class="px-4 py-3"><%= t('status') %></th>
             <th class="px-4 py-3 text-right"><%= t('actions') %></th>
           </tr>
@@ -35,10 +36,11 @@
         <tbody>
           <% if (vehicles.length === 0) { %>
             <tr>
-              <td class="px-4 py-4 text-slate-500" colspan="7"><%= t('noVehicles') %></td>
+              <td class="px-4 py-4 text-slate-500" colspan="8"><%= t('noVehicles') %></td>
             </tr>
           <% } %>
           <% vehicles.forEach((vehicle) => { %>
+            <% const metrics = (vehicleMetricsById && vehicleMetricsById[vehicle.id]) || {}; %>
             <tr class="table-row">
               <td class="px-4 py-3">
                 <% if (vehicle.profile_pic_path) { %>
@@ -51,6 +53,18 @@
               <td class="px-4 py-3"><%= vehicle.owner_name %></td>
               <td class="px-4 py-3"><%= vehicle.phone || '-' %></td>
               <td class="px-4 py-3"><%= vehicle.is_company ? t('companyVehicle') : t('partnerVehicle') %></td>
+              <td class="px-4 py-3">
+                <% if (Number(vehicle.is_company || 0) === 1) { %>
+                  <div class="space-y-1 text-xs text-slate-600">
+                    <div><span class="font-medium text-slate-800"><%= t('totalAddedJarContainers') %>:</span> <%= Number(metrics.total_added_jar_containers || 0) %></div>
+                    <div><span class="font-medium text-slate-800"><%= t('soldJars') %>:</span> <%= Number(metrics.total_jar_sold || 0) %></div>
+                    <div><span class="font-medium text-slate-800"><%= t('totalLeakageJars') %>:</span> <%= Number(metrics.total_leakage_jars || 0) %></div>
+                    <div><span class="font-medium text-slate-800"><%= t('currentContainerBalance') %>:</span> <%= Number(metrics.current_container_balance || 0) %></div>
+                  </div>
+                <% } else { %>
+                  <span class="text-slate-400">-</span>
+                <% } %>
+              </td>
               <td class="px-4 py-3">
                 <% if (Number(vehicle.is_active ?? 1) === 1) { %>
                   <span class="badge bg-emerald-100 text-emerald-700"><%= t('active') %></span>

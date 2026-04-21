@@ -93,6 +93,12 @@
               <td class="px-4 py-3"><%= snapshot.inflow.rentIncome.eWallet %></td>
             </tr>
             <tr class="table-row">
+              <td class="px-4 py-3"><%= t('jarContainerLendingTitle') %></td>
+              <td class="px-4 py-3"><%= snapshot.inflow.containerDeposits.cash %></td>
+              <td class="px-4 py-3"><%= snapshot.inflow.containerDeposits.bank %></td>
+              <td class="px-4 py-3"><%= snapshot.inflow.containerDeposits.eWallet %></td>
+            </tr>
+            <tr class="table-row">
               <td class="px-4 py-3"><%= t('leakageJarSalesTitle') %></td>
               <td class="px-4 py-3"><%= snapshot.inflow.leakageJarSales.cash %></td>
               <td class="px-4 py-3"><%= snapshot.inflow.leakageJarSales.bank %></td>
@@ -100,9 +106,9 @@
             </tr>
             <tr class="table-row">
               <td class="px-4 py-3"><%= t('jarSalesTitle') %></td>
-              <td class="px-4 py-3"><%= snapshot.inflow.jarSalesCash %></td>
-              <td class="px-4 py-3">0</td>
-              <td class="px-4 py-3">0</td>
+              <td class="px-4 py-3"><%= snapshot.inflow.jarSales.cash %></td>
+              <td class="px-4 py-3"><%= snapshot.inflow.jarSales.bank %></td>
+              <td class="px-4 py-3"><%= snapshot.inflow.jarSales.eWallet %></td>
             </tr>
             <tr class="table-row">
               <td class="px-4 py-3"><%= t('savingsDeposit') %></td>
@@ -131,6 +137,7 @@
             <tr class="table-row"><td class="px-4 py-3"><%= t('vehicleExpensesTitle') %></td><td class="px-4 py-3"><%= snapshot.deductions.vehicleExpenses %></td></tr>
             <tr class="table-row"><td class="px-4 py-3"><%= t('staffsTitle') %> <%= t('salaryPaid') %></td><td class="px-4 py-3"><%= snapshot.deductions.staffSalaries %></td></tr>
             <tr class="table-row"><td class="px-4 py-3"><%= t('workersTitle') %> <%= t('salaryPaid') %></td><td class="px-4 py-3"><%= snapshot.deductions.workerSalaries %></td></tr>
+            <tr class="table-row"><td class="px-4 py-3"><%= t('depositRefundLabel') %></td><td class="px-4 py-3"><%= snapshot.deductions.containerDepositRefunds %></td></tr>
             <tr class="table-row"><td class="px-4 py-3"><%= t('savingsWithdraw') %></td><td class="px-4 py-3"><%= snapshot.deductions.savingsWithdrawals %></td></tr>
           </tbody>
         </table>

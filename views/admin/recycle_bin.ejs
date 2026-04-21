@@ -40,6 +40,15 @@
     <button class="btn-outline" type="submit"><%= t('filter') %></button>
   </form>
 
+  <% if (rows && rows.length > 0) { %>
+    <div class="mt-4 flex justify-end">
+      <form method="post" action="/admin/recycle-bin/delete-all" onsubmit="return confirm('<%= t('recycleDeleteAllConfirm') %>');">
+        <input type="hidden" name="status" value="<%= status %>" />
+        <button class="btn-danger" type="submit"><%= t('recycleDeleteAll') %></button>
+      </form>
+    </div>
+  <% } %>
+
   <div class="mt-6 card overflow-hidden">
     <div class="overflow-x-auto">
       <table class="table-base text-sm">

@@ -6,6 +6,48 @@
   </div>
 
   <div class="mt-6 card p-6">
+    <% if (currentUser && currentUser.role === 'SUPER_ADMIN') { %>
+      <div id="branding-settings" class="mb-6 rounded-xl border border-slate-200 bg-slate-50 p-4 scroll-mt-24">
+        <h3 class="text-sm font-semibold"><%= t('editBranding') %></h3>
+        <p class="mt-1 text-xs text-slate-600"><%= t('brandingSubtitle') %></p>
+        <div class="mt-3 flex flex-wrap items-center gap-4 rounded-xl border border-slate-200 bg-white p-4">
+          <div class="flex h-14 w-14 items-center justify-center overflow-hidden rounded-2xl border border-slate-200 bg-slate-50">
+            <% if (logoPath) { %>
+              <img src="<%= logoPath %>" alt="logo" class="h-14 w-14 object-contain" />
+            <% } else { %>
+              <span class="text-lg font-bold text-aqua-700">A</span>
+            <% } %>
+          </div>
+          <div>
+            <p class="text-base font-semibold"><%= brandName || 'AQUA MSK' %></p>
+            <p class="text-xs text-slate-500"><%= brandTaglineText || t('brandTagline') %></p>
+          </div>
+        </div>
+        <form method="post" action="/admin/branding" enctype="multipart/form-data" class="mt-3 grid gap-3 lg:grid-cols-3">
+          <div>
+            <label class="label"><%= t('brandNameLabel') %></label>
+            <input class="input" type="text" name="brand_name" value="<%= brandName || 'AQUA MSK' %>" required />
+          </div>
+          <div>
+            <label class="label"><%= t('brandTaglineLabel') %></label>
+            <input class="input" type="text" name="brand_tagline" value="<%= brandTaglineText || '' %>" />
+          </div>
+          <div>
+            <label class="label"><%= t('logoImageTitle') %></label>
+            <input class="input" type="file" name="logo_file" accept="image/*" />
+          </div>
+          <div class="lg:col-span-3">
+            <button class="btn-primary" type="submit"><%= t('saveBranding') %></button>
+          </div>
+        </form>
+        <% if (logoPath) { %>
+          <form method="post" action="/admin/logo/delete" class="mt-3">
+            <button class="btn-outline text-red-600" type="submit"><%= t('deleteLogo') %></button>
+          </form>
+        <% } %>
+      </div>
+    <% } %>
+
     <% if (error) { %>
       <div class="mb-4 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700"><%= error %></div>
     <% } %>

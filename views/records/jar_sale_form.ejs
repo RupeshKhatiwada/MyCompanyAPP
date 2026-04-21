@@ -64,9 +64,41 @@
         </div>
         <div>
           <label class="label"><%= t('paidAmount') %></label>
-          <input class="input" type="number" min="0" step="0.01" name="paid_amount" value="<%= record ? record.paid_amount : 0 %>" data-paid />
+          <input class="input bg-slate-50" type="number" min="0" step="0.01" name="paid_amount" value="<%= record ? record.paid_amount : 0 %>" data-paid readonly />
         </div>
       </div>
+
+      <% if (record && record.id) { %>
+        <div class="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+          <div class="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p class="text-sm font-semibold text-slate-800"><%= t('managePayments') %></p>
+              <p class="mt-1 text-xs text-slate-500"><%= t('leakageJarSaleEditHint') %></p>
+            </div>
+            <a class="btn-outline" href="/records/jar-sales/<%= record.id %>/payments"><%= t('jarSalePaymentsTitle') %></a>
+          </div>
+        </div>
+      <% } else { %>
+        <div class="rounded-2xl border border-slate-200 p-4">
+          <h2 class="text-base font-semibold"><%= t('openingPaidAmount') %></h2>
+          <div class="mt-3 grid gap-3 sm:grid-cols-3">
+            <div>
+              <label class="label text-xs"><%= t('methodCash') %></label>
+              <input class="input" type="number" min="0" step="0.01" name="paid_cash_amount" value="<%= record ? record.paid_cash_amount || '' : '' %>" data-cash />
+            </div>
+            <div>
+              <label class="label text-xs"><%= t('methodBank') %></label>
+              <input class="input" type="number" min="0" step="0.01" name="paid_bank_amount" value="<%= record ? record.paid_bank_amount || '' : '' %>" data-bank />
+            </div>
+            <div>
+              <label class="label text-xs"><%= t('methodEWallet') %></label>
+              <input class="input" type="number" min="0" step="0.01" name="paid_ewallet_amount" value="<%= record ? record.paid_ewallet_amount || '' : '' %>" data-ewallet />
+            </div>
+          </div>
+          <input type="hidden" name="payment_method" value="CASH" data-payment-method />
+        </div>
+      <% } %>
+
       <div>
         <label class="label"><%= t('note') %></label>
         <input class="input" type="text" name="note" value="<%= record ? record.note || '' : '' %>" />
@@ -99,11 +131,19 @@
     const unitEl = document.getElementById('unitPrice');
     const totalEl = document.getElementById('totalAmount');
     const creditEl = document.getElementById('creditAmount');
+    const cashInput = document.querySelector('[data-cash]');
+    const bankInput = document.querySelector('[data-bank]');
+    const ewalletInput = document.querySelector('[data-ewallet]');
+    const paymentMethodInput = document.querySelector('[data-payment-method]');
     const vehicleSelect = document.querySelector('[data-vehicle]');
     const vehicleNumberInput = document.querySelector('[data-vehicle-number]');
     const jarBalanceValue = document.getElementById('jarBalanceValue');
     const jarBalanceAlert = document.getElementById('jarBalanceAlert');
     const jarBalances = <%- JSON.stringify(jarTypeBalances || {}) %>;
+    const clampMoney = (value) => {
+      const num = Math.round(Math.max(0, Number(value || 0)) * 100) / 100;
+      return Number.isNaN(num) ? 0 : num;
+    };
 
     const updateBalance = () => {
       const typeId = Number(typeSelect?.value || 0);
@@ -131,11 +171,34 @@
       }
       const qty = Number(qtyInput?.value || 0);
       const total = price * qty;
-      let paid = Number(paidInput?.value || 0);
-      if (paid < 0) paid = 0;
+      let paid = clampMoney(paidInput?.value || 0);
+      if (cashInput || bankInput || ewalletInput) {
+        let cash = clampMoney(cashInput?.value || 0);
+        let bank = clampMoney(bankInput?.value || 0);
+        let ewallet = clampMoney(ewalletInput?.value || 0);
+        if (isCompany) {
+          cash = 0;
+          bank = 0;
+          ewallet = 0;
+        }
+        paid = clampMoney(cash + bank + ewallet);
+        if (paid > total && paid > 0) {
+          const ratio = total / paid;
+          cash = clampMoney(cash * ratio);
+          bank = clampMoney(bank * ratio);
+          ewallet = clampMoney(total - cash - bank);
+          if (ewallet < 0) ewallet = 0;
+          paid = clampMoney(cash + bank + ewallet);
+        }
+        if (cashInput) cashInput.value = cash > 0 ? cash : '';
+        if (bankInput) bankInput.value = bank > 0 ? bank : '';
+        if (ewalletInput) ewalletInput.value = ewallet > 0 ? ewallet : '';
+        if (paymentMethodInput) {
+          paymentMethodInput.value = ewallet > 0 ? 'E_WALLET' : bank > 0 ? 'BANK' : 'CASH';
+        }
+      }
       if (paid > total) paid = total;
       if (isCompany) paid = 0;
-      if (paidInput) paidInput.readOnly = isCompany;
       if (paidInput) paidInput.value = paid;
       if (unitEl) unitEl.textContent = price.toFixed(2);
       if (totalEl) totalEl.textContent = total.toFixed(2);
@@ -155,7 +218,7 @@
       });
     }
 
-    [typeSelect, qtyInput, unitPriceInput, paidInput, vehicleSelect].forEach((el) => el && el.addEventListener('input', recalc));
+    [typeSelect, qtyInput, unitPriceInput, paidInput, cashInput, bankInput, ewalletInput, vehicleSelect].forEach((el) => el && el.addEventListener('input', recalc));
     if (vehicleSelect) vehicleSelect.addEventListener('change', recalc);
     if (typeSelect) typeSelect.addEventListener('change', updateBalance);
     updateBalance();

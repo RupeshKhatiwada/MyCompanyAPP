@@ -9,6 +9,7 @@ const { createReceiptNo, createInvoiceNo } = require("../utils/numbering");
 const { createRecycleEntry } = require("../utils/recycleBin");
 const { formatActivityRows } = require("../utils/activity");
 const { adToBs } = require("../utils/calendar");
+const { getVehicleContainerMetricsMap } = require("../utils/vehicleContainerMetrics");
 const {
   computeSalaryDue: computeSalaryDueWithHistory,
   getDailyCollectionBalance,
@@ -73,6 +74,10 @@ const normalizePaymentMethod = (value) => {
   if (safe === "BANK") return "BANK";
   if (safe === "E_WALLET") return "E_WALLET";
   return "CASH";
+};
+const normalizeLendingSourceType = (value) => {
+  const safe = String(value || "").trim().toUpperCase();
+  return safe === "VEHICLE" ? "VEHICLE" : "STORAGE";
 };
 const paymentLedgerChannels = ["BANK", "E_WALLET"];
 const normalizeLedgerChannel = (value) => {
@@ -467,6 +472,182 @@ const computeRemainingMoney = (total, paid) => {
   return diff > 0 ? diff : 0;
 };
 
+const getJarContainerBalanceData = ({ includeInactive = false, excludeJarSaleId = null, excludeLendingId = null } = {}) => {
+  const whereClause = includeInactive ? "" : "WHERE active = 1";
+  const jarTypes = db.prepare(
+    `SELECT id, name, default_qty
+     FROM jar_types
+     ${whereClause}
+     ORDER BY name`
+  ).all();
+  const importTotals = db.prepare(
+    `SELECT jar_type_id, COALESCE(SUM(quantity), 0) as qty
+     FROM import_entries
+     WHERE item_type = 'JAR_CONTAINER' AND direction = 'IN' AND jar_type_id IS NOT NULL
+     GROUP BY jar_type_id`
+  ).all();
+  const salesTotals = db.prepare(
+    `SELECT jar_type_id, COALESCE(SUM(quantity), 0) as qty
+     FROM jar_sales
+     WHERE (? IS NULL OR id != ?)
+     GROUP BY jar_type_id`
+  ).all(excludeJarSaleId, excludeJarSaleId);
+  const lendingTotals = db.prepare(
+    `SELECT jar_container_lendings.jar_type_id,
+            COALESCE(SUM(
+              CASE
+                WHEN jar_container_lendings.quantity - COALESCE(return_rows.returned_qty, 0) < 0 THEN 0
+                ELSE jar_container_lendings.quantity - COALESCE(return_rows.returned_qty, 0)
+              END
+            ), 0) as qty
+     FROM jar_container_lendings
+     LEFT JOIN (
+       SELECT lending_id, COALESCE(SUM(quantity), 0) as returned_qty
+       FROM jar_container_lending_returns
+       GROUP BY lending_id
+     ) return_rows ON return_rows.lending_id = jar_container_lendings.id
+     WHERE (? IS NULL OR jar_container_lendings.id != ?)
+     GROUP BY jar_container_lendings.jar_type_id`
+  ).all(excludeLendingId, excludeLendingId);
+  const storageLendingTotals = db.prepare(
+    `SELECT jar_container_lendings.jar_type_id,
+            COALESCE(SUM(
+              CASE
+                WHEN jar_container_lendings.quantity - COALESCE(return_rows.returned_qty, 0) < 0 THEN 0
+                ELSE jar_container_lendings.quantity - COALESCE(return_rows.returned_qty, 0)
+              END
+            ), 0) as qty
+     FROM jar_container_lendings
+     LEFT JOIN (
+       SELECT lending_id, COALESCE(SUM(quantity), 0) as returned_qty
+       FROM jar_container_lending_returns
+       GROUP BY lending_id
+     ) return_rows ON return_rows.lending_id = jar_container_lendings.id
+     WHERE (? IS NULL OR jar_container_lendings.id != ?)
+       AND COALESCE(NULLIF(jar_container_lendings.source_type, ''), 'STORAGE') = 'STORAGE'
+     GROUP BY jar_container_lendings.jar_type_id`
+  ).all(excludeLendingId, excludeLendingId);
+
+  const importMap = importTotals.reduce((acc, row) => {
+    acc[row.jar_type_id] = Number(row.qty || 0);
+    return acc;
+  }, {});
+  const salesMap = salesTotals.reduce((acc, row) => {
+    acc[row.jar_type_id] = Number(row.qty || 0);
+    return acc;
+  }, {});
+  const lendingMap = lendingTotals.reduce((acc, row) => {
+    acc[row.jar_type_id] = Number(row.qty || 0);
+    return acc;
+  }, {});
+  const storageLendingMap = storageLendingTotals.reduce((acc, row) => {
+    acc[row.jar_type_id] = Number(row.qty || 0);
+    return acc;
+  }, {});
+
+  const jarTypeBalances = {};
+  let jarContainerBalance = 0;
+  let lentOutBalance = 0;
+  jarTypes.forEach((type) => {
+    const lentOut = Number(lendingMap[type.id] || 0);
+    const storageLentOut = Number(storageLendingMap[type.id] || 0);
+    const balance = Number(importMap[type.id] || 0) - Number(salesMap[type.id] || 0) - storageLentOut;
+    jarTypeBalances[type.id] = balance;
+    jarContainerBalance += balance;
+    lentOutBalance += lentOut;
+  });
+
+  return {
+    jarTypes,
+    jarTypeBalances,
+    jarContainerBalance,
+    lentOutBalance
+  };
+};
+
+const getJarContainerLendingSummary = (lendingId) => {
+  if (!lendingId) return null;
+  return db.prepare(
+    `SELECT jar_container_lendings.*,
+            jar_types.name as jar_name,
+            users.full_name as recorded_by,
+            vehicles.vehicle_number,
+            vehicles.owner_name,
+            vehicles.is_company,
+            COALESCE(return_rows.returned_qty, 0) as returned_quantity,
+            CASE
+              WHEN jar_container_lendings.quantity - COALESCE(return_rows.returned_qty, 0) < 0 THEN 0
+              ELSE jar_container_lendings.quantity - COALESCE(return_rows.returned_qty, 0)
+            END as outstanding_quantity,
+            CASE
+              WHEN jar_container_lendings.deposit_amount - jar_container_lendings.deposit_paid_amount < 0 THEN 0
+              ELSE jar_container_lendings.deposit_amount - jar_container_lendings.deposit_paid_amount
+            END as deposit_due,
+            CASE
+              WHEN jar_container_lendings.deposit_paid_amount - jar_container_lendings.deposit_refund_amount < 0 THEN 0
+              ELSE jar_container_lendings.deposit_paid_amount - jar_container_lendings.deposit_refund_amount
+            END as deposit_held
+     FROM jar_container_lendings
+     JOIN jar_types ON jar_types.id = jar_container_lendings.jar_type_id
+     LEFT JOIN users ON users.id = jar_container_lendings.created_by
+     LEFT JOIN vehicles ON vehicles.id = jar_container_lendings.vehicle_id
+     LEFT JOIN (
+       SELECT lending_id, COALESCE(SUM(quantity), 0) as returned_qty
+       FROM jar_container_lending_returns
+       GROUP BY lending_id
+     ) return_rows ON return_rows.lending_id = jar_container_lendings.id
+     WHERE jar_container_lendings.id = ?`
+  ).get(lendingId);
+};
+
+const syncJarContainerLendingTotals = (lendingId) => {
+  if (!lendingId) return null;
+  const paymentSums = db.prepare(
+    `SELECT
+        COALESCE(SUM(amount), 0) as total_paid,
+        COALESCE(SUM(cash_amount), 0) as cash_paid,
+        COALESCE(SUM(bank_amount), 0) as bank_paid,
+        COALESCE(SUM(ewallet_amount), 0) as ewallet_paid
+     FROM jar_container_lending_payments
+     WHERE lending_id = ?`
+  ).get(lendingId) || { total_paid: 0, cash_paid: 0, bank_paid: 0, ewallet_paid: 0 };
+  const refundSums = db.prepare(
+    `SELECT
+        COALESCE(SUM(refund_amount), 0) as total_refund,
+        COALESCE(SUM(refund_cash_amount), 0) as cash_refund,
+        COALESCE(SUM(refund_bank_amount), 0) as bank_refund,
+        COALESCE(SUM(refund_ewallet_amount), 0) as ewallet_refund
+     FROM jar_container_lending_returns
+     WHERE lending_id = ?`
+  ).get(lendingId) || { total_refund: 0, cash_refund: 0, bank_refund: 0, ewallet_refund: 0 };
+
+  db.prepare(
+    `UPDATE jar_container_lendings
+     SET deposit_paid_amount = ?,
+         deposit_paid_cash_amount = ?,
+         deposit_paid_bank_amount = ?,
+         deposit_paid_ewallet_amount = ?,
+         deposit_refund_amount = ?,
+         deposit_refund_cash_amount = ?,
+         deposit_refund_bank_amount = ?,
+         deposit_refund_ewallet_amount = ?,
+         updated_at = datetime('now')
+     WHERE id = ?`
+  ).run(
+    parseMoneyValue(paymentSums.total_paid || 0),
+    parseMoneyValue(paymentSums.cash_paid || 0),
+    parseMoneyValue(paymentSums.bank_paid || 0),
+    parseMoneyValue(paymentSums.ewallet_paid || 0),
+    parseMoneyValue(refundSums.total_refund || 0),
+    parseMoneyValue(refundSums.cash_refund || 0),
+    parseMoneyValue(refundSums.bank_refund || 0),
+    parseMoneyValue(refundSums.ewallet_refund || 0),
+    lendingId
+  );
+
+  return getJarContainerLendingSummary(lendingId);
+};
+
 const toBodyArray = (value) => {
   if (Array.isArray(value)) return value;
   if (typeof value === "undefined") return [];
@@ -684,8 +865,17 @@ const getDailyReconciliationSnapshot = (businessDate) => {
      WHERE rent_date = ?`
   ).get(businessDate);
   const jarSalePaid = db.prepare(
-    `SELECT COALESCE(SUM(amount), 0) AS amount
+    `SELECT COALESCE(SUM(cash_amount), 0) AS cash_amount,
+            COALESCE(SUM(bank_amount), 0) AS bank_amount,
+            COALESCE(SUM(ewallet_amount), 0) AS ewallet_amount
      FROM jar_sale_payments
+     WHERE payment_date = ?`
+  ).get(businessDate);
+  const lendingDepositPaid = db.prepare(
+    `SELECT COALESCE(SUM(cash_amount), 0) AS cash_amount,
+            COALESCE(SUM(bank_amount), 0) AS bank_amount,
+            COALESCE(SUM(ewallet_amount), 0) AS ewallet_amount
+     FROM jar_container_lending_payments
      WHERE payment_date = ?`
   ).get(businessDate);
   const leakageSalePaid = db.prepare(
@@ -694,6 +884,11 @@ const getDailyReconciliationSnapshot = (businessDate) => {
             COALESCE(SUM(ewallet_amount), 0) AS ewallet_amount
      FROM leakage_jar_sale_payments
      WHERE payment_date = ?`
+  ).get(businessDate);
+  const lendingRefundPaid = db.prepare(
+    `SELECT COALESCE(SUM(refund_amount), 0) AS amount
+     FROM jar_container_lending_returns
+     WHERE return_date = ?`
   ).get(businessDate);
   const savingsDeposit = db.prepare(
     `SELECT COALESCE(SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END), 0) AS amount
@@ -705,21 +900,26 @@ const getDailyReconciliationSnapshot = (businessDate) => {
     Number(exportPaid.cash_amount || 0) +
     Number(creditPaid.cash_amount || 0) +
     Number(rentPaid.cash_amount || 0) +
+    Number(lendingDepositPaid.cash_amount || 0) +
     Number(leakageSalePaid.cash_amount || 0) +
-    Number(jarSalePaid.amount || 0) +
+    Number(jarSalePaid.cash_amount || 0) +
     Number(savingsDeposit.amount || 0)
   );
   const expectedBank = parseMoneyValue(
     Number(exportPaid.bank_amount || 0) +
     Number(creditPaid.bank_amount || 0) +
     Number(rentPaid.bank_amount || 0) +
-    Number(leakageSalePaid.bank_amount || 0)
+    Number(lendingDepositPaid.bank_amount || 0) +
+    Number(leakageSalePaid.bank_amount || 0) +
+    Number(jarSalePaid.bank_amount || 0)
   );
   const expectedEwallet = parseMoneyValue(
     Number(exportPaid.ewallet_amount || 0) +
     Number(creditPaid.ewallet_amount || 0) +
     Number(rentPaid.ewallet_amount || 0) +
-    Number(leakageSalePaid.ewallet_amount || 0)
+    Number(lendingDepositPaid.ewallet_amount || 0) +
+    Number(leakageSalePaid.ewallet_amount || 0) +
+    Number(jarSalePaid.ewallet_amount || 0)
   );
   const expectedTotal = parseMoneyValue(expectedCash + expectedBank + expectedEwallet);
 
@@ -750,6 +950,7 @@ const getDailyReconciliationSnapshot = (businessDate) => {
     Number(vehicleExpensesFromCollection.amount || 0) +
     Number(staffSalaryFromCollection.amount || 0) +
     Number(workerSalaryFromCollection.amount || 0) +
+    Number(lendingRefundPaid.amount || 0) +
     Number(savingsWithdrawFromCollection.amount || 0)
   );
   const expectedNet = roundMoneySigned(expectedTotal - deductedFromCollection);
@@ -772,12 +973,21 @@ const getDailyReconciliationSnapshot = (businessDate) => {
         bank: parseMoneyValue(rentPaid.bank_amount || 0),
         eWallet: parseMoneyValue(rentPaid.ewallet_amount || 0)
       },
+      containerDeposits: {
+        cash: parseMoneyValue(lendingDepositPaid.cash_amount || 0),
+        bank: parseMoneyValue(lendingDepositPaid.bank_amount || 0),
+        eWallet: parseMoneyValue(lendingDepositPaid.ewallet_amount || 0)
+      },
       leakageJarSales: {
         cash: parseMoneyValue(leakageSalePaid.cash_amount || 0),
         bank: parseMoneyValue(leakageSalePaid.bank_amount || 0),
         eWallet: parseMoneyValue(leakageSalePaid.ewallet_amount || 0)
       },
-      jarSalesCash: parseMoneyValue(jarSalePaid.amount || 0),
+      jarSales: {
+        cash: parseMoneyValue(jarSalePaid.cash_amount || 0),
+        bank: parseMoneyValue(jarSalePaid.bank_amount || 0),
+        eWallet: parseMoneyValue(jarSalePaid.ewallet_amount || 0)
+      },
       savingsDepositsCash: parseMoneyValue(savingsDeposit.amount || 0),
       expectedCash,
       expectedBank,
@@ -790,6 +1000,7 @@ const getDailyReconciliationSnapshot = (businessDate) => {
       vehicleExpenses: parseMoneyValue(vehicleExpensesFromCollection.amount || 0),
       staffSalaries: parseMoneyValue(staffSalaryFromCollection.amount || 0),
       workerSalaries: parseMoneyValue(workerSalaryFromCollection.amount || 0),
+      containerDepositRefunds: parseMoneyValue(lendingRefundPaid.amount || 0),
       savingsWithdrawals: parseMoneyValue(savingsWithdrawFromCollection.amount || 0),
       total: deductedFromCollection
     },
@@ -1479,6 +1690,13 @@ const parseOptionalDate = (value) => {
   return /^\d{4}-\d{2}-\d{2}$/.test(text) ? text : null;
 };
 
+const hasEnoughDailyCollection = (businessDate, amount, options = {}) => {
+  const requiredAmount = parseMoneyValue(amount || 0);
+  if (requiredAmount <= 0) return true;
+  const balance = parseMoneyValue(getDailyCollectionBalance(db, businessDate, options) || 0);
+  return balance + 0.0001 >= requiredAmount;
+};
+
 const insertCreditPayment = ({ creditId, amount, note, paidAt, userId, paymentMethod }) => {
   const numericAmount = Number(amount || 0);
   if (!creditId || Number.isNaN(numericAmount) || numericAmount === 0) return;
@@ -1533,6 +1751,8 @@ const paymentReceiptTableMap = {
   company_purchase_payments: { prefix: "CPP" },
   vehicle_expense_payments: { prefix: "VEP" },
   jar_sale_payments: { prefix: "JRP" },
+  jar_container_lending_payments: { prefix: "JLD" },
+  jar_container_lending_returns: { prefix: "JLR" },
   leakage_jar_sale_payments: { prefix: "LJP" }
 };
 
@@ -1545,6 +1765,46 @@ const ensurePaymentReceiptNo = (tableName, id, dateText) => {
   const receiptNo = createReceiptNo(db, config.prefix, dateText || dayjs().format("YYYY-MM-DD"));
   db.prepare(`UPDATE ${tableName} SET receipt_no = ? WHERE id = ?`).run(receiptNo, id);
   return receiptNo;
+};
+
+const syncJarSaleTotals = (saleId) => {
+  if (!saleId) return null;
+  const record = db.prepare("SELECT id, total_amount FROM jar_sales WHERE id = ?").get(saleId);
+  if (!record) return null;
+  const sums = db.prepare(
+    `SELECT
+        COALESCE(ROUND(SUM(amount), 2), 0) AS total_paid,
+        COALESCE(ROUND(SUM(cash_amount), 2), 0) AS cash_paid,
+        COALESCE(ROUND(SUM(bank_amount), 2), 0) AS bank_paid,
+        COALESCE(ROUND(SUM(ewallet_amount), 2), 0) AS ewallet_paid
+     FROM jar_sale_payments
+     WHERE jar_sale_id = ?`
+  ).get(saleId) || { total_paid: 0, cash_paid: 0, bank_paid: 0, ewallet_paid: 0 };
+
+  const paidAmount = parseMoneyValue(sums.total_paid || 0);
+  const creditAmount = computeRemainingMoney(record.total_amount || 0, paidAmount);
+
+  db.prepare(
+    `UPDATE jar_sales
+     SET paid_amount = ?,
+         credit_amount = ?,
+         updated_at = datetime('now')
+     WHERE id = ?`
+  ).run(
+    paidAmount,
+    creditAmount,
+    saleId
+  );
+
+  return {
+    paidAmount,
+    creditAmount,
+    paidBreakdown: {
+      cash: parseMoneyValue(sums.cash_paid || 0),
+      bank: parseMoneyValue(sums.bank_paid || 0),
+      eWallet: parseMoneyValue(sums.ewallet_paid || 0)
+    }
+  };
 };
 
 const syncLeakageJarSaleTotals = (saleId) => {
@@ -1781,6 +2041,7 @@ const modulePathAccessMap = [
   { prefix: "/customer-invoice", moduleKey: "invoices" },
   { prefix: "/vehicle-invoice", moduleKey: "invoices" },
   { prefix: "/jar-sales", moduleKey: "jar_sales" },
+  { prefix: "/jar-container-lending", moduleKey: "jar_sales" },
   { prefix: "/leakage-sales", moduleKey: "jar_sales" },
   { prefix: "/rentals", moduleKey: "rentals" },
   { prefix: "/company-purchases", moduleKey: "company_expenses" },
@@ -1928,6 +2189,9 @@ router.get("/vehicles", (req, res) => {
      ${where}
      ORDER BY COALESCE(is_active, 1) DESC, vehicle_number ASC`
   ).all();
+  const vehicleMetricsById = getVehicleContainerMetricsMap(db, {
+    includeInactive
+  });
   const success = req.query.archived
     ? req.t("vehicleArchived")
     : req.query.unarchived || req.query.activated
@@ -1936,6 +2200,7 @@ router.get("/vehicles", (req, res) => {
   res.render("admin/vehicles", {
     title: req.t("vehicles"),
     vehicles,
+    vehicleMetricsById,
     includeInactive,
     success,
     vehicleRouteBase: "/records/vehicles"
@@ -4377,33 +4642,11 @@ router.get("/imports", (req, res) => {
     { total: 0, paid: 0, due: 0, open_count: 0 }
   );
 
-  const jarTypes = db.prepare("SELECT id, name, default_qty FROM jar_types WHERE active = 1 ORDER BY name").all();
-  const jarImportTotals = db.prepare(
-    `SELECT jar_type_id, COALESCE(SUM(quantity), 0) as qty
-     FROM import_entries
-     WHERE item_type = 'JAR_CONTAINER' AND direction = 'IN' AND jar_type_id IS NOT NULL
-     GROUP BY jar_type_id`
-  ).all();
-  const jarSalesTotals = db.prepare(
-    `SELECT jar_type_id, COALESCE(SUM(quantity), 0) as qty
-     FROM jar_sales
-     GROUP BY jar_type_id`
-  ).all();
-  const importMap = jarImportTotals.reduce((acc, row) => {
-    acc[row.jar_type_id] = Number(row.qty || 0);
-    return acc;
-  }, {});
-  const salesMap = jarSalesTotals.reduce((acc, row) => {
-    acc[row.jar_type_id] = Number(row.qty || 0);
-    return acc;
-  }, {});
-  const jarTypeBalances = {};
-  let jarContainerBalance = 0;
-  jarTypes.forEach((type) => {
-    const balance = (importMap[type.id] || 0) - (salesMap[type.id] || 0);
-    jarTypeBalances[type.id] = balance;
-    jarContainerBalance += balance;
-  });
+  const {
+    jarTypes,
+    jarTypeBalances,
+    jarContainerBalance
+  } = getJarContainerBalanceData();
 
   const bottleCaseImportRow = db.prepare(
     `SELECT COALESCE(SUM(CASE WHEN direction = 'OUT' THEN -quantity ELSE quantity END), 0) as qty
@@ -4591,6 +4834,13 @@ router.post("/imports", (req, res) => {
       isCreditFinal,
       note: String(rawRow.line_note || "").trim() || null
     });
+  }
+
+  if (paymentSource === "DAILY_COLLECTION") {
+    const openingPaidTotal = preparedRows.reduce((sum, row) => parseMoneyValue(sum + Number(row.paidAmount || 0)), 0);
+    if (!hasEnoughDailyCollection(entry_date, openingPaidTotal)) {
+      return res.redirect(`/records/imports?from=${entry_date}&to=${entry_date}&error=dailyCollectionInsufficient`);
+    }
   }
 
   let savedCount = 0;
@@ -4807,6 +5057,9 @@ router.post("/imports/:id", (req, res) => {
   if (!wantsCredit && totalAmount > existingPaid) {
     const remaining = parseMoneyValue(totalAmount - existingPaid);
     if (remaining > 0) {
+      if (paymentSource === "DAILY_COLLECTION" && !hasEnoughDailyCollection(entry_date, remaining)) {
+        return res.redirect(`/records/imports/${req.params.id}/edit?error=dailyCollectionInsufficient`);
+      }
       db.prepare(
         "INSERT INTO import_payments (import_entry_id, payment_date, amount, payment_method, payment_source, note, created_by) VALUES (?, ?, ?, ?, ?, ?, ?)"
       ).run(
@@ -4917,6 +5170,9 @@ router.post("/imports/:id/payments", (req, res) => {
   }
   if (amount > remaining) {
     return res.redirect(`/records/imports/${req.params.id}/edit?error=paidMoreThanDue#payment-form`);
+  }
+  if (paymentSource === "DAILY_COLLECTION" && !hasEnoughDailyCollection(paymentDate, amount)) {
+    return res.redirect(`/records/imports/${req.params.id}/edit?error=dailyCollectionInsufficient#payment-form`);
   }
 
   const paymentId = db.prepare(
@@ -6121,6 +6377,9 @@ router.post("/company-purchases", (req, res) => {
   if (isCreditFinal === 1 && !sellerName) {
     return res.redirect(`/records/company-purchases?error=sellerRequiredForCredit`);
   }
+  if (paymentSource === "DAILY_COLLECTION" && paidAmount > 0 && !hasEnoughDailyCollection(purchase_date, paidAmount)) {
+    return res.redirect(`/records/company-purchases?error=dailyCollectionInsufficient`);
+  }
 
   const purchaseId = db.prepare(
     `INSERT INTO company_purchases (
@@ -6256,6 +6515,9 @@ router.post("/company-purchases/:id", (req, res) => {
   if (!wantsCredit && amountNum > existingPaid) {
     const remaining = parseMoneyValue(amountNum - existingPaid);
     if (remaining > 0) {
+      if (paymentSource === "DAILY_COLLECTION" && !hasEnoughDailyCollection(purchase_date, remaining)) {
+        return res.redirect(`/records/company-purchases/${req.params.id}/edit?error=dailyCollectionInsufficient`);
+      }
       db.prepare(
         `INSERT INTO company_purchase_payments (company_purchase_id, payment_date, amount, payment_method, payment_source, note, created_by)
          VALUES (?, ?, ?, ?, ?, ?, ?)`
@@ -6367,6 +6629,9 @@ router.post("/company-purchases/:id/payments", (req, res) => {
   }
   if (amount > remaining) {
     return res.redirect(`/records/company-purchases/${req.params.id}/edit?error=paidMoreThanDue`);
+  }
+  if (paymentSource === "DAILY_COLLECTION" && !hasEnoughDailyCollection(paymentDate, amount)) {
+    return res.redirect(`/records/company-purchases/${req.params.id}/edit?error=dailyCollectionInsufficient`);
   }
   const paymentId = db.prepare(
     `INSERT INTO company_purchase_payments (company_purchase_id, payment_date, amount, payment_method, payment_source, note, created_by)
@@ -6685,6 +6950,9 @@ router.post("/vehicle-expenses", (req, res) => {
   if (paidAmountNum > 0 && paidAmountNum < amountNum) {
     return res.redirect(`/records/vehicle-expenses?from=${expense_date}&to=${expense_date}&error=vehicleExpensePartialNotAllowed`);
   }
+  if (paymentSource === "DAILY_COLLECTION" && paidAmountNum > 0 && !hasEnoughDailyCollection(expense_date, paidAmountNum)) {
+    return res.redirect(`/records/vehicle-expenses?from=${expense_date}&to=${expense_date}&error=dailyCollectionInsufficient`);
+  }
   const vehicleCompany = db.prepare("SELECT id, is_company FROM vehicles WHERE id = ?").get(vehicleId);
   if (!vehicleCompany || Number(vehicleCompany.is_company) !== 1) {
     return res.redirect("/records/vehicle-expenses?error=vehicleExpenseCompanyOnly");
@@ -6809,6 +7077,9 @@ router.post("/vehicle-expenses/:id/payments", (req, res) => {
   }
   if (amount > dueAmount) {
     return res.redirect(`/records/vehicle-expenses/${req.params.id}/payments?error=paidMoreThanDue`);
+  }
+  if (paymentSource === "DAILY_COLLECTION" && !hasEnoughDailyCollection(paymentDate, amount)) {
+    return res.redirect(`/records/vehicle-expenses/${req.params.id}/payments?error=dailyCollectionInsufficient`);
   }
 
   const applied = parseMoneyValue(amount);
@@ -7771,6 +8042,9 @@ router.post("/savings", (req, res) => {
   const type = entry_type === "withdraw" ? "withdraw" : "deposit";
   if (type === "withdraw") amt = -Math.abs(amt);
   const source = type === "withdraw" ? normalizeSalaryPaymentSource(payment_source) : "DAILY_COLLECTION";
+  if (type === "withdraw" && source === "DAILY_COLLECTION" && !hasEnoughDailyCollection(entry_date, Math.abs(amt))) {
+    return res.redirect(`/records/savings?from=${entry_date}&to=${entry_date}&vehicle_id=${vehicle_id}&error=dailyCollectionInsufficient`);
+  }
 
   db.prepare(
     "INSERT INTO vehicle_savings (vehicle_id, entry_date, amount, payment_source, note, created_by) VALUES (?, ?, ?, ?, ?, ?)"
@@ -7801,6 +8075,9 @@ router.post("/savings/:id", (req, res) => {
   const type = entry_type === "withdraw" ? "withdraw" : "deposit";
   if (type === "withdraw") amt = -Math.abs(amt);
   const source = type === "withdraw" ? normalizeSalaryPaymentSource(payment_source) : "DAILY_COLLECTION";
+  if (type === "withdraw" && source === "DAILY_COLLECTION" && !hasEnoughDailyCollection(entry_date, Math.abs(amt), { excludeSavingsId: req.params.id })) {
+    return res.redirect(`/records/savings/${req.params.id}/edit?error=dailyCollectionInsufficient`);
+  }
 
   db.prepare(
     "UPDATE vehicle_savings SET vehicle_id = ?, entry_date = ?, amount = ?, payment_source = ?, note = ? WHERE id = ?"
@@ -8421,32 +8698,48 @@ router.post("/jar-sales/:id/payments", (req, res) => {
   const record = db.prepare("SELECT * FROM jar_sales WHERE id = ?").get(req.params.id);
   if (!record) return res.redirect("/records/jar-sales");
   const paymentDate = req.body.payment_date || dayjs().format("YYYY-MM-DD");
-  const amount = parseMoneyValue(req.body.amount || 0);
+  const paymentParsed = parsePaymentBreakdownFromBody(req.body, {
+    cashField: "cash_amount",
+    bankField: "bank_amount",
+    ewalletField: "ewallet_amount",
+    amountField: "amount",
+    methodField: "payment_method",
+    maxTotal: computeRemainingMoney(record.total_amount || 0, record.paid_amount || 0),
+    strictMax: true
+  });
   const note = String(req.body.note || "").trim();
-  if (Number.isNaN(amount) || amount <= 0) {
+  if (paymentParsed.total <= 0) {
     return res.redirect(`/records/jar-sales/${req.params.id}/payments?error=invalidPaymentAmount`);
   }
   const remaining = computeRemainingMoney(record.total_amount || 0, record.paid_amount || 0);
   if (remaining <= 0) {
     return res.redirect(`/records/jar-sales/${req.params.id}/payments?error=noBalanceDue`);
   }
-  if (amount > remaining) {
+  if (paymentParsed.isOverLimit) {
     return res.redirect(`/records/jar-sales/${req.params.id}/payments?error=paidMoreThanDue`);
   }
 
-  const newPaid = parseMoneyValue(parseMoneyValue(record.paid_amount || 0) + amount);
-  const newCredit = computeRemainingMoney(record.total_amount || 0, newPaid);
+  let receiptNo = "";
+  let totals = null;
   db.exec("BEGIN;");
   try {
     const paymentId = db.prepare(
-      "INSERT INTO jar_sale_payments (jar_sale_id, payment_date, amount, note, created_by) VALUES (?, ?, ?, ?, ?)"
-    ).run(req.params.id, paymentDate, amount, note || null, req.session.userId || null).lastInsertRowid;
-    const receiptNo = ensurePaymentReceiptNo("jar_sale_payments", paymentId, paymentDate);
-    db.prepare("UPDATE jar_sales SET paid_amount = ?, credit_amount = ? WHERE id = ?").run(
-      newPaid,
-      newCredit,
-      req.params.id
-    );
+      `INSERT INTO jar_sale_payments (
+         jar_sale_id, payment_date, amount, cash_amount, bank_amount, ewallet_amount, payment_method, note, created_by
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      req.params.id,
+      paymentDate,
+      paymentParsed.total,
+      paymentParsed.breakdown.cash || 0,
+      paymentParsed.breakdown.bank || 0,
+      paymentParsed.breakdown.eWallet || 0,
+      getPaymentMethodFromBreakdown(paymentParsed.breakdown, paymentParsed.primaryMethod, true),
+      note || null,
+      req.session.userId || null
+    ).lastInsertRowid;
+    receiptNo = ensurePaymentReceiptNo("jar_sale_payments", paymentId, paymentDate);
+    totals = syncJarSaleTotals(req.params.id);
     db.exec("COMMIT;");
   } catch (err) {
     db.exec("ROLLBACK;");
@@ -8458,7 +8751,7 @@ router.post("/jar-sales/:id/payments", (req, res) => {
     action: "payment",
     entityType: "jar_sale",
     entityId: req.params.id,
-    details: `receipt=${receiptNo}; payment=${amount}; paid_amount=${newPaid}; credit_amount=${newCredit}`
+    details: `receipt=${receiptNo}; payment=${paymentParsed.total}; method=${getPaymentMethodFromBreakdown(paymentParsed.breakdown, paymentParsed.primaryMethod, true)}; cash=${paymentParsed.breakdown.cash || 0}; bank=${paymentParsed.breakdown.bank || 0}; ewallet=${paymentParsed.breakdown.eWallet || 0}; paid_amount=${totals?.paidAmount || record.paid_amount || 0}; credit_amount=${totals?.creditAmount || record.credit_amount || 0}`
   });
 
   return res.redirect(`/records/jar-sales/${req.params.id}/payments?status=payment_saved`);
@@ -8469,16 +8762,10 @@ router.post("/jar-sales/payments/:id/delete", (req, res) => {
   if (!payment) return res.redirect("/records/jar-sales");
   const record = db.prepare("SELECT * FROM jar_sales WHERE id = ?").get(payment.jar_sale_id);
   if (!record) return res.redirect("/records/jar-sales");
-  const revertedPaid = parseMoneyValue(Math.max(0, parseMoneyValue(record.paid_amount || 0) - parseMoneyValue(payment.amount || 0)));
-  const newCredit = computeRemainingMoney(record.total_amount || 0, revertedPaid);
   db.exec("BEGIN;");
   try {
     db.prepare("DELETE FROM jar_sale_payments WHERE id = ?").run(req.params.id);
-    db.prepare("UPDATE jar_sales SET paid_amount = ?, credit_amount = ? WHERE id = ?").run(
-      revertedPaid,
-      newCredit,
-      record.id
-    );
+    syncJarSaleTotals(record.id);
     db.exec("COMMIT;");
   } catch (err) {
     db.exec("ROLLBACK;");
@@ -8510,6 +8797,11 @@ router.get("/jar-sales/payments/:id/print", (req, res) => {
   const receiptNo = ensurePaymentReceiptNo("jar_sale_payments", req.params.id, payment.payment_date || payment.sale_date);
   const vehicleNo = payment.vehicle_number || "-";
   const ownerName = payment.owner_name || payment.customer_name || "-";
+  const methodLabel = getPaymentMethodLabel(payment.payment_method, req.t);
+  const splitParts = [];
+  if (Number(payment.cash_amount || 0) > 0) splitParts.push(`${req.t("methodCash")}: ${payment.cash_amount}`);
+  if (Number(payment.bank_amount || 0) > 0) splitParts.push(`${req.t("methodBank")}: ${payment.bank_amount}`);
+  if (Number(payment.ewallet_amount || 0) > 0) splitParts.push(`${req.t("methodEWallet")}: ${payment.ewallet_amount}`);
   return res.render("records/payment_receipt_print", {
     title: req.t("paymentReceiptTitle"),
     printSubtitle: req.t("paymentReceiptTitle"),
@@ -8519,40 +8811,17 @@ router.get("/jar-sales/payments/:id/print", (req, res) => {
     paymentDate: payment.payment_date || payment.sale_date,
     createdAt: payment.created_at || payment.payment_date,
     amount: Number(payment.amount || 0),
-    paymentMethodLabel: req.t("methodCash"),
+    paymentMethodLabel: methodLabel,
     paymentSourceLabel: req.t("paymentSourceTrip"),
     referenceNo: `${payment.jar_name || "-"} • #${payment.jar_sale_id}`,
     partyName: `${ownerName} • ${vehicleNo}`,
-    note: payment.note || "-"
+    note: [payment.note, splitParts.join(" | ")].filter(Boolean).join(" | ") || "-"
   });
 });
 
 router.get("/jar-sales/new", (req, res) => {
-  const jarTypes = db.prepare("SELECT id, name FROM jar_types WHERE active = 1 ORDER BY name").all();
+  const { jarTypes, jarTypeBalances } = getJarContainerBalanceData();
   const vehicles = db.prepare("SELECT id, vehicle_number, owner_name, is_company FROM vehicles ORDER BY vehicle_number").all();
-  const importTotals = db.prepare(
-    `SELECT jar_type_id, COALESCE(SUM(quantity), 0) as qty
-     FROM import_entries
-     WHERE item_type = 'JAR_CONTAINER' AND direction = 'IN' AND jar_type_id IS NOT NULL
-     GROUP BY jar_type_id`
-  ).all();
-  const salesTotals = db.prepare(
-    `SELECT jar_type_id, COALESCE(SUM(quantity), 0) as qty
-     FROM jar_sales
-     GROUP BY jar_type_id`
-  ).all();
-  const importMap = importTotals.reduce((acc, row) => {
-    acc[row.jar_type_id] = Number(row.qty || 0);
-    return acc;
-  }, {});
-  const salesMap = salesTotals.reduce((acc, row) => {
-    acc[row.jar_type_id] = Number(row.qty || 0);
-    return acc;
-  }, {});
-  const jarTypeBalances = jarTypes.reduce((acc, type) => {
-    acc[type.id] = (importMap[type.id] || 0) - (salesMap[type.id] || 0);
-    return acc;
-  }, {});
   res.render("records/jar_sale_form", {
     title: req.t("addJarSaleTitle"),
     record: null,
@@ -8565,36 +8834,18 @@ router.get("/jar-sales/new", (req, res) => {
 });
 
 router.post("/jar-sales", (req, res) => {
-  const { jar_type_id, sale_date, quantity, unit_price, paid_amount, note, customer_name, vehicle_id, vehicle_number } = req.body;
-  const jarTypes = db.prepare("SELECT id, name FROM jar_types WHERE active = 1 ORDER BY name").all();
+  const { jar_type_id, sale_date, quantity, unit_price, note, customer_name, vehicle_id, vehicle_number } = req.body;
+  const { jarTypes, jarTypeBalances } = getJarContainerBalanceData();
   const vehicles = db.prepare("SELECT id, vehicle_number, owner_name, is_company FROM vehicles ORDER BY vehicle_number").all();
-  const importTotals = db.prepare(
-    `SELECT jar_type_id, COALESCE(SUM(quantity), 0) as qty
-     FROM import_entries
-     WHERE item_type = 'JAR_CONTAINER' AND direction = 'IN' AND jar_type_id IS NOT NULL
-     GROUP BY jar_type_id`
-  ).all();
-  const salesTotals = db.prepare(
-    `SELECT jar_type_id, COALESCE(SUM(quantity), 0) as qty
-     FROM jar_sales
-     GROUP BY jar_type_id`
-  ).all();
-  const importMap = importTotals.reduce((acc, row) => {
-    acc[row.jar_type_id] = Number(row.qty || 0);
-    return acc;
-  }, {});
-  const salesMap = salesTotals.reduce((acc, row) => {
-    acc[row.jar_type_id] = Number(row.qty || 0);
-    return acc;
-  }, {});
-  const jarTypeBalances = jarTypes.reduce((acc, type) => {
-    acc[type.id] = (importMap[type.id] || 0) - (salesMap[type.id] || 0);
-    return acc;
-  }, {});
+  const submittedRecord = {
+    ...req.body,
+    jar_type_id: jar_type_id ? Number(jar_type_id) : null,
+    vehicle_id: vehicle_id ? Number(vehicle_id) : null
+  };
   if (!jar_type_id || !sale_date) {
     return res.render("records/jar_sale_form", {
       title: req.t("addJarSaleTitle"),
-      record: null,
+      record: submittedRecord,
       jarTypes,
       vehicles,
       jarTypeBalances,
@@ -8606,7 +8857,7 @@ router.post("/jar-sales", (req, res) => {
   if (!type) {
     return res.render("records/jar_sale_form", {
       title: req.t("addJarSaleTitle"),
-      record: null,
+      record: submittedRecord,
       jarTypes,
       vehicles,
       jarTypeBalances,
@@ -8619,7 +8870,7 @@ router.post("/jar-sales", (req, res) => {
   if (available <= 0) {
     return res.render("records/jar_sale_form", {
       title: req.t("addJarSaleTitle"),
-      record: null,
+      record: submittedRecord,
       jarTypes,
       vehicles,
       jarTypeBalances,
@@ -8630,7 +8881,7 @@ router.post("/jar-sales", (req, res) => {
   if (qty > available) {
     return res.render("records/jar_sale_form", {
       title: req.t("addJarSaleTitle"),
-      record: null,
+      record: submittedRecord,
       jarTypes,
       vehicles,
       jarTypeBalances,
@@ -8642,7 +8893,7 @@ router.post("/jar-sales", (req, res) => {
   if (Number.isNaN(unitPrice) || unitPrice < 0) {
     return res.render("records/jar_sale_form", {
       title: req.t("addJarSaleTitle"),
-      record: null,
+      record: submittedRecord,
       jarTypes,
       vehicles,
       jarTypeBalances,
@@ -8657,12 +8908,20 @@ router.post("/jar-sales", (req, res) => {
   const isCompany = vehicleRow && Number(vehicleRow.is_company) === 1;
   if (isCompany) unitPrice = 0;
   const totalAmount = qty * unitPrice;
-  let paidAmount = Number(paid_amount || 0);
-  if (Number.isNaN(paidAmount) || paidAmount < 0) paidAmount = 0;
-  if (paidAmount > totalAmount) {
+  const paymentParsed = parsePaymentBreakdownFromBody(req.body, {
+    cashField: "paid_cash_amount",
+    bankField: "paid_bank_amount",
+    ewalletField: "paid_ewallet_amount",
+    amountField: "paid_amount",
+    methodField: "payment_method",
+    maxTotal: totalAmount,
+    strictMax: true
+  });
+  const paidAmount = sumPaymentBreakdown(paymentParsed.breakdown);
+  if (paymentParsed.isOverLimit) {
     return res.render("records/jar_sale_form", {
       title: req.t("addJarSaleTitle"),
-      record: null,
+      record: submittedRecord,
       jarTypes,
       vehicles,
       jarTypeBalances,
@@ -8670,32 +8929,62 @@ router.post("/jar-sales", (req, res) => {
       defaultDate: sale_date || dayjs().format("YYYY-MM-DD")
     });
   }
-  if (isCompany) paidAmount = 0;
-  const creditAmount = totalAmount - paidAmount;
+  const effectiveBreakdown = isCompany ? { cash: 0, bank: 0, eWallet: 0 } : paymentParsed.breakdown;
   const vehicleNumberValue = vehicleRow ? vehicleRow.vehicle_number : (vehicle_number ? vehicle_number.trim() : null);
-  db.prepare(
-    "INSERT INTO jar_sales (jar_type_id, customer_name, vehicle_id, vehicle_number, sale_date, quantity, unit_price, total_amount, paid_amount, credit_amount, note, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
-  ).run(
-    jar_type_id,
-    customer_name ? customer_name.trim() : null,
-    selectedVehicleId || null,
-    vehicleNumberValue,
-    sale_date,
-    qty,
-    unitPrice,
-    totalAmount,
-    paidAmount,
-    creditAmount,
-    note || null,
-    req.session.userId
-  );
+  let saleId = null;
+  let receiptNo = "";
+  db.exec("BEGIN;");
+  try {
+    saleId = db.prepare(
+      "INSERT INTO jar_sales (jar_type_id, customer_name, vehicle_id, vehicle_number, sale_date, quantity, unit_price, total_amount, paid_amount, credit_amount, note, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)"
+    ).run(
+      jar_type_id,
+      customer_name ? customer_name.trim() : null,
+      selectedVehicleId || null,
+      vehicleNumberValue,
+      sale_date,
+      qty,
+      unitPrice,
+      totalAmount,
+      totalAmount,
+      note || null,
+      req.session.userId
+    ).lastInsertRowid;
+    if (sumPaymentBreakdown(effectiveBreakdown) > 0) {
+      const paymentId = db.prepare(
+        `INSERT INTO jar_sale_payments (
+           jar_sale_id, payment_date, amount, cash_amount, bank_amount, ewallet_amount, payment_method, note, created_by
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ).run(
+        saleId,
+        sale_date,
+        sumPaymentBreakdown(effectiveBreakdown),
+        effectiveBreakdown.cash || 0,
+        effectiveBreakdown.bank || 0,
+        effectiveBreakdown.eWallet || 0,
+        getPaymentMethodFromBreakdown(
+          effectiveBreakdown,
+          paymentParsed.primaryMethod,
+          true
+        ),
+        req.t("openingPaymentNote"),
+        req.session.userId || null
+      ).lastInsertRowid;
+      receiptNo = ensurePaymentReceiptNo("jar_sale_payments", paymentId, sale_date);
+    }
+    syncJarSaleTotals(saleId);
+    db.exec("COMMIT;");
+  } catch (err) {
+    db.exec("ROLLBACK;");
+    throw err;
+  }
 
   logActivity({
     userId: req.session.userId,
     action: "create",
     entityType: "jar_sale",
-    entityId: `${jar_type_id}_${sale_date}`,
-    details: `qty=${qty}, price=${unitPrice}`
+    entityId: saleId,
+    details: `date=${sale_date}; qty=${qty}; price=${unitPrice}; payment=${sumPaymentBreakdown(effectiveBreakdown)}; receipt=${receiptNo || ""}; cash=${effectiveBreakdown.cash || 0}; bank=${effectiveBreakdown.bank || 0}; ewallet=${effectiveBreakdown.eWallet || 0}`
   });
 
   res.redirect(`/records/jar-sales?from=${sale_date}&to=${sale_date}`);
@@ -8704,34 +8993,8 @@ router.post("/jar-sales", (req, res) => {
 router.get("/jar-sales/:id/edit", (req, res) => {
   const record = db.prepare("SELECT * FROM jar_sales WHERE id = ?").get(req.params.id);
   if (!record) return res.redirect("/records/jar-sales");
-  const jarTypes = db.prepare("SELECT id, name FROM jar_types ORDER BY name").all();
+  const { jarTypes, jarTypeBalances } = getJarContainerBalanceData({ includeInactive: true, excludeJarSaleId: Number(req.params.id) || null });
   const vehicles = db.prepare("SELECT id, vehicle_number, owner_name, is_company FROM vehicles ORDER BY vehicle_number").all();
-  const importTotals = db.prepare(
-    `SELECT jar_type_id, COALESCE(SUM(quantity), 0) as qty
-     FROM import_entries
-     WHERE item_type = 'JAR_CONTAINER' AND direction = 'IN' AND jar_type_id IS NOT NULL
-     GROUP BY jar_type_id`
-  ).all();
-  const salesTotals = db.prepare(
-    `SELECT jar_type_id, COALESCE(SUM(quantity), 0) as qty
-     FROM jar_sales
-     GROUP BY jar_type_id`
-  ).all();
-  const importMap = importTotals.reduce((acc, row) => {
-    acc[row.jar_type_id] = Number(row.qty || 0);
-    return acc;
-  }, {});
-  const salesMap = salesTotals.reduce((acc, row) => {
-    acc[row.jar_type_id] = Number(row.qty || 0);
-    return acc;
-  }, {});
-  const jarTypeBalances = jarTypes.reduce((acc, type) => {
-    acc[type.id] = (importMap[type.id] || 0) - (salesMap[type.id] || 0);
-    return acc;
-  }, {});
-  if (record.jar_type_id && jarTypeBalances[record.jar_type_id] !== undefined) {
-    jarTypeBalances[record.jar_type_id] += Number(record.quantity || 0);
-  }
   res.render("records/jar_sale_form", {
     title: req.t("editJarSaleTitle"),
     record,
@@ -8744,41 +9007,23 @@ router.get("/jar-sales/:id/edit", (req, res) => {
 });
 
 router.post("/jar-sales/:id", (req, res) => {
-  const { jar_type_id, sale_date, quantity, unit_price, paid_amount, note, customer_name, vehicle_id, vehicle_number } = req.body;
+  const { jar_type_id, sale_date, quantity, unit_price, note, customer_name, vehicle_id, vehicle_number } = req.body;
   const record = db.prepare("SELECT * FROM jar_sales WHERE id = ?").get(req.params.id);
-  const jarTypes = db.prepare("SELECT id, name FROM jar_types ORDER BY name").all();
+  const { jarTypes, jarTypeBalances } = getJarContainerBalanceData({ includeInactive: true, excludeJarSaleId: Number(req.params.id) || null });
   const vehicles = db.prepare("SELECT id, vehicle_number, owner_name, is_company FROM vehicles ORDER BY vehicle_number").all();
-  const importTotals = db.prepare(
-    `SELECT jar_type_id, COALESCE(SUM(quantity), 0) as qty
-     FROM import_entries
-     WHERE item_type = 'JAR_CONTAINER' AND direction = 'IN' AND jar_type_id IS NOT NULL
-     GROUP BY jar_type_id`
-  ).all();
-  const salesTotals = db.prepare(
-    `SELECT jar_type_id, COALESCE(SUM(quantity), 0) as qty
-     FROM jar_sales
-     GROUP BY jar_type_id`
-  ).all();
-  const importMap = importTotals.reduce((acc, row) => {
-    acc[row.jar_type_id] = Number(row.qty || 0);
-    return acc;
-  }, {});
-  const salesMap = salesTotals.reduce((acc, row) => {
-    acc[row.jar_type_id] = Number(row.qty || 0);
-    return acc;
-  }, {});
-  const jarTypeBalances = jarTypes.reduce((acc, type) => {
-    acc[type.id] = (importMap[type.id] || 0) - (salesMap[type.id] || 0);
-    return acc;
-  }, {});
-  if (record && record.jar_type_id && jarTypeBalances[record.jar_type_id] !== undefined) {
-    jarTypeBalances[record.jar_type_id] += Number(record.quantity || 0);
-  }
   if (!record) return res.redirect("/records/jar-sales");
+  const submittedRecord = {
+    ...record,
+    ...req.body,
+    id: record.id,
+    jar_type_id: jar_type_id ? Number(jar_type_id) : null,
+    vehicle_id: vehicle_id ? Number(vehicle_id) : null,
+    paid_amount: record.paid_amount
+  };
   if (!jar_type_id || !sale_date) {
     return res.render("records/jar_sale_form", {
       title: req.t("editJarSaleTitle"),
-      record,
+      record: submittedRecord,
       jarTypes,
       vehicles,
       jarTypeBalances,
@@ -8790,7 +9035,7 @@ router.post("/jar-sales/:id", (req, res) => {
   if (!type) {
     return res.render("records/jar_sale_form", {
       title: req.t("editJarSaleTitle"),
-      record,
+      record: submittedRecord,
       jarTypes,
       vehicles,
       jarTypeBalances,
@@ -8803,7 +9048,7 @@ router.post("/jar-sales/:id", (req, res) => {
   if (available <= 0) {
     return res.render("records/jar_sale_form", {
       title: req.t("editJarSaleTitle"),
-      record,
+      record: submittedRecord,
       jarTypes,
       vehicles,
       jarTypeBalances,
@@ -8814,7 +9059,7 @@ router.post("/jar-sales/:id", (req, res) => {
   if (qty > available) {
     return res.render("records/jar_sale_form", {
       title: req.t("editJarSaleTitle"),
-      record,
+      record: submittedRecord,
       jarTypes,
       vehicles,
       jarTypeBalances,
@@ -8826,7 +9071,7 @@ router.post("/jar-sales/:id", (req, res) => {
   if (Number.isNaN(unitPrice) || unitPrice < 0) {
     return res.render("records/jar_sale_form", {
       title: req.t("editJarSaleTitle"),
-      record,
+      record: submittedRecord,
       jarTypes,
       vehicles,
       jarTypeBalances,
@@ -8841,12 +9086,11 @@ router.post("/jar-sales/:id", (req, res) => {
   const isCompany = vehicleRow && Number(vehicleRow.is_company) === 1;
   if (isCompany) unitPrice = 0;
   const totalAmount = qty * unitPrice;
-  let paidAmount = Number(paid_amount || 0);
-  if (Number.isNaN(paidAmount) || paidAmount < 0) paidAmount = 0;
-  if (paidAmount > totalAmount) {
+  const currentPaidAmount = parseMoneyValue(record.paid_amount || 0);
+  if (currentPaidAmount > totalAmount) {
     return res.render("records/jar_sale_form", {
       title: req.t("editJarSaleTitle"),
-      record,
+      record: submittedRecord,
       jarTypes,
       vehicles,
       jarTypeBalances,
@@ -8854,8 +9098,7 @@ router.post("/jar-sales/:id", (req, res) => {
       defaultDate: sale_date || record.sale_date
     });
   }
-  if (isCompany) paidAmount = 0;
-  const creditAmount = totalAmount - paidAmount;
+  const creditAmount = computeRemainingMoney(totalAmount, currentPaidAmount);
   const vehicleNumberValue = vehicleRow ? vehicleRow.vehicle_number : (vehicle_number ? vehicle_number.trim() : null);
 
   db.prepare(
@@ -8869,7 +9112,7 @@ router.post("/jar-sales/:id", (req, res) => {
     qty,
     unitPrice,
     totalAmount,
-    paidAmount,
+    currentPaidAmount,
     creditAmount,
     note || null,
     req.params.id
@@ -8891,7 +9134,7 @@ router.post("/jar-sales/:id", (req, res) => {
         quantity: qty,
         unit_price: unitPrice,
         total_amount: totalAmount,
-        paid_amount: paidAmount,
+        paid_amount: currentPaidAmount,
         credit_amount: creditAmount,
         note: note || null
       },
@@ -8989,6 +9232,735 @@ router.get("/jar-sales/export", (req, res) => {
   res.setHeader("Content-Type", "text/csv");
   res.setHeader("Content-Disposition", `attachment; filename="jar_sales_${from}_to_${to}.csv"`);
   res.send([header, ...lines].join("\n"));
+});
+
+const getJarContainerLendingCustomerOptions = () => db.prepare(
+  `SELECT customer_name,
+          MAX(COALESCE(phone, '')) as phone,
+          MAX(COALESCE(location, '')) as location
+   FROM jar_container_lendings
+   WHERE TRIM(COALESCE(customer_name, '')) != ''
+   GROUP BY customer_name
+   ORDER BY customer_name ASC`
+).all();
+
+const renderJarContainerLendingForm = (req, res, options = {}) => {
+  const record = options.record || null;
+  const excludeLendingId = record && record.id ? Number(record.id) : null;
+  const { jarTypes, jarTypeBalances } = getJarContainerBalanceData({
+    includeInactive: true,
+    excludeLendingId
+  });
+  const vehicles = db.prepare(
+    `SELECT id, vehicle_number, owner_name, is_company
+     FROM vehicles
+     WHERE COALESCE(is_active, 1) = 1
+     ORDER BY vehicle_number ASC`
+  ).all();
+  const vehicleMetricsById = getVehicleContainerMetricsMap(db, {
+    includeInactive: false,
+    excludeLendingId
+  });
+  return res.render("records/jar_container_lending_form", {
+    title: req.t(options.titleKey || "addJarContainerLendingTitle"),
+    record,
+    jarTypes,
+    jarTypeBalances,
+    vehicles,
+    vehicleMetricsById,
+    customerOptions: getJarContainerLendingCustomerOptions(),
+    error: options.error || null,
+    defaultDate: options.defaultDate || record?.lend_date || dayjs().format("YYYY-MM-DD")
+  });
+};
+
+router.get("/jar-container-lending", (req, res) => {
+  const from = req.query.from || dayjs().subtract(7, "day").format("YYYY-MM-DD");
+  const to = req.query.to || dayjs().format("YYYY-MM-DD");
+  const q = String(req.query.q || "").trim();
+  const searchClause = q
+    ? "AND (jar_container_lendings.customer_name LIKE ? OR COALESCE(jar_container_lendings.phone, '') LIKE ? OR COALESCE(jar_container_lendings.location, '') LIKE ? OR jar_types.name LIKE ? OR COALESCE(vehicles.vehicle_number, '') LIKE ? OR COALESCE(vehicles.owner_name, '') LIKE ?)"
+    : "";
+  const params = q
+    ? [from, to, `%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`]
+    : [from, to];
+
+  const rows = db.prepare(
+    `SELECT jar_container_lendings.*,
+            jar_types.name as jar_name,
+            users.full_name as recorded_by,
+            vehicles.vehicle_number,
+            vehicles.owner_name,
+            vehicles.is_company,
+            COALESCE(return_rows.returned_qty, 0) as returned_quantity,
+            CASE
+              WHEN jar_container_lendings.quantity - COALESCE(return_rows.returned_qty, 0) < 0 THEN 0
+              ELSE jar_container_lendings.quantity - COALESCE(return_rows.returned_qty, 0)
+            END as outstanding_quantity,
+            CASE
+              WHEN jar_container_lendings.deposit_amount - jar_container_lendings.deposit_paid_amount < 0 THEN 0
+              ELSE jar_container_lendings.deposit_amount - jar_container_lendings.deposit_paid_amount
+            END as deposit_due,
+            CASE
+              WHEN jar_container_lendings.deposit_paid_amount - jar_container_lendings.deposit_refund_amount < 0 THEN 0
+              ELSE jar_container_lendings.deposit_paid_amount - jar_container_lendings.deposit_refund_amount
+            END as deposit_held
+     FROM jar_container_lendings
+     JOIN jar_types ON jar_types.id = jar_container_lendings.jar_type_id
+     LEFT JOIN users ON users.id = jar_container_lendings.created_by
+     LEFT JOIN vehicles ON vehicles.id = jar_container_lendings.vehicle_id
+     LEFT JOIN (
+       SELECT lending_id, COALESCE(SUM(quantity), 0) as returned_qty
+       FROM jar_container_lending_returns
+       GROUP BY lending_id
+     ) return_rows ON return_rows.lending_id = jar_container_lendings.id
+     WHERE jar_container_lendings.lend_date BETWEEN ? AND ?
+     ${searchClause}
+     ORDER BY jar_container_lendings.lend_date DESC, jar_container_lendings.created_at DESC`
+  ).all(...params);
+
+  const totals = rows.reduce((acc, row) => {
+    acc.lent += Number(row.quantity || 0);
+    acc.returned += Number(row.returned_quantity || 0);
+    acc.outstanding += Number(row.outstanding_quantity || 0);
+    acc.depositTarget = parseMoneyValue(acc.depositTarget + Number(row.deposit_amount || 0));
+    acc.depositReceived = parseMoneyValue(acc.depositReceived + Number(row.deposit_paid_amount || 0));
+    acc.depositHeld = parseMoneyValue(acc.depositHeld + Number(row.deposit_held || 0));
+    return acc;
+  }, {
+    lent: 0,
+    returned: 0,
+    outstanding: 0,
+    depositTarget: 0,
+    depositReceived: 0,
+    depositHeld: 0
+  });
+
+  const errorKey = String(req.query.error || "").trim();
+  const status = String(req.query.status || "").trim();
+  const { jarContainerBalance, lentOutBalance } = getJarContainerBalanceData();
+
+  res.render("records/jar_container_lending", {
+    title: req.t("jarContainerLendingTitle"),
+    from,
+    to,
+    q,
+    rows,
+    totals,
+    jarContainerBalance,
+    lentOutBalance,
+    success:
+      status === "saved" ? req.t("jarContainerLendingSaved")
+      : status === "updated" ? req.t("jarContainerLendingUpdated")
+      : status === "deleted" ? req.t("jarContainerLendingDeleted")
+      : status === "payment_saved" ? req.t("jarContainerLendingPaymentSaved")
+      : status === "payment_deleted" ? req.t("jarContainerLendingPaymentDeleted")
+      : status === "return_saved" ? req.t("jarContainerLendingReturnSaved")
+      : status === "return_deleted" ? req.t("jarContainerLendingReturnDeleted")
+      : null,
+    error: errorKey ? req.t(errorKey) : null
+  });
+});
+
+router.get("/jar-container-lending/new", (req, res) => renderJarContainerLendingForm(req, res, {
+  titleKey: "addJarContainerLendingTitle"
+}));
+
+router.post("/jar-container-lending", (req, res) => {
+  const lendDate = String(req.body.lend_date || "").trim();
+  const customerName = String(req.body.customer_name || "").trim();
+  const phone = String(req.body.phone || "").trim();
+  const location = String(req.body.location || "").trim();
+  const note = String(req.body.note || "").trim();
+  const jarTypeId = Number(req.body.jar_type_id || 0);
+  const sourceType = normalizeLendingSourceType(req.body.source_type);
+  const vehicleId = Number(req.body.vehicle_id || 0) > 0 ? Number(req.body.vehicle_id) : null;
+  const qty = Math.max(0, Math.floor(Number(req.body.quantity || 0)));
+  let depositAmount = parseMoneyValue(req.body.deposit_amount || 0);
+  const paymentParsed = parsePaymentBreakdownFromBody(req.body, {
+    cashField: "deposit_cash_amount",
+    bankField: "deposit_bank_amount",
+    ewalletField: "deposit_ewallet_amount",
+    amountField: "deposit_paid_amount",
+    methodField: "payment_method"
+  });
+  const openingDeposit = parseMoneyValue(paymentParsed.total || 0);
+  if (depositAmount < openingDeposit) depositAmount = openingDeposit;
+
+  if (!lendDate || !jarTypeId || !customerName || qty <= 0) {
+    return renderJarContainerLendingForm(req, res, {
+      titleKey: "addJarContainerLendingTitle",
+      record: {
+        lend_date: lendDate,
+        jar_type_id: jarTypeId || null,
+        source_type: sourceType,
+        vehicle_id: vehicleId,
+        customer_name: customerName,
+        phone,
+        location,
+        quantity: qty || "",
+        deposit_amount: depositAmount,
+        note
+      },
+      error: req.t("jarContainerLendingRequired"),
+      defaultDate: lendDate || dayjs().format("YYYY-MM-DD")
+    });
+  }
+
+  if (sourceType === "VEHICLE" && !vehicleId) {
+    return renderJarContainerLendingForm(req, res, {
+      titleKey: "addJarContainerLendingTitle",
+      record: {
+        ...req.body,
+        source_type: sourceType,
+        vehicle_id: vehicleId
+      },
+      error: req.t("jarContainerLendingVehicleRequired"),
+      defaultDate: lendDate || dayjs().format("YYYY-MM-DD")
+    });
+  }
+
+  const jarType = db.prepare("SELECT id FROM jar_types WHERE id = ?").get(jarTypeId);
+  if (!jarType) {
+    return renderJarContainerLendingForm(req, res, {
+      titleKey: "addJarContainerLendingTitle",
+      record: req.body,
+      error: req.t("jarTypeRequired"),
+      defaultDate: lendDate || dayjs().format("YYYY-MM-DD")
+    });
+  }
+  const vehicle = vehicleId ? db.prepare("SELECT id FROM vehicles WHERE id = ?").get(vehicleId) : null;
+  if (vehicleId && !vehicle) {
+    return renderJarContainerLendingForm(req, res, {
+      titleKey: "addJarContainerLendingTitle",
+      record: { ...req.body, source_type: sourceType, vehicle_id: vehicleId },
+      error: req.t("vehicleRequired"),
+      defaultDate: lendDate || dayjs().format("YYYY-MM-DD")
+    });
+  }
+
+  if (sourceType === "STORAGE") {
+    const { jarTypeBalances } = getJarContainerBalanceData();
+    const available = Number(jarTypeBalances[jarTypeId] || 0);
+    if (available <= 0) {
+      return renderJarContainerLendingForm(req, res, {
+        titleKey: "addJarContainerLendingTitle",
+        record: { ...req.body, source_type: sourceType, vehicle_id: vehicleId },
+        error: req.t("jarContainerOutOfStock"),
+        defaultDate: lendDate || dayjs().format("YYYY-MM-DD")
+      });
+    }
+    if (qty > available) {
+      return renderJarContainerLendingForm(req, res, {
+        titleKey: "addJarContainerLendingTitle",
+        record: { ...req.body, source_type: sourceType, vehicle_id: vehicleId },
+        error: req.t("jarContainerInsufficient"),
+        defaultDate: lendDate || dayjs().format("YYYY-MM-DD")
+      });
+    }
+  } else {
+    const vehicleMetricsById = getVehicleContainerMetricsMap(db, { includeInactive: false });
+    const available = Number(vehicleMetricsById[vehicleId]?.current_container_balance || 0);
+    if (available <= 0) {
+      return renderJarContainerLendingForm(req, res, {
+        titleKey: "addJarContainerLendingTitle",
+        record: { ...req.body, source_type: sourceType, vehicle_id: vehicleId },
+        error: req.t("jarContainerVehicleOutOfStock"),
+        defaultDate: lendDate || dayjs().format("YYYY-MM-DD")
+      });
+    }
+    if (qty > available) {
+      return renderJarContainerLendingForm(req, res, {
+        titleKey: "addJarContainerLendingTitle",
+        record: { ...req.body, source_type: sourceType, vehicle_id: vehicleId },
+        error: req.t("jarContainerVehicleInsufficient"),
+        defaultDate: lendDate || dayjs().format("YYYY-MM-DD")
+      });
+    }
+  }
+
+  let lendingId = null;
+  let receiptNo = "";
+  runInTransaction(() => {
+    const result = db.prepare(
+      `INSERT INTO jar_container_lendings (
+         jar_type_id, source_type, vehicle_id, lend_date, customer_name, phone, location, quantity, deposit_amount, note, created_by
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      jarTypeId,
+      sourceType,
+      vehicleId,
+      lendDate,
+      customerName,
+      phone || null,
+      location || null,
+      qty,
+      depositAmount,
+      note || null,
+      req.session.userId || null
+    );
+    lendingId = Number(result.lastInsertRowid);
+
+    if (openingDeposit > 0) {
+      const paymentId = db.prepare(
+        `INSERT INTO jar_container_lending_payments (
+           lending_id, payment_date, amount, cash_amount, bank_amount, ewallet_amount, payment_method, note, created_by
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ).run(
+        lendingId,
+        lendDate,
+        openingDeposit,
+        paymentParsed.breakdown.cash || 0,
+        paymentParsed.breakdown.bank || 0,
+        paymentParsed.breakdown.eWallet || 0,
+        getPaymentMethodFromBreakdown(paymentParsed.breakdown, paymentParsed.primaryMethod, true),
+        note || null,
+        req.session.userId || null
+      ).lastInsertRowid;
+      receiptNo = ensurePaymentReceiptNo("jar_container_lending_payments", paymentId, lendDate);
+    }
+
+    syncJarContainerLendingTotals(lendingId);
+  });
+
+  logActivity({
+    userId: req.session.userId,
+    action: "create",
+    entityType: "jar_container_lending",
+    entityId: lendingId,
+    details: `date=${lendDate}; source=${sourceType}; vehicle_id=${vehicleId || ""}; customer=${customerName}; qty=${qty}; deposit=${depositAmount}; opening_deposit=${openingDeposit}; receipt=${receiptNo || ""}`
+  });
+
+  return res.redirect(`/records/jar-container-lending?from=${lendDate}&to=${lendDate}&status=saved`);
+});
+
+router.get("/jar-container-lending/:id/edit", (req, res) => {
+  const record = getJarContainerLendingSummary(req.params.id);
+  if (!record) return res.redirect("/records/jar-container-lending");
+  return renderJarContainerLendingForm(req, res, {
+    titleKey: "editJarContainerLendingTitle",
+    record,
+    defaultDate: record.lend_date
+  });
+});
+
+router.post("/jar-container-lending/:id", (req, res) => {
+  const existing = getJarContainerLendingSummary(req.params.id);
+  if (!existing) return res.redirect("/records/jar-container-lending");
+
+  const lendDate = String(req.body.lend_date || "").trim();
+  const customerName = String(req.body.customer_name || "").trim();
+  const phone = String(req.body.phone || "").trim();
+  const location = String(req.body.location || "").trim();
+  const note = String(req.body.note || "").trim();
+  const jarTypeId = Number(req.body.jar_type_id || 0);
+  const sourceType = normalizeLendingSourceType(req.body.source_type);
+  const vehicleId = Number(req.body.vehicle_id || 0) > 0 ? Number(req.body.vehicle_id) : null;
+  const qty = Math.max(0, Math.floor(Number(req.body.quantity || 0)));
+  const depositAmount = parseMoneyValue(req.body.deposit_amount || 0);
+  const returnedQty = Number(existing.returned_quantity || 0);
+
+  const renderError = (errorText) => renderJarContainerLendingForm(req, res, {
+    titleKey: "editJarContainerLendingTitle",
+    record: {
+      ...existing,
+      lend_date: lendDate || existing.lend_date,
+      customer_name: customerName,
+      phone,
+      location,
+      jar_type_id: jarTypeId || null,
+      source_type: sourceType,
+      vehicle_id: vehicleId,
+      quantity: qty,
+      deposit_amount: depositAmount,
+      note,
+      returned_quantity: returnedQty,
+      outstanding_quantity: Math.max(0, qty - returnedQty)
+    },
+    error: errorText,
+    defaultDate: lendDate || existing.lend_date
+  });
+
+  if (!lendDate || !jarTypeId || !customerName || qty <= 0) {
+    return renderError(req.t("jarContainerLendingRequired"));
+  }
+  if (sourceType === "VEHICLE" && !vehicleId) {
+    return renderError(req.t("jarContainerLendingVehicleRequired"));
+  }
+  if (qty < returnedQty) {
+    return renderError(req.t("jarContainerLendingQuantityTooLow"));
+  }
+  if (depositAmount < Number(existing.deposit_paid_amount || 0)) {
+    return renderError(req.t("jarContainerLendingDepositTooLow"));
+  }
+
+  const jarType = db.prepare("SELECT id FROM jar_types WHERE id = ?").get(jarTypeId);
+  if (!jarType) return renderError(req.t("jarTypeRequired"));
+  const nextOutstanding = Math.max(0, qty - returnedQty);
+  const vehicle = vehicleId ? db.prepare("SELECT id FROM vehicles WHERE id = ?").get(vehicleId) : null;
+  if (vehicleId && !vehicle) return renderError(req.t("vehicleRequired"));
+
+  if (sourceType === "STORAGE") {
+    const { jarTypeBalances } = getJarContainerBalanceData({
+      includeInactive: true,
+      excludeLendingId: Number(req.params.id) || null
+    });
+    const available = Number(jarTypeBalances[jarTypeId] || 0);
+    if (nextOutstanding > available) {
+      return renderError(available <= 0 ? req.t("jarContainerOutOfStock") : req.t("jarContainerInsufficient"));
+    }
+  } else {
+    const vehicleMetricsById = getVehicleContainerMetricsMap(db, {
+      includeInactive: true,
+      excludeLendingId: Number(req.params.id) || null
+    });
+    const available = Number(vehicleMetricsById[vehicleId]?.current_container_balance || 0);
+    if (nextOutstanding > available) {
+      return renderError(available <= 0 ? req.t("jarContainerVehicleOutOfStock") : req.t("jarContainerVehicleInsufficient"));
+    }
+  }
+
+  db.prepare(
+    `UPDATE jar_container_lendings
+     SET jar_type_id = ?,
+         source_type = ?,
+         vehicle_id = ?,
+         lend_date = ?,
+         customer_name = ?,
+         phone = ?,
+         location = ?,
+         quantity = ?,
+         deposit_amount = ?,
+         note = ?,
+         updated_at = datetime('now')
+     WHERE id = ?`
+  ).run(
+    jarTypeId,
+    sourceType,
+    vehicleId,
+    lendDate,
+    customerName,
+    phone || null,
+    location || null,
+    qty,
+    depositAmount,
+    note || null,
+    req.params.id
+  );
+
+  syncJarContainerLendingTotals(req.params.id);
+
+  logActivity({
+    userId: req.session.userId,
+    action: "update",
+    entityType: "jar_container_lending",
+    entityId: req.params.id,
+    details: buildDiffDetails(
+      existing,
+      {
+        jar_type_id: jarTypeId,
+        source_type: sourceType,
+        vehicle_id: vehicleId,
+        lend_date: lendDate,
+        customer_name: customerName,
+        phone: phone || null,
+        location: location || null,
+        quantity: qty,
+        deposit_amount: depositAmount,
+        note: note || null
+      },
+      ["jar_type_id", "source_type", "vehicle_id", "lend_date", "customer_name", "phone", "location", "quantity", "deposit_amount", "note"]
+    )
+  });
+
+  return res.redirect(`/records/jar-container-lending?from=${lendDate}&to=${lendDate}&status=updated`);
+});
+
+router.post("/jar-container-lending/:id/delete", (req, res) => {
+  const record = db.prepare("SELECT * FROM jar_container_lendings WHERE id = ?").get(req.params.id);
+  if (!record) return res.redirect("/records/jar-container-lending");
+  const payments = db.prepare("SELECT * FROM jar_container_lending_payments WHERE lending_id = ? ORDER BY id").all(req.params.id);
+  const returns = db.prepare("SELECT * FROM jar_container_lending_returns WHERE lending_id = ? ORDER BY id").all(req.params.id);
+  const recycleId = createRecycleEntry({
+    entityType: "jar_container_lending",
+    entityId: req.params.id,
+    payload: {
+      jar_container_lending: record,
+      payments,
+      returns
+    },
+    deletedBy: req.session.userId,
+    note: `date=${record.lend_date || ""}; customer=${record.customer_name || ""}; qty=${record.quantity || 0}`
+  });
+  db.prepare("DELETE FROM jar_container_lendings WHERE id = ?").run(req.params.id);
+  logActivity({
+    userId: req.session.userId,
+    action: "delete",
+    entityType: "jar_container_lending",
+    entityId: req.params.id,
+    details: `recycle_id=${recycleId}`
+  });
+  return res.redirect("/records/jar-container-lending?status=deleted");
+});
+
+router.get("/jar-container-lending/:id/payments", (req, res) => {
+  const record = getJarContainerLendingSummary(req.params.id);
+  if (!record) return res.redirect("/records/jar-container-lending");
+  const payments = db.prepare(
+    `SELECT jar_container_lending_payments.*, users.full_name as recorded_by
+     FROM jar_container_lending_payments
+     LEFT JOIN users ON users.id = jar_container_lending_payments.created_by
+     WHERE jar_container_lending_payments.lending_id = ?
+     ORDER BY jar_container_lending_payments.payment_date DESC, jar_container_lending_payments.id DESC`
+  ).all(req.params.id);
+  const status = String(req.query.status || "").trim();
+  const errorKey = String(req.query.error || "").trim();
+  return res.render("records/jar_container_lending_payments", {
+    title: req.t("jarContainerLendingPaymentsTitle"),
+    record,
+    payments,
+    error: errorKey ? req.t(errorKey) : null,
+    success:
+      status === "payment_saved" ? req.t("jarContainerLendingPaymentSaved")
+      : status === "payment_deleted" ? req.t("jarContainerLendingPaymentDeleted")
+      : null
+  });
+});
+
+router.post("/jar-container-lending/:id/payments", (req, res) => {
+  const record = getJarContainerLendingSummary(req.params.id);
+  if (!record) return res.redirect("/records/jar-container-lending");
+  const paymentDate = String(req.body.payment_date || dayjs().format("YYYY-MM-DD")).trim();
+  const paymentParsed = parsePaymentBreakdownFromBody(req.body, {
+    cashField: "cash_amount",
+    bankField: "bank_amount",
+    ewalletField: "ewallet_amount",
+    amountField: "payment_amount",
+    methodField: "payment_method",
+    maxTotal: record.deposit_due || 0,
+    strictMax: true
+  });
+  if (paymentParsed.total <= 0) {
+    return res.redirect(`/records/jar-container-lending/${req.params.id}/payments?error=invalidPaymentAmount`);
+  }
+  if (paymentParsed.isOverLimit) {
+    return res.redirect(`/records/jar-container-lending/${req.params.id}/payments?error=paidMoreThanDue`);
+  }
+
+  const note = String(req.body.note || "").trim();
+  let receiptNo = "";
+  runInTransaction(() => {
+    const paymentId = db.prepare(
+      `INSERT INTO jar_container_lending_payments (
+         lending_id, payment_date, amount, cash_amount, bank_amount, ewallet_amount, payment_method, note, created_by
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      req.params.id,
+      paymentDate,
+      paymentParsed.total,
+      paymentParsed.breakdown.cash || 0,
+      paymentParsed.breakdown.bank || 0,
+      paymentParsed.breakdown.eWallet || 0,
+      getPaymentMethodFromBreakdown(paymentParsed.breakdown, paymentParsed.primaryMethod, true),
+      note || null,
+      req.session.userId || null
+    ).lastInsertRowid;
+    receiptNo = ensurePaymentReceiptNo("jar_container_lending_payments", paymentId, paymentDate);
+    syncJarContainerLendingTotals(req.params.id);
+  });
+
+  logActivity({
+    userId: req.session.userId,
+    action: "payment",
+    entityType: "jar_container_lending",
+    entityId: req.params.id,
+    details: `receipt=${receiptNo}; payment=${paymentParsed.total}; method=${getPaymentMethodFromBreakdown(paymentParsed.breakdown, paymentParsed.primaryMethod, true)}; cash=${paymentParsed.breakdown.cash || 0}; bank=${paymentParsed.breakdown.bank || 0}; ewallet=${paymentParsed.breakdown.eWallet || 0}`
+  });
+
+  return res.redirect(`/records/jar-container-lending/${req.params.id}/payments?status=payment_saved`);
+});
+
+router.post("/jar-container-lending/payments/:id/delete", (req, res) => {
+  const payment = db.prepare("SELECT * FROM jar_container_lending_payments WHERE id = ?").get(req.params.id);
+  if (!payment) return res.redirect("/records/jar-container-lending");
+  db.prepare("DELETE FROM jar_container_lending_payments WHERE id = ?").run(req.params.id);
+  syncJarContainerLendingTotals(payment.lending_id);
+  logActivity({
+    userId: req.session.userId,
+    action: "delete",
+    entityType: "jar_container_lending_payment",
+    entityId: req.params.id,
+    details: `lending_id=${payment.lending_id}; amount=${payment.amount || 0}`
+  });
+  return res.redirect(`/records/jar-container-lending/${payment.lending_id}/payments?status=payment_deleted`);
+});
+
+router.get("/jar-container-lending/payments/:id/print", (req, res) => {
+  const payment = db.prepare(
+    `SELECT jar_container_lending_payments.*, jar_container_lendings.lend_date, jar_container_lendings.customer_name,
+            jar_container_lendings.phone, jar_container_lendings.location,
+            jar_types.name as jar_name
+     FROM jar_container_lending_payments
+     JOIN jar_container_lendings ON jar_container_lendings.id = jar_container_lending_payments.lending_id
+     JOIN jar_types ON jar_types.id = jar_container_lendings.jar_type_id
+     WHERE jar_container_lending_payments.id = ?`
+  ).get(req.params.id);
+  if (!payment) return res.redirect("/records/jar-container-lending");
+  const receiptNo = ensurePaymentReceiptNo("jar_container_lending_payments", req.params.id, payment.payment_date || payment.lend_date);
+  const methodLabel = payment.payment_method === "BANK"
+    ? req.t("methodBank")
+    : payment.payment_method === "E_WALLET"
+      ? req.t("methodEWallet")
+      : payment.payment_method === "MIXED"
+        ? req.t("methodMixed")
+        : req.t("methodCash");
+  return res.render("records/payment_receipt_print", {
+    title: req.t("paymentReceiptTitle"),
+    printSubtitle: req.t("jarContainerDepositReceiptTitle"),
+    moduleLabel: req.t("jarContainerLendingTitle"),
+    autoPrint: req.query.autoprint === "1",
+    receiptNo,
+    paymentDate: payment.payment_date || payment.lend_date,
+    createdAt: payment.created_at || payment.payment_date,
+    amount: Number(payment.amount || 0),
+    paymentMethodLabel: methodLabel,
+    paymentSourceLabel: req.t("depositLabel"),
+    referenceNo: `${payment.jar_name || "-"} • #${payment.lending_id}`,
+    partyName: `${payment.customer_name || "-"}${payment.phone ? ` • ${payment.phone}` : ""}`,
+    note: payment.note || payment.location || "-"
+  });
+});
+
+router.get("/jar-container-lending/:id/returns", (req, res) => {
+  const record = getJarContainerLendingSummary(req.params.id);
+  if (!record) return res.redirect("/records/jar-container-lending");
+  const returns = db.prepare(
+    `SELECT jar_container_lending_returns.*, users.full_name as recorded_by
+     FROM jar_container_lending_returns
+     LEFT JOIN users ON users.id = jar_container_lending_returns.created_by
+     WHERE jar_container_lending_returns.lending_id = ?
+     ORDER BY jar_container_lending_returns.return_date DESC, jar_container_lending_returns.id DESC`
+  ).all(req.params.id);
+  const status = String(req.query.status || "").trim();
+  const errorKey = String(req.query.error || "").trim();
+  return res.render("records/jar_container_lending_returns", {
+    title: req.t("jarContainerLendingReturnsTitle"),
+    record,
+    returns,
+    error: errorKey ? req.t(errorKey) : null,
+    success:
+      status === "return_saved" ? req.t("jarContainerLendingReturnSaved")
+      : status === "return_deleted" ? req.t("jarContainerLendingReturnDeleted")
+      : null
+  });
+});
+
+router.post("/jar-container-lending/:id/returns", (req, res) => {
+  const record = getJarContainerLendingSummary(req.params.id);
+  if (!record) return res.redirect("/records/jar-container-lending");
+  const returnDate = String(req.body.return_date || dayjs().format("YYYY-MM-DD")).trim();
+  const quantity = Math.max(0, Math.floor(Number(req.body.quantity || 0)));
+  const refundParsed = parsePaymentBreakdownFromBody(req.body, {
+    cashField: "refund_cash_amount",
+    bankField: "refund_bank_amount",
+    ewalletField: "refund_ewallet_amount",
+    amountField: "refund_amount",
+    methodField: "refund_method",
+    maxTotal: record.deposit_held || 0,
+    strictMax: true
+  });
+  if (quantity <= 0) {
+    return res.redirect(`/records/jar-container-lending/${req.params.id}/returns?error=jarContainerReturnRequired`);
+  }
+  if (quantity > Number(record.outstanding_quantity || 0)) {
+    return res.redirect(`/records/jar-container-lending/${req.params.id}/returns?error=jarContainerReturnTooHigh`);
+  }
+  if (refundParsed.isOverLimit) {
+    return res.redirect(`/records/jar-container-lending/${req.params.id}/returns?error=jarContainerRefundTooHigh`);
+  }
+
+  const note = String(req.body.note || "").trim();
+  runInTransaction(() => {
+    const returnId = db.prepare(
+      `INSERT INTO jar_container_lending_returns (
+         lending_id, return_date, quantity, refund_amount, refund_cash_amount, refund_bank_amount, refund_ewallet_amount, refund_method, note, created_by
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      req.params.id,
+      returnDate,
+      quantity,
+      refundParsed.total,
+      refundParsed.breakdown.cash || 0,
+      refundParsed.breakdown.bank || 0,
+      refundParsed.breakdown.eWallet || 0,
+      getPaymentMethodFromBreakdown(refundParsed.breakdown, refundParsed.primaryMethod, true),
+      note || null,
+      req.session.userId || null
+    ).lastInsertRowid;
+    ensurePaymentReceiptNo("jar_container_lending_returns", returnId, returnDate);
+    syncJarContainerLendingTotals(req.params.id);
+  });
+
+  logActivity({
+    userId: req.session.userId,
+    action: "return",
+    entityType: "jar_container_lending",
+    entityId: req.params.id,
+    details: `date=${returnDate}; quantity=${quantity}; refund=${refundParsed.total}; cash=${refundParsed.breakdown.cash || 0}; bank=${refundParsed.breakdown.bank || 0}; ewallet=${refundParsed.breakdown.eWallet || 0}`
+  });
+
+  return res.redirect(`/records/jar-container-lending/${req.params.id}/returns?status=return_saved`);
+});
+
+router.post("/jar-container-lending/returns/:id/delete", (req, res) => {
+  const returnRow = db.prepare("SELECT * FROM jar_container_lending_returns WHERE id = ?").get(req.params.id);
+  if (!returnRow) return res.redirect("/records/jar-container-lending");
+  db.prepare("DELETE FROM jar_container_lending_returns WHERE id = ?").run(req.params.id);
+  syncJarContainerLendingTotals(returnRow.lending_id);
+  logActivity({
+    userId: req.session.userId,
+    action: "delete",
+    entityType: "jar_container_lending_return",
+    entityId: req.params.id,
+    details: `lending_id=${returnRow.lending_id}; quantity=${returnRow.quantity || 0}; refund=${returnRow.refund_amount || 0}`
+  });
+  return res.redirect(`/records/jar-container-lending/${returnRow.lending_id}/returns?status=return_deleted`);
+});
+
+router.get("/jar-container-lending/returns/:id/print", (req, res) => {
+  const returnRow = db.prepare(
+    `SELECT jar_container_lending_returns.*, jar_container_lendings.customer_name, jar_container_lendings.phone,
+            jar_container_lendings.location, jar_container_lendings.lend_date,
+            jar_types.name as jar_name
+     FROM jar_container_lending_returns
+     JOIN jar_container_lendings ON jar_container_lendings.id = jar_container_lending_returns.lending_id
+     JOIN jar_types ON jar_types.id = jar_container_lendings.jar_type_id
+     WHERE jar_container_lending_returns.id = ?`
+  ).get(req.params.id);
+  if (!returnRow) return res.redirect("/records/jar-container-lending");
+  const receiptNo = ensurePaymentReceiptNo("jar_container_lending_returns", req.params.id, returnRow.return_date || returnRow.lend_date);
+  const methodLabel = returnRow.refund_method === "BANK"
+    ? req.t("methodBank")
+    : returnRow.refund_method === "E_WALLET"
+      ? req.t("methodEWallet")
+      : returnRow.refund_method === "MIXED"
+        ? req.t("methodMixed")
+        : req.t("methodCash");
+  return res.render("records/payment_receipt_print", {
+    title: req.t("paymentReceiptTitle"),
+    printSubtitle: req.t("jarContainerReturnReceiptTitle"),
+    moduleLabel: req.t("jarContainerLendingTitle"),
+    autoPrint: req.query.autoprint === "1",
+    receiptNo,
+    paymentDate: returnRow.return_date || returnRow.lend_date,
+    createdAt: returnRow.created_at || returnRow.return_date,
+    amount: Number(returnRow.refund_amount || 0),
+    paymentMethodLabel: methodLabel,
+    paymentSourceLabel: req.t("depositRefundLabel"),
+    referenceNo: `${returnRow.jar_name || "-"} • #${returnRow.lending_id} • ${req.t("returnedJars")}: ${returnRow.quantity || 0}`,
+    partyName: `${returnRow.customer_name || "-"}${returnRow.phone ? ` • ${returnRow.phone}` : ""}`,
+    note: returnRow.note || returnRow.location || "-"
+  });
 });
 
 router.get("/credits", (req, res) => {

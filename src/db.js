@@ -33,6 +33,9 @@ const HYBRID_SYNC_TABLES = [
   { name: "credit_payments", pk: "id" },
   { name: "jar_sales", pk: "id" },
   { name: "jar_sale_payments", pk: "id" },
+  { name: "jar_container_lendings", pk: "id" },
+  { name: "jar_container_lending_payments", pk: "id" },
+  { name: "jar_container_lending_returns", pk: "id" },
   { name: "leakage_jar_sales", pk: "id" },
   { name: "leakage_jar_sale_payments", pk: "id" },
   { name: "daily_cleaning_routines", pk: "id" },
@@ -558,15 +561,96 @@ CREATE TABLE IF NOT EXISTS jar_sale_payments (
   jar_sale_id INTEGER NOT NULL,
   payment_date TEXT NOT NULL,
   amount REAL NOT NULL DEFAULT 0,
+  cash_amount REAL NOT NULL DEFAULT 0,
+  bank_amount REAL NOT NULL DEFAULT 0,
+  ewallet_amount REAL NOT NULL DEFAULT 0,
+  payment_method TEXT NOT NULL DEFAULT 'CASH',
   note TEXT,
+  receipt_no TEXT,
   created_by INTEGER,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
   FOREIGN KEY (jar_sale_id) REFERENCES jar_sales(id) ON DELETE CASCADE,
   FOREIGN KEY (created_by) REFERENCES users(id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_jar_sale_payments_sale ON jar_sale_payments(jar_sale_id);
 CREATE INDEX IF NOT EXISTS idx_jar_sale_payments_date ON jar_sale_payments(payment_date);
+
+CREATE TABLE IF NOT EXISTS jar_container_lendings (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  jar_type_id INTEGER NOT NULL,
+  source_type TEXT NOT NULL DEFAULT 'STORAGE',
+  vehicle_id INTEGER,
+  lend_date TEXT NOT NULL,
+  customer_name TEXT NOT NULL,
+  phone TEXT,
+  location TEXT,
+  quantity INTEGER NOT NULL DEFAULT 0,
+  deposit_amount REAL NOT NULL DEFAULT 0,
+  deposit_paid_amount REAL NOT NULL DEFAULT 0,
+  deposit_paid_cash_amount REAL NOT NULL DEFAULT 0,
+  deposit_paid_bank_amount REAL NOT NULL DEFAULT 0,
+  deposit_paid_ewallet_amount REAL NOT NULL DEFAULT 0,
+  deposit_refund_amount REAL NOT NULL DEFAULT 0,
+  deposit_refund_cash_amount REAL NOT NULL DEFAULT 0,
+  deposit_refund_bank_amount REAL NOT NULL DEFAULT 0,
+  deposit_refund_ewallet_amount REAL NOT NULL DEFAULT 0,
+  note TEXT,
+  created_by INTEGER,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  FOREIGN KEY (jar_type_id) REFERENCES jar_types(id) ON DELETE CASCADE,
+  FOREIGN KEY (vehicle_id) REFERENCES vehicles(id) ON DELETE SET NULL,
+  FOREIGN KEY (created_by) REFERENCES users(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_jar_container_lendings_date ON jar_container_lendings(lend_date);
+CREATE INDEX IF NOT EXISTS idx_jar_container_lendings_type ON jar_container_lendings(jar_type_id);
+CREATE INDEX IF NOT EXISTS idx_jar_container_lendings_customer ON jar_container_lendings(customer_name);
+
+CREATE TABLE IF NOT EXISTS jar_container_lending_payments (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  lending_id INTEGER NOT NULL,
+  payment_date TEXT NOT NULL,
+  amount REAL NOT NULL DEFAULT 0,
+  cash_amount REAL NOT NULL DEFAULT 0,
+  bank_amount REAL NOT NULL DEFAULT 0,
+  ewallet_amount REAL NOT NULL DEFAULT 0,
+  payment_method TEXT NOT NULL DEFAULT 'CASH',
+  note TEXT,
+  receipt_no TEXT,
+  created_by INTEGER,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  FOREIGN KEY (lending_id) REFERENCES jar_container_lendings(id) ON DELETE CASCADE,
+  FOREIGN KEY (created_by) REFERENCES users(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_jar_container_lending_payments_lending ON jar_container_lending_payments(lending_id);
+CREATE INDEX IF NOT EXISTS idx_jar_container_lending_payments_date ON jar_container_lending_payments(payment_date);
+
+CREATE TABLE IF NOT EXISTS jar_container_lending_returns (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  lending_id INTEGER NOT NULL,
+  return_date TEXT NOT NULL,
+  quantity INTEGER NOT NULL DEFAULT 0,
+  refund_amount REAL NOT NULL DEFAULT 0,
+  refund_cash_amount REAL NOT NULL DEFAULT 0,
+  refund_bank_amount REAL NOT NULL DEFAULT 0,
+  refund_ewallet_amount REAL NOT NULL DEFAULT 0,
+  refund_method TEXT NOT NULL DEFAULT 'CASH',
+  note TEXT,
+  receipt_no TEXT,
+  created_by INTEGER,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  FOREIGN KEY (lending_id) REFERENCES jar_container_lendings(id) ON DELETE CASCADE,
+  FOREIGN KEY (created_by) REFERENCES users(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_jar_container_lending_returns_lending ON jar_container_lending_returns(lending_id);
+CREATE INDEX IF NOT EXISTS idx_jar_container_lending_returns_date ON jar_container_lending_returns(return_date);
 
 CREATE TABLE IF NOT EXISTS leakage_jar_sales (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1690,10 +1774,58 @@ if (jarSalesColumns.size > 0 && !jarSalesColumns.has("vehicle_number")) {
 const jarSalePaymentColumns = new Set(
   db.prepare("PRAGMA table_info(jar_sale_payments)").all().map((col) => col.name)
 );
+if (jarSalePaymentColumns.size > 0 && !jarSalePaymentColumns.has("cash_amount")) {
+  db.exec("ALTER TABLE jar_sale_payments ADD COLUMN cash_amount REAL NOT NULL DEFAULT 0;");
+}
+if (jarSalePaymentColumns.size > 0 && !jarSalePaymentColumns.has("bank_amount")) {
+  db.exec("ALTER TABLE jar_sale_payments ADD COLUMN bank_amount REAL NOT NULL DEFAULT 0;");
+}
+if (jarSalePaymentColumns.size > 0 && !jarSalePaymentColumns.has("ewallet_amount")) {
+  db.exec("ALTER TABLE jar_sale_payments ADD COLUMN ewallet_amount REAL NOT NULL DEFAULT 0;");
+}
+if (jarSalePaymentColumns.size > 0 && !jarSalePaymentColumns.has("payment_method")) {
+  db.exec("ALTER TABLE jar_sale_payments ADD COLUMN payment_method TEXT NOT NULL DEFAULT 'CASH';");
+}
 if (jarSalePaymentColumns.size > 0 && !jarSalePaymentColumns.has("receipt_no")) {
   db.exec("ALTER TABLE jar_sale_payments ADD COLUMN receipt_no TEXT;");
 }
+if (jarSalePaymentColumns.size > 0 && !jarSalePaymentColumns.has("updated_at")) {
+  db.exec("ALTER TABLE jar_sale_payments ADD COLUMN updated_at TEXT NOT NULL DEFAULT (datetime('now'));");
+}
+db.exec("UPDATE jar_sale_payments SET payment_method = 'CASH' WHERE payment_method IS NULL OR TRIM(payment_method) = '';");
+db.exec("UPDATE jar_sale_payments SET payment_method = 'CASH' WHERE payment_method NOT IN ('CASH','BANK','E_WALLET','MIXED');");
+db.exec("UPDATE jar_sale_payments SET cash_amount = 0 WHERE cash_amount IS NULL OR cash_amount < 0;");
+db.exec("UPDATE jar_sale_payments SET bank_amount = 0 WHERE bank_amount IS NULL OR bank_amount < 0;");
+db.exec("UPDATE jar_sale_payments SET ewallet_amount = 0 WHERE ewallet_amount IS NULL OR ewallet_amount < 0;");
+db.exec(
+  `UPDATE jar_sale_payments
+   SET cash_amount = CASE WHEN payment_method = 'CASH' THEN amount ELSE 0 END,
+       bank_amount = CASE WHEN payment_method = 'BANK' THEN amount ELSE 0 END,
+       ewallet_amount = CASE WHEN payment_method = 'E_WALLET' THEN amount ELSE 0 END
+   WHERE COALESCE(amount, 0) > 0
+     AND COALESCE(cash_amount, 0) = 0
+     AND COALESCE(bank_amount, 0) = 0
+     AND COALESCE(ewallet_amount, 0) = 0`
+);
+db.exec(
+  `UPDATE jar_sale_payments
+   SET amount = ROUND(COALESCE(cash_amount, 0) + COALESCE(bank_amount, 0) + COALESCE(ewallet_amount, 0), 2)`
+);
 db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_jar_sale_payments_receipt_no ON jar_sale_payments(receipt_no);");
+
+const jarContainerLendingColumns = new Set(
+  db.prepare("PRAGMA table_info(jar_container_lendings)").all().map((col) => col.name)
+);
+if (jarContainerLendingColumns.size > 0 && !jarContainerLendingColumns.has("source_type")) {
+  db.exec("ALTER TABLE jar_container_lendings ADD COLUMN source_type TEXT NOT NULL DEFAULT 'STORAGE';");
+}
+if (jarContainerLendingColumns.size > 0 && !jarContainerLendingColumns.has("vehicle_id")) {
+  db.exec("ALTER TABLE jar_container_lendings ADD COLUMN vehicle_id INTEGER;");
+}
+db.exec("UPDATE jar_container_lendings SET source_type = 'STORAGE' WHERE source_type IS NULL OR TRIM(source_type) = '';");
+db.exec("UPDATE jar_container_lendings SET source_type = 'STORAGE' WHERE source_type NOT IN ('STORAGE','VEHICLE');");
+db.exec("CREATE INDEX IF NOT EXISTS idx_jar_container_lendings_source ON jar_container_lendings(source_type);");
+db.exec("CREATE INDEX IF NOT EXISTS idx_jar_container_lendings_vehicle ON jar_container_lendings(vehicle_id);");
 
 const leakageJarSalePaymentColumns = new Set(
   db.prepare("PRAGMA table_info(leakage_jar_sale_payments)").all().map((col) => col.name)
@@ -2240,24 +2372,32 @@ if (jarSalePaymentCount === 0) {
      WHERE paid_amount > 0`
   ).all();
   const insertJarSalePayment = db.prepare(
-    `INSERT INTO jar_sale_payments (jar_sale_id, payment_date, amount, note, created_by)
-     VALUES (?, ?, ?, ?, ?)`
+    `INSERT INTO jar_sale_payments (jar_sale_id, payment_date, amount, cash_amount, bank_amount, ewallet_amount, payment_method, note, created_by)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
   );
   existingJarSalePayments.forEach((row) => {
     insertJarSalePayment.run(
       row.id,
       row.sale_date || new Date().toISOString().slice(0, 10),
       Number(row.paid_amount || 0),
+      Number(row.paid_amount || 0),
+      0,
+      0,
+      "CASH",
       "Opening payment",
       row.created_by || null
     );
   });
 }
 db.exec(
-  `INSERT INTO jar_sale_payments (jar_sale_id, payment_date, amount, note, created_by)
+  `INSERT INTO jar_sale_payments (jar_sale_id, payment_date, amount, cash_amount, bank_amount, ewallet_amount, payment_method, note, created_by)
    SELECT jar_sales.id,
           COALESCE(NULLIF(jar_sales.sale_date, ''), date('now')),
           jar_sales.paid_amount,
+          jar_sales.paid_amount,
+          0,
+          0,
+          'CASH',
           'Opening payment',
           jar_sales.created_by
    FROM jar_sales

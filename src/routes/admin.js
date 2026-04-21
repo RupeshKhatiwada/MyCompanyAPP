@@ -14,6 +14,7 @@ const {
   createRecycleEntry,
   listRecycleEntries,
   restoreEntry,
+  removeAllRecycleEntries,
   removeRecycleEntry,
   getRecycleEntryById
 } = require("../utils/recycleBin");
@@ -52,6 +53,7 @@ const {
   ensureRolePermissionRows,
   getRolePermissionMap
 } = require("../utils/modulePermissions");
+const { getVehicleContainerMetricsMap } = require("../utils/vehicleContainerMetrics");
 
 const router = express.Router();
 const defaultStaffRoleCodes = ["CLEANER", "MACHINE_MANAGER", "VEHICLE_CONDUCTOR", "KITCHEN_COOK"];
@@ -77,6 +79,11 @@ const normalizeThemePreset = (value) => {
   const safe = String(value || "").trim().toLowerCase();
   return themePresetOptions.includes(safe) ? safe : "classic";
 };
+const parseMoneyValue = (value) => {
+  const num = Number(value || 0);
+  if (Number.isNaN(num)) return 0;
+  return Math.round((num + Number.EPSILON) * 100) / 100;
+};
 const clearWorkerReferenceStatements = [
   "UPDATE daily_sales SET created_by = NULL WHERE created_by = ?",
   "UPDATE exports SET created_by = NULL WHERE created_by = ?",
@@ -84,6 +91,9 @@ const clearWorkerReferenceStatements = [
   "UPDATE credit_payments SET created_by = NULL WHERE created_by = ?",
   "UPDATE stock_ledger SET created_by = NULL WHERE created_by = ?",
   "UPDATE jar_sales SET created_by = NULL WHERE created_by = ?",
+  "UPDATE jar_container_lendings SET created_by = NULL WHERE created_by = ?",
+  "UPDATE jar_container_lending_payments SET created_by = NULL WHERE created_by = ?",
+  "UPDATE jar_container_lending_returns SET created_by = NULL WHERE created_by = ?",
   "UPDATE import_entries SET created_by = NULL WHERE created_by = ?",
   "UPDATE vehicle_savings SET created_by = NULL WHERE created_by = ?",
   "UPDATE staff_salary_payments SET created_by = NULL WHERE created_by = ?",
@@ -342,6 +352,8 @@ const renderSettingsPage = (req, res, overrides = {}) => {
   const { lastBackupAt, backupDays, backupOverdue } = getBackupStatus();
   const backupReminderText = !lastBackupAt || backupDays === null ? req.t("backupNever") : `${backupDays} ${req.t("daysAgo")}`;
   const logoPath = getSetting("logo_path", "");
+  const brandName = getSetting("brand_name", "AQUA MSK") || "AQUA MSK";
+  const brandTaglineText = getSetting("brand_tagline", "") || req.t("brandTagline");
   const backupConfig = getBackupConfig();
   const numberingConfig = getNumberingConfig(db);
   const retentionConfig = getRetentionConfig(db);
@@ -377,6 +389,8 @@ const renderSettingsPage = (req, res, overrides = {}) => {
     backupOverdue,
     backupReminderText,
     logoPath,
+    brandName,
+    brandTaglineText,
     autoBackupEnabled: backupConfig.enabled,
     autoBackupHour: backupConfig.hour,
     autoBackupKeep: backupConfig.keepCount,
@@ -400,8 +414,8 @@ const renderSettingsPage = (req, res, overrides = {}) => {
     selectedClosureDate,
     selectedClosure,
     recentClosures: getRecentDayClosures(),
-    error: null,
-    success: null,
+    error: req.query.branding_error ? req.t(String(req.query.branding_error)) : null,
+    success: req.query.branding_saved === "1" ? req.t("brandingSaved") : null,
     backupTest: null,
     ...overrides
   });
@@ -1073,10 +1087,13 @@ router.get("/recycle-bin", (req, res) => {
   const entityType = String(req.query.entity_type || "all").trim() || "all";
   const status = ["active", "restored", "all"].includes(req.query.status) ? req.query.status : "active";
   const rows = listRecycleEntries({ q, entityType, status });
+  const bulkDeletedCount = Number(req.query.bulk_deleted || 0);
   const success = req.query.restored === "1"
     ? req.t("recycleRestored")
     : req.query.deleted === "1"
       ? req.t("recycleDeleted")
+      : bulkDeletedCount > 0
+        ? req.t("recycleBulkDeleted", { count: bulkDeletedCount })
       : null;
   const error = req.query.error ? req.t(req.query.error) : null;
   const entityTypes = db.prepare(
@@ -1132,6 +1149,21 @@ router.post("/recycle-bin/:id/delete", (req, res) => {
   res.redirect("/admin/recycle-bin?deleted=1");
 });
 
+router.post("/recycle-bin/delete-all", (req, res) => {
+  const status = ["active", "restored", "all"].includes(String(req.body.status || "").trim())
+    ? String(req.body.status || "").trim()
+    : "all";
+  const removedCount = removeAllRecycleEntries({ status });
+  logActivity({
+    userId: req.session.userId,
+    action: "delete",
+    entityType: "recycle_bin",
+    entityId: "bulk",
+    details: `status=${status}; removed=${removedCount}`
+  });
+  res.redirect(`/admin/recycle-bin?bulk_deleted=${removedCount}`);
+});
+
 router.get("/windows-kit", (req, res) => {
   const files = fs.existsSync(windowsKitDir) ? fs.readdirSync(windowsKitDir).sort() : [];
   const success = req.query.generated ? req.t("windowsKitGenerated") : null;
@@ -1169,6 +1201,9 @@ router.get("/vehicles", (req, res) => {
      ${where}
      ORDER BY COALESCE(is_active, 1) DESC, created_at DESC`
   ).all();
+  const vehicleMetricsById = getVehicleContainerMetricsMap(db, {
+    includeInactive
+  });
   const success = req.query.archived
     ? req.t("vehicleArchived")
     : req.query.unarchived || req.query.activated
@@ -1177,6 +1212,7 @@ router.get("/vehicles", (req, res) => {
   res.render("admin/vehicles", {
     title: req.t("vehicles"),
     vehicles,
+    vehicleMetricsById,
     includeInactive,
     success
   });
@@ -1246,6 +1282,12 @@ router.post("/savings", (req, res) => {
   const type = entry_type === "withdraw" ? "withdraw" : "deposit";
   if (type === "withdraw") amt = -Math.abs(amt);
   const source = type === "withdraw" ? normalizeSalaryPaymentSource(payment_source) : "DAILY_COLLECTION";
+  if (type === "withdraw" && source === "DAILY_COLLECTION") {
+    const collectionBalance = getDailyCollectionBalance(db, entry_date);
+    if (collectionBalance < Math.abs(amt)) {
+      return res.redirect(`/admin/savings?from=${entry_date}&to=${entry_date}&vehicle_id=${vehicle_id}&error=dailyCollectionInsufficient`);
+    }
+  }
 
   db.prepare(
     "INSERT INTO vehicle_savings (vehicle_id, entry_date, amount, payment_source, note, created_by) VALUES (?, ?, ?, ?, ?, ?)"
@@ -4031,8 +4073,12 @@ router.get("/reports/all", (req, res) => {
      FROM leakage_jar_sale_payments
      WHERE payment_date BETWEEN ? AND ?`
   ).get(from, to);
-  const rangeJarSalesCash = db.prepare(
-    `SELECT COALESCE(SUM(amount), 0) AS amount
+  const rangeJarSalesMethod = db.prepare(
+    `SELECT
+        COALESCE(SUM(amount), 0) AS amount,
+        COALESCE(SUM(cash_amount), 0) AS cash_paid,
+        COALESCE(SUM(bank_amount), 0) AS bank_paid,
+        COALESCE(SUM(ewallet_amount), 0) AS ewallet_paid
      FROM jar_sale_payments
      WHERE payment_date BETWEEN ? AND ?`
   ).get(from, to);
@@ -4078,20 +4124,22 @@ router.get("/reports/all", (req, res) => {
     Number(rangeCustomerMethod.cash_paid || 0) +
     Number(rangeRentMethod.cash_paid || 0) +
     Number(rangeLeakageMethod.cash_paid || 0) +
-    Number(rangeJarSalesCash.amount || 0) +
+    Number(rangeJarSalesMethod.cash_paid || 0) +
     Number(rangeSavingsDeposits.amount || 0)
   );
   const snapshotBank = parseMoneyValue(
     Number(rangeExportMethod.bank_paid || 0) +
     Number(rangeCustomerMethod.bank_paid || 0) +
     Number(rangeRentMethod.bank_paid || 0) +
-    Number(rangeLeakageMethod.bank_paid || 0)
+    Number(rangeLeakageMethod.bank_paid || 0) +
+    Number(rangeJarSalesMethod.bank_paid || 0)
   );
   const snapshotEWallet = parseMoneyValue(
     Number(rangeExportMethod.ewallet_paid || 0) +
     Number(rangeCustomerMethod.ewallet_paid || 0) +
     Number(rangeRentMethod.ewallet_paid || 0) +
-    Number(rangeLeakageMethod.ewallet_paid || 0)
+    Number(rangeLeakageMethod.ewallet_paid || 0) +
+    Number(rangeJarSalesMethod.ewallet_paid || 0)
   );
   const snapshotCollection = parseMoneyValue(snapshotCash + snapshotBank + snapshotEWallet);
   const snapshotDeductions = parseMoneyValue(
@@ -4190,7 +4238,11 @@ router.get("/reports/all", (req, res) => {
         bank: parseMoneyValue(rangeLeakageMethod.bank_paid || 0),
         eWallet: parseMoneyValue(rangeLeakageMethod.ewallet_paid || 0)
       },
-      jarSalesCash: parseMoneyValue(rangeJarSalesCash.amount || 0),
+      jarSales: {
+        cash: parseMoneyValue(rangeJarSalesMethod.cash_paid || 0),
+        bank: parseMoneyValue(rangeJarSalesMethod.bank_paid || 0),
+        eWallet: parseMoneyValue(rangeJarSalesMethod.ewallet_paid || 0)
+      },
       savingsDepositsCash: parseMoneyValue(rangeSavingsDeposits.amount || 0),
       deductionRows: {
         imports: parseMoneyValue(rangeImportsFromCollection.amount || 0),
@@ -5863,6 +5915,33 @@ router.post("/logo", logoUpload.single("logo_file"), (req, res) => {
   return renderSettingsPage(req, res, { logoPath: newLogoPath, success: req.t("logoUploaded") });
 });
 
+router.post("/branding", logoUpload.single("logo_file"), (req, res) => {
+  const currentUser = res.locals.currentUser;
+  if (!currentUser || currentUser.role !== "SUPER_ADMIN") {
+    return res.status(403).render("unauthorized", { title: req.t("notAllowedTitle") });
+  }
+  const brandName = String(req.body.brand_name || "").trim();
+  const brandTaglineText = String(req.body.brand_tagline || "").trim();
+  if (!brandName) {
+    return res.redirect("/admin/settings?branding_error=brandNameRequired#branding-settings");
+  }
+
+  setSetting("brand_name", brandName);
+  setSetting("brand_tagline", brandTaglineText);
+  if (req.file) {
+    setSetting("logo_path", `/uploads/${req.file.filename}`);
+  }
+
+  logActivity({
+    userId: req.session.userId,
+    action: "update",
+    entityType: "branding",
+    entityId: "identity",
+    details: `brand_name=${brandName}; tagline=${brandTaglineText || "-"}; logo_updated=${req.file ? 1 : 0}`
+  });
+  return res.redirect("/admin/settings?branding_saved=1#branding-settings");
+});
+
 router.post("/logo/delete", (req, res) => {
   const currentUser = res.locals.currentUser;
   if (!currentUser || currentUser.role !== "SUPER_ADMIN") {
@@ -5875,7 +5954,7 @@ router.post("/logo/delete", (req, res) => {
     entityType: "branding",
     entityId: "logo"
   });
-  return res.redirect(req.get("Referrer") || "/admin");
+  return res.redirect("/admin/settings?branding_saved=1#branding-settings");
 });
 
 router.post("/brand-image", wordmarkUpload.single("brand_file"), (req, res) => {

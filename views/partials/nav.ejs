@@ -15,26 +15,12 @@
           <% } %>
         </div>
         <div>
-          <p class="text-lg font-semibold">AQUA MSK</p>
-          <p class="text-xs text-slate-500"><%= t('brandTagline') %></p>
+          <p class="text-lg font-semibold"><%= brandName || 'AQUA MSK' %></p>
+          <p class="text-xs text-slate-500"><%= brandTaglineText || t('brandTagline') %></p>
         </div>
       </a>
       <% if (isSuper) { %>
-        <details class="relative">
-          <summary class="btn-outline text-xs"><%= t('editBranding') %></summary>
-          <div class="absolute left-0 mt-2 w-72 card p-4 shadow-lg">
-            <p class="text-xs font-semibold text-slate-600"><%= t('logoImageTitle') %></p>
-            <form method="post" action="/admin/logo" enctype="multipart/form-data" class="mt-2 space-y-2">
-              <input class="input h-9" type="file" name="logo_file" accept="image/*" required />
-              <button class="btn-outline w-full" type="submit"><%= t('uploadLogo') %></button>
-            </form>
-            <% if (logoPath) { %>
-              <form method="post" action="/admin/logo/delete" class="mt-2">
-                <button class="btn-danger w-full" type="submit"><%= t('deleteLogo') %></button>
-              </form>
-            <% } %>
-          </div>
-        </details>
+        <a class="btn-outline text-xs" href="/admin/settings#branding-settings"><%= t('editBranding') %></a>
       <% } %>
     </div>
 
@@ -65,7 +51,7 @@
       <div class="flex items-center justify-between">
         <div>
           <p class="text-sm font-semibold"><%= t('menu') %></p>
-          <p class="text-xs text-slate-500">AQUA MSK</p>
+          <p class="text-xs text-slate-500"><%= brandName || 'AQUA MSK' %></p>
         </div>
         <button class="btn-outline" type="button" data-close><%= t('close') %></button>
       </div>
@@ -131,6 +117,7 @@
                 <% if (canAccessModule('vehicle_expenses')) { %><a class="btn-outline" href="/records/vehicle-expenses"><%= t('vehicleExpensesTitle') %></a><% } %>
                 <% if (canAccessModule('company_expenses')) { %><a class="btn-outline" href="/records/company-purchases"><%= t('companyPurchasesTitle') %></a><% } %>
                 <% if (canAccessModule('jar_sales')) { %><a class="btn-outline" href="/records/jar-sales"><%= t('jarSalesTitle') %></a><% } %>
+                <% if (canAccessModule('jar_sales')) { %><a class="btn-outline" href="/records/jar-container-lending"><%= t('jarContainerLendingTitle') %></a><% } %>
                 <% if (canAccessModule('jar_sales')) { %><a class="btn-outline" href="/records/leakage-sales"><%= t('leakageJarSalesTitle') %></a><% } %>
                 <% if (canAccessModule('rentals')) { %><a class="btn-outline" href="/records/rentals"><%= t('rentalsTitle') %></a><% } %>
                 <% if (canAccessModule('savings')) { %><a class="btn-outline" href="/admin/savings"><%= t('savingsTitle') %></a><% } %>
@@ -249,6 +236,7 @@
                 <% if (canAccessModule('vehicle_expenses')) { %><a class="btn-outline" href="/records/vehicle-expenses"><%= t('vehicleExpensesTitle') %></a><% } %>
                 <% if (canAccessModule('company_expenses')) { %><a class="btn-outline" href="/records/company-purchases"><%= t('companyPurchasesTitle') %></a><% } %>
                 <% if (canAccessModule('jar_sales')) { %><a class="btn-outline" href="/records/jar-sales"><%= t('jarSalesTitle') %></a><% } %>
+                <% if (canAccessModule('jar_sales')) { %><a class="btn-outline" href="/records/jar-container-lending"><%= t('jarContainerLendingTitle') %></a><% } %>
                 <% if (canAccessModule('jar_sales')) { %><a class="btn-outline" href="/records/leakage-sales"><%= t('leakageJarSalesTitle') %></a><% } %>
                 <% if (canAccessModule('rentals')) { %><a class="btn-outline" href="/records/rentals"><%= t('rentalsTitle') %></a><% } %>
                 <% if (canAccessModule('savings')) { %><a class="btn-outline" href="/records/savings"><%= t('savingsTitle') %></a><% } %>

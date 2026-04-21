@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title><%= title %> | AQUA MSK</title>
+  <title><%= title %> | <%= brandName || 'AQUA MSK' %></title>
   <link rel="stylesheet" href="/css/styles.css?v=<%= assetVersion %>" />
 </head>
 <body class="text-slate-900">
@@ -20,8 +20,8 @@
               <% } %>
             </div>
             <div>
-              <p class="text-lg font-semibold">AQUA MSK</p>
-              <p class="text-xs text-slate-500"><%= t('brandTagline') %></p>
+              <p class="text-lg font-semibold"><%= brandName || 'AQUA MSK' %></p>
+              <p class="text-xs text-slate-500"><%= brandTaglineText || t('brandTagline') %></p>
             </div>
           </div>
           <h1 class="mt-6 text-3xl font-semibold"><%= t('loginHeading') %></h1>
