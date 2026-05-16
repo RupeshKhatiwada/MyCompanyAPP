@@ -6,97 +6,111 @@
   <title><%= t('exportSummaryTitle') %> | AQUA MSK</title>
   <link rel="stylesheet" href="/css/styles.css?v=<%= assetVersion %>" />
   <style>
-    @media print { .print-hidden { display: none !important; } }
+    <%- include('../partials/print-report-styles', { pageSize: 'A4 landscape' }) %>
   </style>
 </head>
-<body class="bg-white text-slate-900">
-  <div class="mx-auto max-w-5xl p-6">
-    <div class="flex flex-wrap items-start justify-between gap-4">
-      <div class="flex-1">
-        <%- include('../partials/print-brand', { subtitle: t('exportSummaryTitle') }) %>
-        <p class="mt-2 text-sm text-slate-600"><%= t('from') %>: <%= from %> | <%= t('to') %>: <%= to %></p>
-      </div>
-      <button class="btn-primary print-hidden" onclick="window.print()"><%= t('print') %></button>
+<body class="text-slate-900">
+  <div class="print-page">
+    <div class="print-toolbar print-hidden">
+      <button class="btn-primary" onclick="window.print()"><%= t('print') %></button>
     </div>
 
-    <div class="mt-6 overflow-hidden rounded-2xl border border-slate-200">
-      <table class="table-base">
+    <div class="print-header">
+      <div class="print-header-copy">
+        <%- include('../partials/print-brand', { subtitle: t('exportSummaryTitle') }) %>
+        <div class="print-header-meta">
+          <span><strong><%= t('from') %>:</strong> <%= from %></span>
+          <span><strong><%= t('to') %>:</strong> <%= to %></span>
+        </div>
+      </div>
+    </div>
+
+    <div class="print-section mt-6">
+      <div class="print-section-header">
+        <div>
+          <h2 class="print-section-title"><%= t('exportSummaryTitle') %></h2>
+          <p class="print-section-subtitle"><%= t('exportsSubtitle') %></p>
+        </div>
+      </div>
+      <div class="print-table-wrap">
+        <table class="print-table">
         <thead class="table-head">
           <tr>
-            <th class="px-4 py-3"><%= t('date') %></th>
-            <th class="px-4 py-3"><%= t('vehicle') %></th>
-            <th class="px-4 py-3"><%= t('jars') %></th>
-            <th class="px-4 py-3"><%= t('returnJars') %></th>
-            <th class="px-4 py-3"><%= t('leakageJars') %></th>
-            <th class="px-4 py-3"><%= t('netJars') %></th>
-            <th class="px-4 py-3"><%= t('bottleCases') %></th>
-            <th class="px-4 py-3"><%= t('returnBottleCases') %></th>
-            <th class="px-4 py-3"><%= t('netBottles') %></th>
-            <th class="px-4 py-3"><%= t('totalExportAmount') %></th>
-            <th class="px-4 py-3"><%= t('paidAmount') %></th>
-            <th class="px-4 py-3"><%= t('creditAmount') %></th>
+            <th><%= t('date') %></th>
+            <th><%= t('vehicle') %></th>
+            <th><%= t('jars') %></th>
+            <th><%= t('returnJars') %></th>
+            <th><%= t('leakageJars') %></th>
+            <th><%= t('netJars') %></th>
+            <th><%= t('bottleCases') %></th>
+            <th><%= t('returnBottleCases') %></th>
+            <th><%= t('netBottles') %></th>
+            <th><%= t('totalExportAmount') %></th>
+            <th><%= t('paidAmount') %></th>
+            <th><%= t('creditAmount') %></th>
           </tr>
         </thead>
         <tbody>
           <% if (rows.length === 0) { %>
             <tr>
-              <td class="px-4 py-4 text-slate-500" colspan="12"><%= t('noData') %></td>
+              <td class="text-slate-500" colspan="12"><%= t('noData') %></td>
             </tr>
           <% } %>
           <% rows.forEach((row) => { %>
             <% const netJars = Math.max(0, (row.jars || 0) - (row.return_jars || 0) - (row.leakage_jars || 0)); %>
             <% const netBottles = Math.max(0, (row.bottles || 0) - (row.return_bottles || 0)); %>
-            <tr class="table-row">
-              <td class="px-4 py-3"><%= row.export_date %></td>
-              <td class="px-4 py-3 font-medium"><%= `${row.owner_name} • ${row.vehicle_number}` %></td>
-              <td class="px-4 py-3"><%= row.jars %></td>
-              <td class="px-4 py-3"><%= row.return_jars %></td>
-              <td class="px-4 py-3"><%= row.leakage_jars %></td>
-              <td class="px-4 py-3"><%= netJars %></td>
-              <td class="px-4 py-3"><%= row.bottles %></td>
-              <td class="px-4 py-3"><%= row.return_bottles %></td>
-              <td class="px-4 py-3"><%= netBottles %></td>
-              <td class="px-4 py-3"><%= row.total_amount %></td>
-              <td class="px-4 py-3"><%= row.paid_amount %></td>
-              <td class="px-4 py-3"><%= row.credit_amount %></td>
+            <tr>
+              <td><%= row.export_date %></td>
+              <td><strong><%= `${row.owner_name} • ${row.vehicle_number}` %></strong></td>
+              <td><%= row.jars %></td>
+              <td><%= row.return_jars %></td>
+              <td><%= row.leakage_jars %></td>
+              <td><%= netJars %></td>
+              <td><%= row.bottles %></td>
+              <td><%= row.return_bottles %></td>
+              <td><%= netBottles %></td>
+              <td><%= row.total_amount %></td>
+              <td><%= row.paid_amount %></td>
+              <td><%= row.credit_amount %></td>
             </tr>
           <% }) %>
         </tbody>
-      </table>
+        </table>
+      </div>
     </div>
 
-    <div class="mt-6 grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-4">
-      <div class="card p-4">
-        <p class="text-slate-500"><%= t('totalJars') %></p>
-        <p class="text-lg font-semibold"><%= totals.jars %></p>
+    <div class="print-summary-grid mt-6">
+      <div class="print-summary-card">
+        <p class="print-summary-label"><%= t('totalJars') %></p>
+        <p class="print-summary-value"><%= totals.jars %></p>
       </div>
-      <div class="card p-4">
-        <p class="text-slate-500"><%= t('totalReturnJars') %></p>
-        <p class="text-lg font-semibold"><%= totals.return_jars %></p>
+      <div class="print-summary-card">
+        <p class="print-summary-label"><%= t('totalReturnJars') %></p>
+        <p class="print-summary-value"><%= totals.return_jars %></p>
       </div>
-      <div class="card p-4">
-        <p class="text-slate-500"><%= t('totalLeakageJars') %></p>
-        <p class="text-lg font-semibold"><%= totals.leakage_jars %></p>
+      <div class="print-summary-card">
+        <p class="print-summary-label"><%= t('totalLeakageJars') %></p>
+        <p class="print-summary-value"><%= totals.leakage_jars %></p>
       </div>
-      <div class="card p-4">
-        <p class="text-slate-500"><%= t('totalBottleCases') %></p>
-        <p class="text-lg font-semibold"><%= totals.bottles %></p>
+      <div class="print-summary-card">
+        <p class="print-summary-label"><%= t('totalBottleCases') %></p>
+        <p class="print-summary-value"><%= totals.bottles %></p>
       </div>
-      <div class="card p-4">
-        <p class="text-slate-500"><%= t('totalReturnBottleCases') %></p>
-        <p class="text-lg font-semibold"><%= totals.return_bottles %></p>
+      <div class="print-summary-card">
+        <p class="print-summary-label"><%= t('totalReturnBottleCases') %></p>
+        <p class="print-summary-value"><%= totals.return_bottles %></p>
       </div>
-      <div class="card p-4">
-        <p class="text-slate-500"><%= t('totalExportAmount') %></p>
-        <p class="text-lg font-semibold"><%= totals.total_amount %></p>
+      <div class="print-summary-card">
+        <p class="print-summary-label"><%= t('totalExportAmount') %></p>
+        <p class="print-summary-value"><%= totals.total_amount %></p>
       </div>
-      <div class="card p-4">
-        <p class="text-slate-500"><%= t('totalPaidAmount') %></p>
-        <p class="text-lg font-semibold"><%= totals.paid_amount %></p>
+      <div class="print-summary-card">
+        <p class="print-summary-label"><%= t('totalPaidAmount') %></p>
+        <p class="print-summary-value"><%= totals.paid_amount %></p>
       </div>
-      <div class="card p-4">
-        <p class="text-slate-500"><%= t('totalCreditAmount') %></p>
-        <p class="text-lg font-semibold"><%= totals.credit_amount %></p>
+      <div class="print-summary-card">
+        <p class="print-summary-label"><%= t('totalCreditAmount') %></p>
+        <p class="print-summary-value"><%= totals.credit_amount %></p>
       </div>
     </div>
   </div>

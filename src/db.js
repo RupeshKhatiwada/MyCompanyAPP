@@ -10,6 +10,7 @@ fs.mkdirSync(path.dirname(dbPath), { recursive: true });
 const db = new DatabaseSync(dbPath);
 
 db.exec("PRAGMA journal_mode = WAL;");
+db.exec("PRAGMA busy_timeout = 5000;");
 
 const quoteIdentifier = (value) => `"${String(value || "").replace(/"/g, "\"\"")}"`;
 const toSafeLiteral = (value) => String(value || "").replace(/'/g, "''");
@@ -24,11 +25,22 @@ const createLocalSiteId = () => {
   const seed = `${process.env.COMPUTERNAME || process.env.HOSTNAME || "aqua"}-${crypto.randomBytes(3).toString("hex")}`;
   return normalizeSiteId(seed) || `aqua-${crypto.randomBytes(4).toString("hex")}`;
 };
+const toMoney = (value) => {
+  const num = Number(value || 0);
+  if (!Number.isFinite(num)) return 0;
+  return Math.round(num * 100) / 100;
+};
+const positiveMoney = (value) => {
+  const num = toMoney(value);
+  return num > 0 ? num : 0;
+};
 const HYBRID_SYNC_TABLES = [
   { name: "users", pk: "id" },
   { name: "vehicles", pk: "id" },
+  { name: "customers", pk: "id" },
   { name: "staff", pk: "id" },
   { name: "exports", pk: "id" },
+  { name: "export_credit_payments", pk: "id" },
   { name: "credits", pk: "id" },
   { name: "credit_payments", pk: "id" },
   { name: "jar_sales", pk: "id" },
@@ -81,7 +93,24 @@ const getOrCreateHybridSiteId = () => {
   return next;
 };
 
-const ensureHybridSyncSchema = () => {
+const runBootstrapTransaction = (callback) => {
+  db.exec("SAVEPOINT bootstrap_schema;");
+  try {
+    const result = callback();
+    db.exec("RELEASE bootstrap_schema;");
+    return result;
+  } catch (err) {
+    try {
+      db.exec("ROLLBACK TO bootstrap_schema;");
+      db.exec("RELEASE bootstrap_schema;");
+    } catch (_) {
+      // Preserve the original bootstrap error.
+    }
+    throw err;
+  }
+};
+
+const ensureHybridSyncSchema = () => runBootstrapTransaction(() => {
   db.exec(`
     CREATE TABLE IF NOT EXISTS sync_queue (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -284,7 +313,7 @@ const ensureHybridSyncSchema = () => {
       END;
     `);
   });
-};
+});
 
 db.exec(`
 CREATE TABLE IF NOT EXISTS users (
@@ -359,6 +388,7 @@ CREATE TABLE IF NOT EXISTS exports (
   dispenser_unit_price REAL NOT NULL DEFAULT 0,
   return_jar_count INTEGER NOT NULL DEFAULT 0,
   return_bottle_case_count INTEGER NOT NULL DEFAULT 0,
+  damaged_bottle_case_count INTEGER NOT NULL DEFAULT 0,
   leakage_jar_count INTEGER NOT NULL DEFAULT 0,
   sold_jar_count INTEGER NOT NULL DEFAULT 0,
   sold_jar_price REAL NOT NULL DEFAULT 0,
@@ -383,10 +413,29 @@ CREATE TABLE IF NOT EXISTS exports (
   FOREIGN KEY (created_by) REFERENCES users(id)
 );
 
+CREATE TABLE IF NOT EXISTS customers (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL,
+  phone TEXT,
+  location TEXT,
+  note TEXT,
+  is_active INTEGER NOT NULL DEFAULT 1,
+  merged_into_customer_id INTEGER,
+  deactivated_at TEXT,
+  deactivated_by INTEGER,
+  created_by INTEGER,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  FOREIGN KEY (merged_into_customer_id) REFERENCES customers(id) ON DELETE SET NULL,
+  FOREIGN KEY (deactivated_by) REFERENCES users(id) ON DELETE SET NULL,
+  FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL
+);
+
 CREATE TABLE IF NOT EXISTS credits (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   vehicle_id INTEGER NOT NULL,
   export_id INTEGER,
+  customer_id INTEGER,
   customer_name TEXT NOT NULL,
   customer_phone TEXT,
   customer_location TEXT,
@@ -411,12 +460,16 @@ CREATE TABLE IF NOT EXISTS credits (
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   FOREIGN KEY (vehicle_id) REFERENCES vehicles(id) ON DELETE CASCADE,
   FOREIGN KEY (export_id) REFERENCES exports(id) ON DELETE SET NULL,
+  FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE SET NULL,
   FOREIGN KEY (checked_by_staff_id) REFERENCES staff(id) ON DELETE SET NULL,
   FOREIGN KEY (created_by) REFERENCES users(id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_sales_date ON daily_sales(sale_date);
 CREATE INDEX IF NOT EXISTS idx_exports_date ON exports(export_date);
+CREATE INDEX IF NOT EXISTS idx_customers_name ON customers(name);
+CREATE INDEX IF NOT EXISTS idx_customers_active ON customers(is_active);
+CREATE INDEX IF NOT EXISTS idx_customers_merged_into ON customers(merged_into_customer_id);
 CREATE INDEX IF NOT EXISTS idx_credits_date ON credits(credit_date);
 
 CREATE TABLE IF NOT EXISTS credit_payments (
@@ -434,6 +487,31 @@ CREATE TABLE IF NOT EXISTS credit_payments (
 
 CREATE INDEX IF NOT EXISTS idx_credit_payments_credit ON credit_payments(credit_id);
 CREATE INDEX IF NOT EXISTS idx_credit_payments_paid_at ON credit_payments(paid_at);
+
+CREATE TABLE IF NOT EXISTS export_credit_payments (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  export_id INTEGER,
+  vehicle_id INTEGER,
+  payment_date TEXT NOT NULL,
+  amount REAL NOT NULL DEFAULT 0,
+  cash_amount REAL NOT NULL DEFAULT 0,
+  bank_amount REAL NOT NULL DEFAULT 0,
+  ewallet_amount REAL NOT NULL DEFAULT 0,
+  payment_method TEXT NOT NULL DEFAULT 'CASH',
+  note TEXT,
+  receipt_no TEXT,
+  legacy_activity_id INTEGER UNIQUE,
+  created_by INTEGER,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  FOREIGN KEY (export_id) REFERENCES exports(id) ON DELETE SET NULL,
+  FOREIGN KEY (vehicle_id) REFERENCES vehicles(id) ON DELETE SET NULL,
+  FOREIGN KEY (created_by) REFERENCES users(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_export_credit_payments_export ON export_credit_payments(export_id);
+CREATE INDEX IF NOT EXISTS idx_export_credit_payments_vehicle ON export_credit_payments(vehicle_id);
+CREATE INDEX IF NOT EXISTS idx_export_credit_payments_date ON export_credit_payments(payment_date);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_export_credit_payments_receipt_no ON export_credit_payments(receipt_no);
 
 CREATE TABLE IF NOT EXISTS settings (
   key TEXT PRIMARY KEY,
@@ -766,6 +844,7 @@ CREATE INDEX IF NOT EXISTS idx_import_payments_date ON import_payments(payment_d
 CREATE TABLE IF NOT EXISTS company_purchases (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   purchase_date TEXT NOT NULL,
+  expense_category TEXT NOT NULL DEFAULT 'GENERAL',
   item_name TEXT NOT NULL,
   seller_name TEXT,
   amount REAL NOT NULL DEFAULT 0,
@@ -1279,9 +1358,167 @@ if (!creditColumns.has("customer_phone")) {
 if (!creditColumns.has("customer_location")) {
   db.exec("ALTER TABLE credits ADD COLUMN customer_location TEXT;");
 }
+if (!creditColumns.has("customer_id")) {
+  db.exec("ALTER TABLE credits ADD COLUMN customer_id INTEGER;");
+}
 db.exec("UPDATE credits SET payment_method = 'CASH' WHERE payment_method IS NULL OR TRIM(payment_method) = '';");
 db.exec("UPDATE credits SET payment_method = 'CASH' WHERE payment_method NOT IN ('CASH','BANK','E_WALLET');");
 db.exec("CREATE INDEX IF NOT EXISTS idx_credits_payment_method ON credits(payment_method);");
+db.exec("CREATE INDEX IF NOT EXISTS idx_credits_customer_id ON credits(customer_id);");
+
+const normalizeCustomerText = (value) => String(value || "").trim();
+const normalizeCustomerKey = (value) => normalizeCustomerText(value).toLowerCase();
+const buildCustomerLookupEntry = (row) => ({
+  id: Number(row.id),
+  name: normalizeCustomerText(row.name),
+  phone: normalizeCustomerText(row.phone),
+  location: normalizeCustomerText(row.location),
+  nameKey: normalizeCustomerKey(row.name),
+  phoneKey: normalizeCustomerKey(row.phone),
+  locationKey: normalizeCustomerKey(row.location)
+});
+const customerById = new Map();
+const customersByName = new Map();
+const removeCustomerLookup = (entry) => {
+  if (!entry || !entry.id) return;
+  const existing = customerById.get(entry.id);
+  if (!existing) return;
+  const bucket = customersByName.get(existing.nameKey);
+  if (bucket) {
+    const nextBucket = bucket.filter((row) => row.id !== existing.id);
+    if (nextBucket.length) {
+      customersByName.set(existing.nameKey, nextBucket);
+    } else {
+      customersByName.delete(existing.nameKey);
+    }
+  }
+  customerById.delete(existing.id);
+};
+const registerCustomerLookup = (row) => {
+  const entry = buildCustomerLookupEntry(row);
+  if (!entry.id || !entry.nameKey) return null;
+  removeCustomerLookup(entry);
+  customerById.set(entry.id, entry);
+  if (!customersByName.has(entry.nameKey)) {
+    customersByName.set(entry.nameKey, []);
+  }
+  customersByName.get(entry.nameKey).push(entry);
+  return entry;
+};
+db.prepare("SELECT id, name, phone, location FROM customers ORDER BY id ASC").all().forEach((row) => {
+  registerCustomerLookup(row);
+});
+
+const insertCustomerMaster = db.prepare(
+  `INSERT INTO customers (name, phone, location, created_by)
+   VALUES (?, ?, ?, ?)`
+);
+const updateCustomerMasterContact = db.prepare(
+  `UPDATE customers
+   SET name = ?, phone = ?, location = ?, updated_at = datetime('now')
+   WHERE id = ?`
+);
+const linkCreditCustomer = db.prepare(
+  `UPDATE credits
+   SET customer_id = ?,
+       customer_name = ?,
+       customer_phone = ?,
+       customer_location = ?
+   WHERE id = ?`
+);
+const getCustomerByIdStmt = db.prepare(
+  "SELECT id, name, phone, location FROM customers WHERE id = ?"
+);
+
+const chooseCustomerMatch = ({ name, phone, location }) => {
+  const nameKey = normalizeCustomerKey(name);
+  if (!nameKey) return null;
+  const candidates = customersByName.get(nameKey) || [];
+  if (!candidates.length) return null;
+  const phoneKey = normalizeCustomerKey(phone);
+  const locationKey = normalizeCustomerKey(location);
+  const strict = candidates.find((candidate) => {
+    if (phoneKey && candidate.phoneKey !== phoneKey) return false;
+    if (locationKey && candidate.locationKey !== locationKey) return false;
+    return true;
+  });
+  if (strict) return strict;
+  if (phoneKey) {
+    const phoneMatch = candidates.find((candidate) => candidate.phoneKey === phoneKey);
+    if (phoneMatch) return phoneMatch;
+  }
+  if (locationKey) {
+    const locationMatch = candidates.find((candidate) => candidate.locationKey === locationKey);
+    if (locationMatch) return locationMatch;
+  }
+  if (candidates.length === 1) return candidates[0];
+  return candidates[0] || null;
+};
+
+const ensureCustomerMasterRow = ({ customerId, name, phone, location, createdBy }) => {
+  const safeName = normalizeCustomerText(name);
+  if (!safeName) return null;
+  const safePhone = normalizeCustomerText(phone);
+  const safeLocation = normalizeCustomerText(location);
+
+  let customer = customerId ? customerById.get(Number(customerId)) || null : null;
+  if (!customer) {
+    customer = chooseCustomerMatch({ name: safeName, phone: safePhone, location: safeLocation });
+  }
+  if (!customer) {
+    const result = insertCustomerMaster.run(
+      safeName,
+      safePhone || null,
+      safeLocation || null,
+      createdBy || null
+    );
+    customer = registerCustomerLookup({
+      id: Number(result.lastInsertRowid || 0),
+      name: safeName,
+      phone: safePhone || null,
+      location: safeLocation || null
+    });
+  } else {
+    const nextName = customer.name || safeName;
+    const nextPhone = safePhone || customer.phone || "";
+    const nextLocation = safeLocation || customer.location || "";
+    if (nextName !== customer.name || nextPhone !== customer.phone || nextLocation !== customer.location) {
+      updateCustomerMasterContact.run(
+        nextName,
+        nextPhone || null,
+        nextLocation || null,
+        customer.id
+      );
+      customer = registerCustomerLookup(
+        getCustomerByIdStmt.get(customer.id)
+      ) || customer;
+    }
+  }
+  return customer;
+};
+
+db.prepare(
+  `SELECT id, customer_id, customer_name, customer_phone, customer_location, created_by
+   FROM credits
+   WHERE TRIM(COALESCE(customer_name, '')) <> ''
+   ORDER BY id ASC`
+).all().forEach((row) => {
+  const customer = ensureCustomerMasterRow({
+    customerId: row.customer_id,
+    name: row.customer_name,
+    phone: row.customer_phone,
+    location: row.customer_location,
+    createdBy: row.created_by
+  });
+  if (!customer) return;
+  linkCreditCustomer.run(
+    customer.id,
+    customer.name,
+    customer.phone || null,
+    customer.location || null,
+    row.id
+  );
+});
 
 const importColumns = new Set(
   db.prepare("PRAGMA table_info(import_entries)").all().map((col) => col.name)
@@ -1382,6 +1619,9 @@ db.exec("CREATE INDEX IF NOT EXISTS idx_import_payments_date ON import_payments(
 const companyPurchaseColumns = new Set(
   db.prepare("PRAGMA table_info(company_purchases)").all().map((col) => col.name)
 );
+if (!companyPurchaseColumns.has("expense_category")) {
+  db.exec("ALTER TABLE company_purchases ADD COLUMN expense_category TEXT NOT NULL DEFAULT 'GENERAL';");
+}
 if (!companyPurchaseColumns.has("seller_name")) {
   db.exec("ALTER TABLE company_purchases ADD COLUMN seller_name TEXT;");
 }
@@ -1398,8 +1638,11 @@ if (!companyPurchaseColumns.has("due_date")) {
 if (!companyPurchaseColumns.has("reminder_days")) {
   db.exec("ALTER TABLE company_purchases ADD COLUMN reminder_days INTEGER NOT NULL DEFAULT 0;");
 }
+db.exec("UPDATE company_purchases SET expense_category = 'GENERAL' WHERE expense_category IS NULL OR TRIM(expense_category) = '';");
+db.exec("UPDATE company_purchases SET expense_category = 'GENERAL' WHERE expense_category NOT IN ('GENERAL','LUNCH','LAND_RENT','UTILITIES','OTHER');");
 db.exec("UPDATE company_purchases SET reminder_days = 0 WHERE reminder_days IS NULL OR reminder_days < 0;");
 db.exec("CREATE INDEX IF NOT EXISTS idx_company_purchases_seller ON company_purchases(seller_name);");
+db.exec("CREATE INDEX IF NOT EXISTS idx_company_purchases_category ON company_purchases(expense_category);");
 
 db.exec(
   `CREATE TABLE IF NOT EXISTS company_purchase_payments (
@@ -1600,6 +1843,9 @@ if (!exportColumns.has("jar_container_given_count")) {
 if (!exportColumns.has("return_bottle_case_count")) {
   db.exec("ALTER TABLE exports ADD COLUMN return_bottle_case_count INTEGER NOT NULL DEFAULT 0;");
 }
+if (!exportColumns.has("damaged_bottle_case_count")) {
+  db.exec("ALTER TABLE exports ADD COLUMN damaged_bottle_case_count INTEGER NOT NULL DEFAULT 0;");
+}
 if (!exportColumns.has("leakage_jar_count")) {
   db.exec("ALTER TABLE exports ADD COLUMN leakage_jar_count INTEGER NOT NULL DEFAULT 0;");
 }
@@ -1756,7 +2002,56 @@ if (vehicleColumns.size > 0 && !vehicleColumns.has("deactivated_at")) {
 if (vehicleColumns.size > 0 && !vehicleColumns.has("deactivated_by")) {
   db.exec("ALTER TABLE vehicles ADD COLUMN deactivated_by INTEGER;");
 }
+if (vehicleColumns.size > 0 && !vehicleColumns.has("is_system")) {
+  db.exec("ALTER TABLE vehicles ADD COLUMN is_system INTEGER NOT NULL DEFAULT 0;");
+}
 db.exec("CREATE INDEX IF NOT EXISTS idx_vehicles_active ON vehicles(is_active);");
+
+const customerColumns = new Set(
+  db.prepare("PRAGMA table_info(customers)").all().map((col) => col.name)
+);
+if (customerColumns.size > 0 && !customerColumns.has("phone")) {
+  db.exec("ALTER TABLE customers ADD COLUMN phone TEXT;");
+}
+if (customerColumns.size > 0 && !customerColumns.has("location")) {
+  db.exec("ALTER TABLE customers ADD COLUMN location TEXT;");
+}
+if (customerColumns.size > 0 && !customerColumns.has("note")) {
+  db.exec("ALTER TABLE customers ADD COLUMN note TEXT;");
+}
+if (customerColumns.size > 0 && !customerColumns.has("is_active")) {
+  db.exec("ALTER TABLE customers ADD COLUMN is_active INTEGER NOT NULL DEFAULT 1;");
+}
+if (customerColumns.size > 0 && !customerColumns.has("merged_into_customer_id")) {
+  db.exec("ALTER TABLE customers ADD COLUMN merged_into_customer_id INTEGER;");
+}
+if (customerColumns.size > 0 && !customerColumns.has("deactivated_at")) {
+  db.exec("ALTER TABLE customers ADD COLUMN deactivated_at TEXT;");
+}
+if (customerColumns.size > 0 && !customerColumns.has("deactivated_by")) {
+  db.exec("ALTER TABLE customers ADD COLUMN deactivated_by INTEGER;");
+}
+if (customerColumns.size > 0 && !customerColumns.has("created_by")) {
+  db.exec("ALTER TABLE customers ADD COLUMN created_by INTEGER;");
+}
+if (customerColumns.size > 0 && !customerColumns.has("updated_at")) {
+  db.exec("ALTER TABLE customers ADD COLUMN updated_at TEXT NOT NULL DEFAULT (datetime('now'));");
+}
+db.exec("UPDATE customers SET is_active = 1 WHERE is_active IS NULL;");
+db.exec("UPDATE customers SET updated_at = COALESCE(NULLIF(updated_at, ''), created_at, datetime('now')) WHERE updated_at IS NULL OR TRIM(updated_at) = '';");
+db.exec("CREATE INDEX IF NOT EXISTS idx_customers_name ON customers(name);");
+db.exec("CREATE INDEX IF NOT EXISTS idx_customers_active ON customers(is_active);");
+db.exec("CREATE INDEX IF NOT EXISTS idx_customers_merged_into ON customers(merged_into_customer_id);");
+
+const vehicleComplianceColumns = new Set(
+  db.prepare("PRAGMA table_info(vehicle_compliance)").all().map((col) => col.name)
+);
+if (vehicleComplianceColumns.size > 0 && !vehicleComplianceColumns.has("insurance_details")) {
+  db.exec("ALTER TABLE vehicle_compliance ADD COLUMN insurance_details TEXT;");
+}
+if (vehicleComplianceColumns.size > 0 && !vehicleComplianceColumns.has("permit_details")) {
+  db.exec("ALTER TABLE vehicle_compliance ADD COLUMN permit_details TEXT;");
+}
 
 const jarSalesColumns = new Set(
   db.prepare("PRAGMA table_info(jar_sales)").all().map((col) => col.name)
@@ -1988,6 +2283,11 @@ db.exec(
    WHERE receipt_no IS NULL OR TRIM(receipt_no) = ''`
 );
 db.exec(
+  `UPDATE export_credit_payments
+   SET receipt_no = 'ECP-' || COALESCE(NULLIF(REPLACE(payment_date, '-', ''), ''), strftime('%Y%m%d', 'now')) || '-' || printf('%06d', id)
+   WHERE receipt_no IS NULL OR TRIM(receipt_no) = ''`
+);
+db.exec(
   `UPDATE import_payments
    SET receipt_no = 'IMP-' || COALESCE(NULLIF(REPLACE(payment_date, '-', ''), ''), strftime('%Y%m%d', 'now')) || '-' || printf('%06d', id)
    WHERE receipt_no IS NULL OR TRIM(receipt_no) = ''`
@@ -2028,6 +2328,9 @@ db.exec(
   "CREATE UNIQUE INDEX IF NOT EXISTS idx_credit_payments_receipt_no ON credit_payments(receipt_no);"
 );
 db.exec(
+  "CREATE UNIQUE INDEX IF NOT EXISTS idx_export_credit_payments_receipt_no ON export_credit_payments(receipt_no);"
+);
+db.exec(
   "CREATE UNIQUE INDEX IF NOT EXISTS idx_import_payments_receipt_no ON import_payments(receipt_no);"
 );
 db.exec(
@@ -2063,6 +2366,127 @@ if (paymentCount === 0) {
       "Opening balance",
       credit.created_by || null,
       credit.credit_date
+    );
+  });
+}
+{
+  const creditPaymentDiffRows = db.prepare(
+    `SELECT credits.id,
+            credits.paid_amount,
+            credits.credit_date,
+            credits.created_by,
+            COALESCE(NULLIF(credits.payment_method, ''), 'CASH') AS payment_method,
+            COALESCE(payment_totals.total_paid, 0) AS total_paid
+     FROM credits
+     LEFT JOIN (
+       SELECT credit_id, COALESCE(SUM(amount), 0) AS total_paid
+       FROM credit_payments
+       GROUP BY credit_id
+     ) AS payment_totals ON payment_totals.credit_id = credits.id
+     WHERE credits.paid_amount > COALESCE(payment_totals.total_paid, 0) + 0.009`
+  ).all();
+  const insertMissingCreditPayment = db.prepare(
+    "INSERT INTO credit_payments (credit_id, amount, payment_method, note, created_by, paid_at) VALUES (?, ?, ?, ?, ?, ?)"
+  );
+  creditPaymentDiffRows.forEach((row) => {
+    const missingAmount = positiveMoney(Number(row.paid_amount || 0) - Number(row.total_paid || 0));
+    if (missingAmount <= 0) return;
+    insertMissingCreditPayment.run(
+      row.id,
+      missingAmount,
+      row.payment_method,
+      "Opening payment",
+      row.created_by || null,
+      row.credit_date || new Date().toISOString().slice(0, 10)
+    );
+  });
+}
+db.exec(
+  `UPDATE credits
+   SET paid_amount = COALESCE((
+     SELECT ROUND(SUM(credit_payments.amount), 2)
+     FROM credit_payments
+     WHERE credit_payments.credit_id = credits.id
+   ), 0),
+       paid = CASE
+         WHEN amount <= COALESCE((
+           SELECT ROUND(SUM(credit_payments.amount), 2)
+           FROM credit_payments
+           WHERE credit_payments.credit_id = credits.id
+         ), 0) + 0.009 THEN 1
+         ELSE 0
+       END`
+);
+
+{
+  const activityRows = db.prepare(
+    `SELECT id, entity_type, entity_id, details, user_id, created_at
+     FROM activity_logs
+     WHERE action = 'payment'
+       AND entity_type IN ('export', 'export_day_credit', 'export_vehicle_cumulative_settlement')
+       AND id NOT IN (
+         SELECT legacy_activity_id
+         FROM export_credit_payments
+         WHERE legacy_activity_id IS NOT NULL
+       )
+     ORDER BY id ASC`
+  ).all();
+  const getNumberFromDetails = (details, key) => {
+    const match = String(details || "").match(new RegExp(`${key}=(-?\\d+(?:\\.\\d+)?)`, "i"));
+    return match ? Number(match[1]) : 0;
+  };
+  const getTextFromDetails = (details, key) => {
+    const match = String(details || "").match(new RegExp(`${key}=([^;,\n]+)`, "i"));
+    return match ? String(match[1]).trim() : "";
+  };
+  const exportVehicleLookup = db.prepare("SELECT vehicle_id FROM exports WHERE id = ?");
+  const insertExportCreditEvent = db.prepare(
+    `INSERT INTO export_credit_payments (
+        export_id, vehicle_id, payment_date, amount, cash_amount, bank_amount, ewallet_amount,
+        payment_method, note, receipt_no, legacy_activity_id, created_by, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  );
+  activityRows.forEach((row) => {
+    const amount = Number(getNumberFromDetails(row.details, "payment") || 0);
+    if (!(amount > 0)) return;
+    const cashAmount = Number(getNumberFromDetails(row.details, "cash") || 0);
+    const bankAmount = Number(getNumberFromDetails(row.details, "bank") || 0);
+    const ewalletAmount = Number(getNumberFromDetails(row.details, "ewallet") || 0);
+    const paymentDate = getTextFromDetails(row.details, "payment_date")
+      || String(row.created_at || "").slice(0, 10)
+      || new Date().toISOString().slice(0, 10);
+    let exportId = null;
+    let vehicleId = null;
+    if (String(row.entity_type) === "export") {
+      const parsedId = Number(row.entity_id || 0);
+      if (parsedId > 0) {
+        exportId = parsedId;
+        const exportRow = exportVehicleLookup.get(parsedId);
+        vehicleId = exportRow ? Number(exportRow.vehicle_id || 0) || null : null;
+      }
+    } else if (String(row.entity_type) === "export_day_credit") {
+      const parsedVehicleId = Number(String(row.entity_id || "").split(":")[0] || 0);
+      vehicleId = parsedVehicleId > 0 ? parsedVehicleId : null;
+    } else if (String(row.entity_type) === "export_vehicle_cumulative_settlement") {
+      const parsedVehicleId = Number(row.entity_id || 0);
+      vehicleId = parsedVehicleId > 0 ? parsedVehicleId : null;
+    }
+    const method = getTextFromDetails(row.details, "method").toUpperCase().replace(/[^A-Z_]/g, "") || "CASH";
+    const receiptNo = getTextFromDetails(row.details, "receipt") || null;
+    insertExportCreditEvent.run(
+      exportId,
+      vehicleId,
+      paymentDate,
+      amount,
+      cashAmount,
+      bankAmount,
+      ewalletAmount,
+      method,
+      "Backfilled export credit payment",
+      receiptNo,
+      row.id,
+      row.user_id || null,
+      row.created_at || null
     );
   });
 }
@@ -2333,6 +2757,65 @@ db.exec(
        WHERE leakage_jar_sale_payments.leakage_jar_sale_id = leakage_jar_sales.id
      )`
 );
+{
+  const leakageDiffRows = db.prepare(
+    `SELECT leakage_jar_sales.id,
+            leakage_jar_sales.sale_date,
+            leakage_jar_sales.created_by,
+            leakage_jar_sales.payment_method,
+            leakage_jar_sales.paid_amount,
+            leakage_jar_sales.paid_cash_amount,
+            leakage_jar_sales.paid_bank_amount,
+            leakage_jar_sales.paid_ewallet_amount,
+            COALESCE(payment_totals.total_paid, 0) AS total_paid,
+            COALESCE(payment_totals.cash_paid, 0) AS cash_paid,
+            COALESCE(payment_totals.bank_paid, 0) AS bank_paid,
+            COALESCE(payment_totals.ewallet_paid, 0) AS ewallet_paid
+     FROM leakage_jar_sales
+     LEFT JOIN (
+       SELECT leakage_jar_sale_id,
+              COALESCE(SUM(amount), 0) AS total_paid,
+              COALESCE(SUM(cash_amount), 0) AS cash_paid,
+              COALESCE(SUM(bank_amount), 0) AS bank_paid,
+              COALESCE(SUM(ewallet_amount), 0) AS ewallet_paid
+       FROM leakage_jar_sale_payments
+       GROUP BY leakage_jar_sale_id
+     ) AS payment_totals ON payment_totals.leakage_jar_sale_id = leakage_jar_sales.id
+     WHERE leakage_jar_sales.paid_amount > COALESCE(payment_totals.total_paid, 0) + 0.009`
+  ).all();
+  const insertLeakageDiffPayment = db.prepare(
+    `INSERT INTO leakage_jar_sale_payments (
+      leakage_jar_sale_id, payment_date, amount, cash_amount, bank_amount, ewallet_amount, payment_method, note, created_by
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  );
+  leakageDiffRows.forEach((row) => {
+    const missingAmount = positiveMoney(Number(row.paid_amount || 0) - Number(row.total_paid || 0));
+    if (missingAmount <= 0) return;
+    let cashAmount = positiveMoney(Number(row.paid_cash_amount || 0) - Number(row.cash_paid || 0));
+    let bankAmount = positiveMoney(Number(row.paid_bank_amount || 0) - Number(row.bank_paid || 0));
+    let ewalletAmount = positiveMoney(Number(row.paid_ewallet_amount || 0) - Number(row.ewallet_paid || 0));
+    const breakdownTotal = toMoney(cashAmount + bankAmount + ewalletAmount);
+    if (breakdownTotal <= 0) {
+      cashAmount = missingAmount;
+    } else if (Math.abs(breakdownTotal - missingAmount) > 0.01) {
+      const scale = missingAmount / breakdownTotal;
+      cashAmount = toMoney(cashAmount * scale);
+      bankAmount = toMoney(bankAmount * scale);
+      ewalletAmount = toMoney(missingAmount - cashAmount - bankAmount);
+    }
+    insertLeakageDiffPayment.run(
+      row.id,
+      row.sale_date || new Date().toISOString().slice(0, 10),
+      missingAmount,
+      cashAmount,
+      bankAmount,
+      ewalletAmount,
+      row.payment_method || "CASH",
+      "Opening payment",
+      row.created_by || null
+    );
+  });
+}
 db.exec(
   `UPDATE leakage_jar_sales
    SET paid_amount = COALESCE((
@@ -2408,6 +2891,46 @@ db.exec(
        WHERE jar_sale_payments.jar_sale_id = jar_sales.id
      )`
 );
+{
+  const jarSaleDiffRows = db.prepare(
+    `SELECT jar_sales.id,
+            jar_sales.sale_date,
+            jar_sales.created_by,
+            jar_sales.paid_amount,
+            COALESCE(payment_totals.total_paid, 0) AS total_paid
+     FROM jar_sales
+     LEFT JOIN (
+       SELECT jar_sale_id,
+              COALESCE(SUM(amount), 0) AS total_paid
+       FROM jar_sale_payments
+       GROUP BY jar_sale_id
+     ) AS payment_totals ON payment_totals.jar_sale_id = jar_sales.id
+     WHERE jar_sales.paid_amount > COALESCE(payment_totals.total_paid, 0) + 0.009`
+  ).all();
+  const insertJarSaleDiffPayment = db.prepare(
+    `INSERT INTO jar_sale_payments (
+      jar_sale_id, payment_date, amount, cash_amount, bank_amount, ewallet_amount, payment_method, note, created_by
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  );
+  jarSaleDiffRows.forEach((row) => {
+    const missingAmount = positiveMoney(Number(row.paid_amount || 0) - Number(row.total_paid || 0));
+    if (missingAmount <= 0) return;
+    const cashAmount = missingAmount;
+    const bankAmount = 0;
+    const ewalletAmount = 0;
+    insertJarSaleDiffPayment.run(
+      row.id,
+      row.sale_date || new Date().toISOString().slice(0, 10),
+      missingAmount,
+      cashAmount,
+      bankAmount,
+      ewalletAmount,
+      "CASH",
+      "Opening payment",
+      row.created_by || null
+    );
+  });
+}
 db.exec(
   `UPDATE jar_sales
    SET paid_amount = COALESCE((

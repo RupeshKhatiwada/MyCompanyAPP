@@ -25,6 +25,19 @@
       const selectedVehicleRaw = pickValue('vehicle_id', typeof selectedVehicleId !== 'undefined' ? selectedVehicleId : '');
       const selectedVehicleValue = String(selectedVehicleRaw || '');
       const tripDateValue = pickValue('trip_date', typeof defaultTripDate !== 'undefined' ? defaultTripDate : '');
+      const selectedCustomerIdValue = String(pickValue('customer_id', ''));
+      const selectedCustomerEntry = safeCustomerDirectory.find((entry) => String(entry.id) === selectedCustomerIdValue) || null;
+      const customerModeFallback = safeCustomerDirectory.length === 0
+        ? 'new'
+        : (typeof defaultCustomerMode !== 'undefined'
+          ? defaultCustomerMode
+          : (selectedCustomerIdValue ? 'existing' : 'new'));
+      const customerModeValue = String(pickValue('customer_mode', customerModeFallback) || customerModeFallback).toLowerCase() === 'new'
+        ? 'new'
+        : 'existing';
+      const newCustomerNameValue = pickValue('new_customer_name', customerModeValue === 'new'
+        ? pickValue('customer_name', '')
+        : '');
       const customerPhoneValue = pickValue('customer_phone', '');
       const customerLocationValue = pickValue('customer_location', '');
       const fallbackMethod = String(pickValue('payment_method', 'CASH') || 'CASH').toUpperCase();
@@ -81,21 +94,45 @@
         <input class="input" type="date" name="trip_date" value="<%= tripDateValue %>" />
         <p class="mt-1 text-xs text-slate-500"><%= t('tripDateCreditHint') %></p>
       </div>
-      <div>
+      <div class="space-y-3">
         <label class="label"><%= t('customerName') %></label>
-        <select id="savedCustomerSelect" class="input mb-2">
-          <option value=""><%= t('selectCustomer') %></option>
-          <% safeCustomerDirectory.forEach((entry) => { %>
-            <% const name = entry.customer_name; %>
-            <option value="<%= name %>" <%= pickValue('customer_name', '') === name ? 'selected' : '' %>><%= name %></option>
-          <% }) %>
-        </select>
-        <input id="customerNameInput" class="input" type="text" name="customer_name" list="customerList" value="<%= pickValue('customer_name', '') %>" required />
-        <datalist id="customerList">
-          <% safeCustomerDirectory.forEach((entry) => { %>
-            <option value="<%= entry.customer_name %>"></option>
-          <% }) %>
-        </datalist>
+        <div class="grid gap-3 md:grid-cols-2">
+          <label class="card p-4 text-sm">
+            <div class="flex items-center gap-3">
+              <input id="customerModeExisting" type="radio" name="customer_mode" value="existing" class="h-4 w-4" <%= customerModeValue === 'existing' ? 'checked' : '' %> />
+              <div>
+                <p class="font-semibold text-slate-900"><%= t('useSavedCustomer') %></p>
+                <p class="text-xs text-slate-500"><%= t('useSavedCustomerHint') %></p>
+              </div>
+            </div>
+          </label>
+          <label class="card p-4 text-sm">
+            <div class="flex items-center gap-3">
+              <input id="customerModeNew" type="radio" name="customer_mode" value="new" class="h-4 w-4" <%= customerModeValue === 'new' ? 'checked' : '' %> />
+              <div>
+                <p class="font-semibold text-slate-900"><%= t('addNewCustomer') %></p>
+                <p class="text-xs text-slate-500"><%= t('addNewCustomerHint') %></p>
+              </div>
+            </div>
+          </label>
+        </div>
+        <div id="existingCustomerSection">
+          <select id="savedCustomerSelect" class="input" name="customer_id">
+            <option value=""><%= t('selectCustomer') %></option>
+            <% safeCustomerDirectory.forEach((entry) => { %>
+              <% const labelParts = [entry.customer_name]; %>
+              <% if (entry.customer_phone) labelParts.push(entry.customer_phone); %>
+              <% if (entry.customer_location) labelParts.push(entry.customer_location); %>
+              <% if (Number(entry.is_active || 1) !== 1) labelParts.push(t('inactive')); %>
+              <option value="<%= entry.id %>" <%= selectedCustomerIdValue === String(entry.id) ? 'selected' : '' %>><%= labelParts.join(' • ') %></option>
+            <% }) %>
+          </select>
+          <p class="mt-1 text-xs text-slate-500"><%= t('useSavedCustomerHint') %></p>
+        </div>
+        <div id="newCustomerSection">
+          <input id="customerNameInput" class="input" type="text" name="new_customer_name" value="<%= newCustomerNameValue %>" />
+          <p class="mt-1 text-xs text-slate-500"><%= t('addNewCustomerHint') %></p>
+        </div>
       </div>
       <div>
         <label class="label"><%= t('customerPhone') %></label>
@@ -201,16 +238,22 @@
     var paidEWalletInput = document.getElementById('paidEWalletAmount');
     var remainingInput = document.getElementById('remainingAmount');
     var markPaid = document.getElementById('markPaid');
+    var customerModeExisting = document.getElementById('customerModeExisting');
+    var customerModeNew = document.getElementById('customerModeNew');
+    var existingCustomerSection = document.getElementById('existingCustomerSection');
+    var newCustomerSection = document.getElementById('newCustomerSection');
     var savedCustomerSelect = document.getElementById('savedCustomerSelect');
     var customerNameInput = document.getElementById('customerNameInput');
     var customerPhoneInput = document.getElementById('customerPhoneInput');
     var customerLocationInput = document.getElementById('customerLocationInput');
     var customerDirectory = <%- JSON.stringify((Array.isArray(customerDirectory) ? customerDirectory : []).reduce((acc, entry) => {
-      const key = String(entry.customer_name || '').trim().toLowerCase();
+      const key = String(entry.id || '').trim();
       if (!key) return acc;
       acc[key] = {
+        name: String(entry.customer_name || '').trim(),
         phone: String(entry.customer_phone || '').trim(),
-        location: String(entry.customer_location || '').trim()
+        location: String(entry.customer_location || '').trim(),
+        isActive: Number(entry.is_active || 1)
       };
       return acc;
     }, {})) %>;
@@ -281,9 +324,19 @@
         if (el) el.readOnly = markPaid.checked;
       });
     }
-    if (savedCustomerSelect && customerNameInput) {
-      var applyCustomerMeta = function (name, force) {
-        var key = String(name || '').trim().toLowerCase();
+    var syncCustomerMode = function () {
+      var useNewCustomer = Boolean(customerModeNew && customerModeNew.checked);
+      if (existingCustomerSection) existingCustomerSection.style.display = useNewCustomer ? 'none' : '';
+      if (newCustomerSection) newCustomerSection.style.display = useNewCustomer ? '' : 'none';
+      if (savedCustomerSelect) savedCustomerSelect.required = !useNewCustomer;
+      if (customerNameInput) customerNameInput.required = useNewCustomer;
+      if (!useNewCustomer && savedCustomerSelect && savedCustomerSelect.value) {
+        applyCustomerMeta(savedCustomerSelect.value, false);
+      }
+    };
+    if (savedCustomerSelect) {
+      var applyCustomerMeta = function (id, force) {
+        var key = String(id || '').trim();
         if (!key || !customerDirectory[key]) return;
         var meta = customerDirectory[key];
         if (customerPhoneInput && (force || !String(customerPhoneInput.value || '').trim())) {
@@ -295,17 +348,17 @@
       };
       savedCustomerSelect.addEventListener('change', function () {
         if (!savedCustomerSelect.value) return;
-        customerNameInput.value = savedCustomerSelect.value;
         applyCustomerMeta(savedCustomerSelect.value, true);
       });
-      customerNameInput.addEventListener('input', function () {
-        if (!customerNameInput.value || customerNameInput.value !== savedCustomerSelect.value) {
-          savedCustomerSelect.value = '';
-        }
-        applyCustomerMeta(customerNameInput.value, false);
-      });
-      applyCustomerMeta(customerNameInput.value || savedCustomerSelect.value, false);
+      if (customerModeExisting) {
+        customerModeExisting.addEventListener('change', syncCustomerMode);
+      }
+      if (customerModeNew) {
+        customerModeNew.addEventListener('change', syncCustomerMode);
+      }
+      applyCustomerMeta(savedCustomerSelect.value, false);
     }
+    syncCustomerMode();
     syncAmounts();
   })();
 </script>

@@ -1,4 +1,8 @@
 const dayjs = require("dayjs");
+const {
+  buildCompanyMissingAmountSql,
+  buildExportCreditTotalsJoin
+} = require("./exportPayments");
 
 const salaryConfigByPersonType = {
   STAFF: {
@@ -154,11 +158,29 @@ const getDailyCollectionBalance = (db, businessDate, options = {}) => {
   const inflowCents = [
     sumScalar(
       `SELECT
-          COALESCE(SUM(paid_cash_amount), 0) +
-          COALESCE(SUM(paid_bank_amount), 0) +
-          COALESCE(SUM(paid_ewallet_amount), 0) AS amount
+          COALESCE(SUM(CASE
+            WHEN (exports.paid_cash_amount - COALESCE(export_credit_totals.cash_amount, 0)) < 0 THEN 0
+            ELSE (exports.paid_cash_amount - COALESCE(export_credit_totals.cash_amount, 0))
+          END), 0) +
+          COALESCE(SUM(CASE
+            WHEN (exports.paid_bank_amount - COALESCE(export_credit_totals.bank_amount, 0)) < 0 THEN 0
+            ELSE (exports.paid_bank_amount - COALESCE(export_credit_totals.bank_amount, 0))
+          END), 0) +
+          COALESCE(SUM(CASE
+            WHEN (exports.paid_ewallet_amount - COALESCE(export_credit_totals.ewallet_amount, 0)) < 0 THEN 0
+            ELSE (exports.paid_ewallet_amount - COALESCE(export_credit_totals.ewallet_amount, 0))
+          END), 0) +
+          COALESCE(SUM(${buildCompanyMissingAmountSql("paid_cash_amount", "exports", "vehicles")}), 0) AS amount
        FROM exports
+       JOIN vehicles ON vehicles.id = exports.vehicle_id
+       ${buildExportCreditTotalsJoin("exports", "export_credit_totals")}
        WHERE export_date = ?`,
+      safeDate
+    ),
+    sumScalar(
+      `SELECT COALESCE(SUM(amount), 0) AS amount
+       FROM export_credit_payments
+       WHERE payment_date = ?`,
       safeDate
     ),
     sumScalar(

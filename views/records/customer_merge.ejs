@@ -1,0 +1,46 @@
+<%- include('../partials/shell-start', { title }) %>
+<section class="py-8">
+  <div class="flex flex-wrap items-center justify-between gap-3">
+    <div>
+      <h1 class="text-3xl font-semibold"><%= t('mergeCustomerTitle') %></h1>
+      <p class="text-slate-600"><%= t('mergeCustomerSubtitle') %></p>
+    </div>
+    <a class="btn-outline" href="/records/customers?include_inactive=1"><%= t('back') %></a>
+  </div>
+
+  <div class="mt-6 grid gap-4 lg:grid-cols-[1.2fr,1fr]">
+    <div class="card p-6">
+      <p class="text-sm font-medium text-slate-500"><%= t('mergeSourceCustomer') %></p>
+      <p class="mt-2 text-xl font-semibold text-slate-900"><%= sourceCustomer.name %></p>
+      <p class="mt-2 text-sm text-slate-600">
+        <%= sourceCustomer.phone || '-' %>
+        <% if (sourceCustomer.location) { %> • <%= sourceCustomer.location %><% } %>
+      </p>
+    </div>
+
+    <div class="card p-6">
+      <% if (error) { %>
+        <div class="mb-4 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700"><%= error %></div>
+      <% } %>
+      <form method="post" action="/records/customers/<%= sourceCustomer.id %>/merge" class="space-y-4">
+        <div>
+          <label class="label"><%= t('mergeTargetCustomer') %></label>
+          <select class="input" name="target_customer_id" required>
+            <option value=""><%= t('selectCustomer') %></option>
+            <% (targetOptions || []).forEach((row) => { %>
+              <% const parts = [row.name]; %>
+              <% if (row.phone) parts.push(row.phone); %>
+              <% if (row.location) parts.push(row.location); %>
+              <option value="<%= row.id %>"><%= parts.join(' • ') %></option>
+            <% }) %>
+          </select>
+        </div>
+        <div class="flex flex-wrap gap-2">
+          <button class="btn-primary" type="submit"><%= t('merge') %></button>
+          <a class="btn-outline" href="/records/customers?include_inactive=1"><%= t('cancel') %></a>
+        </div>
+      </form>
+    </div>
+  </div>
+</section>
+<%- include('../partials/shell-end') %>

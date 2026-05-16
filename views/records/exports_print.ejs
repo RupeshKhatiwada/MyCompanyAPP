@@ -6,134 +6,98 @@
   <title><%= t('exportsTitle') %> | AQUA MSK</title>
   <link rel="stylesheet" href="/css/styles.css?v=<%= assetVersion %>" />
   <style>
-    .print-report-header {
-      border-bottom: 1px solid #cbd5e1;
-      padding-bottom: 10px;
-    }
-    @media print {
-      @page {
-        size: A4 landscape;
-        margin: 10mm;
-      }
-      .print-hidden {
-        display: none !important;
-      }
-      .print-sheet {
-        max-width: none !important;
-        width: 100% !important;
-        margin: 0 !important;
-        padding: 0 !important;
-      }
-      .print-report-header {
-        break-inside: avoid;
-        page-break-inside: avoid;
-      }
-      .print-table-wrap {
-        overflow: visible !important;
-      }
-      .print-table {
-        width: 100% !important;
-        font-size: 9px !important;
-        line-height: 1.2 !important;
-      }
-      .print-table thead {
-        display: table-header-group !important;
-      }
-      .print-table tfoot {
-        display: table-footer-group !important;
-      }
-      .print-table .table-head {
-        position: static !important;
-      }
-      .print-table th,
-      .print-table td {
-        padding: 4px 6px !important;
-        vertical-align: top;
-        white-space: normal !important;
-        word-break: break-word;
-      }
-      .print-table tr {
-        break-inside: avoid;
-        page-break-inside: avoid;
-      }
-    }
+    <%- include('../partials/print-report-styles', { pageSize: 'A4 landscape' }) %>
   </style>
 </head>
-<body class="bg-white text-slate-900">
-  <div class="print-sheet mx-auto max-w-6xl p-6">
-    <div class="print-report-header flex items-center justify-between gap-4">
-      <div class="flex-1">
+<body class="text-slate-900">
+  <div class="print-page">
+    <div class="print-toolbar print-hidden">
+      <button class="btn-primary" onclick="window.print()"><%= t('print') %></button>
+    </div>
+
+    <div class="print-header">
+      <div class="print-header-copy">
         <%- include('../partials/print-brand', { subtitle: t('exportsTitle') }) %>
-        <div class="mt-2 text-sm text-slate-600">
-          <p><strong><%= t('from') %>:</strong> <%= typeof formatDateDual === 'function' ? formatDateDual(from) : from %> &nbsp; <strong><%= t('to') %>:</strong> <%= typeof formatDateDual === 'function' ? formatDateDual(to) : to %></p>
+        <div class="print-header-meta">
+          <span><strong><%= t('from') %>:</strong> <%= typeof formatDateDual === 'function' ? formatDateDual(from) : from %></span>
+          <span><strong><%= t('to') %>:</strong> <%= typeof formatDateDual === 'function' ? formatDateDual(to) : to %></span>
           <% if (q) { %>
-            <p><strong><%= t('search') %>:</strong> <%= q %></p>
+            <span><strong><%= t('search') %>:</strong> <%= q %></span>
           <% } %>
         </div>
       </div>
-      <button class="btn-primary print-hidden" onclick="window.print()"><%= t('print') %></button>
     </div>
 
-    <div class="mt-6 card overflow-hidden print-table-wrap">
-      <div class="overflow-x-auto print-table-wrap">
-        <table class="table-base print-table">
+    <div class="print-section mt-6">
+      <div class="print-section-header">
+        <div>
+          <h2 class="print-section-title"><%= t('exportsTitle') %></h2>
+          <p class="print-section-subtitle"><%= t('tripWorkspaceSubtitle') %></p>
+        </div>
+      </div>
+      <div class="print-table-wrap">
+        <table class="print-table">
           <thead class="table-head">
             <tr>
-              <th class="px-4 py-3"><%= t('date') %></th>
-              <th class="px-4 py-3"><%= t('receiptNo') %></th>
-              <th class="px-4 py-3"><%= t('vehicle') %></th>
-              <th class="px-4 py-3"><%= t('jars') %></th>
-              <th class="px-4 py-3"><%= t('returnJars') %></th>
-              <th class="px-4 py-3"><%= t('leakageJars') %></th>
-              <th class="px-4 py-3"><%= t('netJars') %></th>
-              <th class="px-4 py-3"><%= t('soldJars') %></th>
-              <th class="px-4 py-3"><%= t('soldJarAmount') %></th>
-              <th class="px-4 py-3"><%= t('bottleCases') %></th>
-              <th class="px-4 py-3"><%= t('dispensers') %></th>
-              <th class="px-4 py-3"><%= t('returnBottleCases') %></th>
-              <th class="px-4 py-3"><%= t('netBottles') %></th>
-              <th class="px-4 py-3"><%= t('totalExportAmount') %></th>
-              <th class="px-4 py-3"><%= t('collectionAmount') %></th>
-              <th class="px-4 py-3"><%= t('netCollectionAmount') %></th>
-              <th class="px-4 py-3"><%= t('paidAmount') %></th>
-              <th class="px-4 py-3"><%= t('creditAmount') %></th>
-              <th class="px-4 py-3"><%= t('recordedBy') %></th>
+              <th><%= t('date') %></th>
+              <th><%= t('receiptNo') %></th>
+              <th><%= t('vehicle') %></th>
+              <th><%= t('jars') %></th>
+              <th><%= t('returnJars') %></th>
+              <th><%= t('leakageJars') %></th>
+              <th><%= t('netJars') %></th>
+              <th><%= t('soldJars') %></th>
+              <th><%= t('soldJarAmount') %></th>
+              <th><%= t('bottleCases') %></th>
+              <th><%= t('dispensers') %></th>
+              <th><%= t('returnBottleCases') %></th>
+              <th><%= t('damagedBottleCases') %></th>
+              <th><%= t('netBottles') %></th>
+              <th><%= t('totalExportAmount') %></th>
+              <th><%= t('collectionAmount') %></th>
+              <th><%= t('netCollectionAmount') %></th>
+              <th><%= t('paidAmount') %></th>
+              <th><%= t('creditAmount') %></th>
+              <th><%= t('recordedBy') %></th>
             </tr>
           </thead>
           <tbody>
             <% if (exportsRows.length === 0) { %>
               <tr>
-                <td class="px-4 py-4 text-slate-500" colspan="19"><%= t('noExports') %></td>
+                <td class="text-slate-500" colspan="20"><%= t('noExports') %></td>
               </tr>
             <% } %>
             <% exportsRows.forEach((record) => { %>
               <% const netJars = Math.max(0, (record.jar_count || 0) - (record.return_jar_count || 0) - (record.leakage_jar_count || 0)); %>
-              <% const netBottles = Math.max(0, (record.bottle_case_count || 0) - (record.return_bottle_case_count || 0)); %>
-              <% const collectionAmount = Number(record.collection_amount || 0); %>
+              <% const netBottles = Math.max(0, (record.bottle_case_count || 0) - (record.return_bottle_case_count || 0) - (record.damaged_bottle_case_count || 0)); %>
+              <% const soldJarAmount = Number(record.sold_jar_amount || 0) || (Number(record.sold_jar_count || 0) * Number(record.sold_jar_price || 0)); %>
+              <% const collectionAmount = Number(record.is_company || 0) === 1 ? Number(record.collection_amount || 0) + soldJarAmount : Number(record.collection_amount || 0); %>
               <% const expenseAmount = Number(record.expense_amount || 0); %>
-              <% const paidAmount = Number(record.paid_amount || 0); %>
+              <% const paidAmount = Number(record.is_company || 0) === 1 ? Math.max(Number(record.paid_amount || 0), collectionAmount) : Number(record.paid_amount || 0); %>
               <% const creditAmount = Number(record.credit_amount || 0); %>
+              <% const totalAmount = Number(record.is_company || 0) === 1 ? Math.max(Number(record.total_amount || 0), collectionAmount) : Number(record.total_amount || 0); %>
               <% const netCollectionAmount = Math.max(0, collectionAmount - expenseAmount); %>
-              <tr class="table-row">
-                <td class="px-4 py-3"><%= typeof formatDateDual === 'function' ? formatDateDual(record.export_date) : record.export_date %></td>
-                <td class="px-4 py-3"><%= record.receipt_no || (`#${record.id}`) %></td>
-                <td class="px-4 py-3 font-medium"><%= `${record.owner_name} • ${record.vehicle_number}` %></td>
-                <td class="px-4 py-3"><%= record.jar_count %></td>
-                <td class="px-4 py-3"><%= record.return_jar_count %></td>
-                <td class="px-4 py-3"><%= record.leakage_jar_count %></td>
-                <td class="px-4 py-3"><%= netJars %></td>
-                <td class="px-4 py-3"><%= record.sold_jar_count || 0 %></td>
-                <td class="px-4 py-3"><%= record.sold_jar_amount || 0 %></td>
-                <td class="px-4 py-3"><%= record.bottle_case_count %></td>
-                <td class="px-4 py-3"><%= record.dispenser_count || 0 %></td>
-                <td class="px-4 py-3"><%= record.return_bottle_case_count %></td>
-                <td class="px-4 py-3"><%= netBottles %></td>
-                <td class="px-4 py-3"><%= record.total_amount %></td>
-                <td class="px-4 py-3"><%= collectionAmount %></td>
-                <td class="px-4 py-3"><%= netCollectionAmount %></td>
-                <td class="px-4 py-3"><%= paidAmount %></td>
-                <td class="px-4 py-3"><%= creditAmount %></td>
-                <td class="px-4 py-3"><%= record.recorded_by || '-' %></td>
+              <tr>
+                <td><%= typeof formatDateDual === 'function' ? formatDateDual(record.export_date) : record.export_date %></td>
+                <td><%= record.receipt_no || (`#${record.id}`) %></td>
+                <td><strong><%= `${record.owner_name} • ${record.vehicle_number}` %></strong></td>
+                <td><%= record.jar_count %></td>
+                <td><%= record.return_jar_count %></td>
+                <td><%= record.leakage_jar_count %></td>
+                <td><%= netJars %></td>
+                <td><%= record.sold_jar_count || 0 %></td>
+                <td><%= record.sold_jar_amount || 0 %></td>
+                <td><%= record.bottle_case_count %></td>
+                <td><%= record.dispenser_count || 0 %></td>
+                <td><%= record.return_bottle_case_count %></td>
+                <td><%= record.damaged_bottle_case_count || 0 %></td>
+                <td><%= netBottles %></td>
+                <td><%= totalAmount %></td>
+                <td><%= collectionAmount %></td>
+                <td><%= netCollectionAmount %></td>
+                <td><%= paidAmount %></td>
+                <td><%= creditAmount %></td>
+                <td><%= record.recorded_by || '-' %></td>
               </tr>
             <% }) %>
           </tbody>
@@ -141,74 +105,74 @@
       </div>
     </div>
 
-    <div class="mt-6 grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-4">
-      <div class="card p-4">
-        <p class="text-slate-500"><%= t('tripCount') %></p>
-        <p class="text-lg font-semibold"><%= exportTotals.total_trips %></p>
+    <div class="print-summary-grid mt-6">
+      <div class="print-summary-card">
+        <p class="print-summary-label"><%= t('tripCount') %></p>
+        <p class="print-summary-value"><%= exportTotals.total_trips %></p>
       </div>
-      <div class="card p-4">
-        <p class="text-slate-500"><%= t('totalJars') %></p>
-        <p class="text-lg font-semibold"><%= exportTotals.total_jars %></p>
+      <div class="print-summary-card">
+        <p class="print-summary-label"><%= t('totalJars') %></p>
+        <p class="print-summary-value"><%= exportTotals.total_jars %></p>
       </div>
-      <div class="card p-4">
-        <p class="text-slate-500"><%= t('totalBottleCases') %></p>
-        <p class="text-lg font-semibold"><%= exportTotals.total_bottle_cases %></p>
+      <div class="print-summary-card">
+        <p class="print-summary-label"><%= t('totalBottleCases') %></p>
+        <p class="print-summary-value"><%= exportTotals.total_bottle_cases %></p>
       </div>
-      <div class="card p-4">
-        <p class="text-slate-500"><%= t('totalDispensers') %></p>
-        <p class="text-lg font-semibold"><%= exportTotals.total_dispensers || 0 %></p>
+      <div class="print-summary-card">
+        <p class="print-summary-label"><%= t('totalDispensers') %></p>
+        <p class="print-summary-value"><%= exportTotals.total_dispensers || 0 %></p>
       </div>
-      <div class="card p-4">
-        <p class="text-slate-500"><%= t('totalReturnJars') %></p>
-        <p class="text-lg font-semibold"><%= exportTotals.total_return_jars %></p>
+      <div class="print-summary-card">
+        <p class="print-summary-label"><%= t('totalReturnJars') %></p>
+        <p class="print-summary-value"><%= exportTotals.total_return_jars %></p>
       </div>
-      <div class="card p-4">
-        <p class="text-slate-500"><%= t('totalReturnBottleCases') %></p>
-        <p class="text-lg font-semibold"><%= exportTotals.total_return_bottles %></p>
+      <div class="print-summary-card">
+        <p class="print-summary-label"><%= t('totalReturnBottleCases') %></p>
+        <p class="print-summary-value"><%= exportTotals.total_return_bottles %></p>
       </div>
-      <div class="card p-4">
-        <p class="text-slate-500"><%= t('totalLeakageJars') %></p>
-        <p class="text-lg font-semibold"><%= exportTotals.total_leakage_jars %></p>
+      <div class="print-summary-card">
+        <p class="print-summary-label"><%= t('totalLeakageJars') %></p>
+        <p class="print-summary-value"><%= exportTotals.total_leakage_jars %></p>
       </div>
-      <div class="card p-4">
-        <p class="text-slate-500"><%= t('totalSoldJars') %></p>
-        <p class="text-lg font-semibold"><%= exportTotals.total_sold_jars %></p>
+      <div class="print-summary-card">
+        <p class="print-summary-label"><%= t('totalSoldJars') %></p>
+        <p class="print-summary-value"><%= exportTotals.total_sold_jars %></p>
       </div>
-      <div class="card p-4">
-        <p class="text-slate-500"><%= t('totalSoldJarAmount') %></p>
-        <p class="text-lg font-semibold"><%= exportTotals.total_sold_jar_amount %></p>
+      <div class="print-summary-card">
+        <p class="print-summary-label"><%= t('totalSoldJarAmount') %></p>
+        <p class="print-summary-value"><%= exportTotals.total_sold_jar_amount %></p>
       </div>
-      <div class="card p-4">
-        <p class="text-slate-500"><%= t('netJars') %></p>
-        <p class="text-lg font-semibold"><%= Math.max(0, exportTotals.total_jars - exportTotals.total_return_jars - exportTotals.total_leakage_jars) %></p>
+      <div class="print-summary-card">
+        <p class="print-summary-label"><%= t('netJars') %></p>
+        <p class="print-summary-value"><%= Math.max(0, exportTotals.total_jars - exportTotals.total_return_jars - exportTotals.total_leakage_jars) %></p>
       </div>
-      <div class="card p-4">
-        <p class="text-slate-500"><%= t('netBottles') %></p>
-        <p class="text-lg font-semibold"><%= Math.max(0, exportTotals.total_bottle_cases - exportTotals.total_return_bottles) %></p>
+      <div class="print-summary-card">
+        <p class="print-summary-label"><%= t('netBottles') %></p>
+        <p class="print-summary-value"><%= Math.max(0, exportTotals.total_bottle_cases - exportTotals.total_return_bottles) %></p>
       </div>
-      <div class="card p-4">
-        <p class="text-slate-500"><%= t('totalExportAmount') %></p>
-        <p class="text-lg font-semibold"><%= exportTotals.total_amount %></p>
+      <div class="print-summary-card">
+        <p class="print-summary-label"><%= t('totalExportAmount') %></p>
+        <p class="print-summary-value"><%= exportTotals.total_amount %></p>
       </div>
-      <div class="card p-4">
-        <p class="text-slate-500"><%= t('totalCollectionAmount') %></p>
-        <p class="text-lg font-semibold"><%= exportTotals.total_collection_amount %></p>
+      <div class="print-summary-card">
+        <p class="print-summary-label"><%= t('totalCollectionAmount') %></p>
+        <p class="print-summary-value"><%= collectionSummary.totalAmountCollected %></p>
       </div>
-      <div class="card p-4">
-        <p class="text-slate-500"><%= t('totalExpenseAmount') %></p>
-        <p class="text-lg font-semibold"><%= exportTotals.total_expense_amount || 0 %></p>
+      <div class="print-summary-card">
+        <p class="print-summary-label"><%= t('collectionDeductions') %></p>
+        <p class="print-summary-value"><%= collectionSummary.totalDeductions %></p>
       </div>
-      <div class="card p-4">
-        <p class="text-slate-500"><%= t('netCollectionAmount') %></p>
-        <p class="text-lg font-semibold"><%= Math.max(0, (exportTotals.total_collection_amount || 0) - (exportTotals.total_expense_amount || 0)) %></p>
+      <div class="print-summary-card">
+        <p class="print-summary-label"><%= t('netCollectionAmount') %></p>
+        <p class="print-summary-value"><%= collectionSummary.netCollectionAmount %></p>
       </div>
-      <div class="card p-4">
-        <p class="text-slate-500"><%= t('totalPaidAmount') %></p>
-        <p class="text-lg font-semibold"><%= exportTotals.total_paid %></p>
+      <div class="print-summary-card">
+        <p class="print-summary-label"><%= t('totalPaidAmount') %></p>
+        <p class="print-summary-value"><%= exportTotals.total_paid %></p>
       </div>
-      <div class="card p-4">
-        <p class="text-slate-500"><%= t('totalCreditAmount') %></p>
-        <p class="text-lg font-semibold"><%= exportTotals.total_credit %></p>
+      <div class="print-summary-card">
+        <p class="print-summary-label"><%= t('totalCreditAmount') %></p>
+        <p class="print-summary-value"><%= exportTotals.total_credit %></p>
       </div>
     </div>
   </div>

@@ -7,7 +7,6 @@ const MODULE_PERMISSION_ITEMS = [
   { key: "rentals", labelKey: "moduleRentals" },
   { key: "company_expenses", labelKey: "moduleCompanyExpenses" },
   { key: "vehicle_expenses", labelKey: "moduleVehicleExpenses" },
-  { key: "payment_ledger", labelKey: "modulePaymentLedger" },
   { key: "vendor_aging", labelKey: "moduleVendorAging" },
   { key: "savings", labelKey: "moduleSavings" },
   { key: "reconciliation", labelKey: "moduleReconciliation" },

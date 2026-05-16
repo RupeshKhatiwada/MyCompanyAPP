@@ -56,7 +56,7 @@
       <div class="grid gap-3 sm:grid-cols-3">
         <div>
           <label class="label"><%= t('quantity') %></label>
-          <input class="input" type="number" min="0" name="quantity" value="<%= record ? record.quantity : 0 %>" data-qty />
+          <input class="input" type="number" min="1" step="1" name="quantity" value="<%= record ? record.quantity : 1 %>" data-qty />
         </div>
         <div>
           <label class="label"><%= t('price') %></label>

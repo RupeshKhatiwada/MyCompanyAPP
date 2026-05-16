@@ -26,7 +26,7 @@
         <form method="post" action="/admin/branding" enctype="multipart/form-data" class="mt-3 grid gap-3 lg:grid-cols-3">
           <div>
             <label class="label"><%= t('brandNameLabel') %></label>
-            <input class="input" type="text" name="brand_name" value="<%= brandName || 'AQUA MSK' %>" required />
+            <input class="input" type="text" name="brand_name" value="<%= brandName || '' %>" required />
           </div>
           <div>
             <label class="label"><%= t('brandTaglineLabel') %></label>
@@ -85,6 +85,10 @@
             <input class="input" type="number" min="3" max="8" name="numbering_sequence_pad" value="<%= numberingConfig ? numberingConfig.sequencePad : 5 %>" required />
           </div>
         </div>
+        <p class="mt-3 text-xs text-slate-500">
+          <%= t('currentFiscalYearLabel') %>:
+          <span class="font-semibold text-slate-700"><%= typeof localizeDigits === 'function' ? localizeDigits(currentFiscalYearLabel) : currentFiscalYearLabel %></span>
+        </p>
       </div>
       <div class="rounded-xl border border-slate-200 bg-slate-50 p-4">
         <h3 class="text-sm font-semibold"><%= t('retentionTitle') %></h3>
@@ -113,7 +117,7 @@
       <div class="rounded-xl border border-slate-200 bg-slate-50 p-4">
         <h3 class="text-sm font-semibold"><%= t('alertCenterTitle') %></h3>
         <p class="mt-1 text-xs text-slate-600"><%= t('alertSettingsSubtitle') %></p>
-        <div class="mt-3 grid gap-3 sm:grid-cols-3">
+        <div class="mt-3 grid gap-3 sm:grid-cols-4">
           <div>
             <label class="label"><%= t('lowJarStockTitle') %> (<%= t('alertThreshold') %>)</label>
             <input class="input" type="number" min="0" max="1000000" name="alert_low_stock_jars" value="<%= jarLowThreshold %>" />
@@ -125,6 +129,10 @@
           <div>
             <label class="label"><%= t('overdueDays') %></label>
             <input class="input" type="number" min="1" max="365" name="alert_overdue_credit_days" value="<%= overdueDays %>" />
+          </div>
+          <div>
+            <label class="label"><%= t('vehicleComplianceDaysLabel') %></label>
+            <input class="input" type="number" min="1" max="365" name="alert_vehicle_compliance_days" value="<%= vehicleComplianceDays %>" />
           </div>
         </div>
         <div class="mt-4 overflow-x-auto">

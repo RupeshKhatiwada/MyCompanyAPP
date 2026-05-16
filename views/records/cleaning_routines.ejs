@@ -5,6 +5,7 @@
       <h1 class="text-3xl font-semibold"><%= t('cleaningRoutinesTitle') %></h1>
       <p class="text-slate-600"><%= t('cleaningRoutinesSubtitle') %></p>
     </div>
+    <a class="btn-outline" href="/records/cleaning-routines/print?from=<%= encodeURIComponent(from) %>&to=<%= encodeURIComponent(to) %>&status_filter=<%= encodeURIComponent(statusFilter || 'ALL') %>&q=<%= encodeURIComponent(q || '') %>" target="_blank"><%= t('print') %></a>
   </div>
 
   <% if (error) { %>

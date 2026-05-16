@@ -8,8 +8,14 @@
     </div>
     <div class="flex flex-wrap gap-2">
       <% if (customer) { %>
-        <a class="btn-primary" href="<%= `${invoiceBasePath}/print?from=${from}&to=${to}&customer=${encodeURIComponent(customer)}&autoprint=1` %>" target="_blank"><%= t('oneClickInvoicePdf') %></a>
-        <a class="btn-outline" href="<%= `${invoiceBasePath}/export?from=${from}&to=${to}&customer=${encodeURIComponent(customer)}` %>"><%= t('exportCsv') %></a>
+        <form method="post" action="<%= `${invoiceBasePath}/print` %>" target="_blank">
+          <input type="hidden" name="from" value="<%= from %>" />
+          <input type="hidden" name="to" value="<%= to %>" />
+          <input type="hidden" name="customer_id" value="<%= customerId || '' %>" />
+          <input type="hidden" name="customer" value="<%= customer %>" />
+          <button class="btn-primary" type="submit"><%= t('oneClickInvoicePdf') %></button>
+        </form>
+        <a class="btn-outline" href="<%= `${invoiceBasePath}/export?from=${from}&to=${to}&customer_id=${customerId || ''}&customer=${encodeURIComponent(customer)}` %>"><%= t('exportCsv') %></a>
       <% } %>
     </div>
   </div>
@@ -25,12 +31,16 @@
     </div>
     <div class="min-w-[220px]">
       <label class="label"><%= t('customerName') %></label>
-      <input class="input" type="text" name="customer" list="customerList" value="<%= customer %>" placeholder="<%= t('selectCustomer') %>" />
-      <datalist id="customerList">
-        <% (customers || []).forEach((name) => { %>
-          <option value="<%= name %>"></option>
+      <select class="input" name="customer_id">
+        <option value=""><%= t('selectCustomer') %></option>
+        <% (customers || []).forEach((row) => { %>
+          <% const parts = [row.name]; %>
+          <% if (row.phone) parts.push(row.phone); %>
+          <% if (row.location) parts.push(row.location); %>
+          <% if (Number(row.is_active || 1) !== 1) parts.push(t('inactive')); %>
+          <option value="<%= row.id %>" <%= Number(customerId || 0) === Number(row.id) ? 'selected' : '' %>><%= parts.join(' • ') %></option>
         <% }) %>
-      </datalist>
+      </select>
     </div>
     <button class="btn-outline" type="submit"><%= t('run') %></button>
   </form>

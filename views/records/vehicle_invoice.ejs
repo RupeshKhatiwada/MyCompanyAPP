@@ -7,7 +7,12 @@
     </div>
     <div class="flex flex-wrap gap-2">
       <% if (vehicle) { %>
-        <a class="btn-primary" href="/records/vehicle-invoice/print?from=<%= from %>&to=<%= to %>&vehicle_id=<%= vehicle.id %>&autoprint=1" target="_blank"><%= t('oneClickInvoicePdf') %></a>
+        <form method="post" action="/records/vehicle-invoice/print" target="_blank">
+          <input type="hidden" name="from" value="<%= from %>" />
+          <input type="hidden" name="to" value="<%= to %>" />
+          <input type="hidden" name="vehicle_id" value="<%= vehicle.id %>" />
+          <button class="btn-primary" type="submit"><%= t('oneClickInvoicePdf') %></button>
+        </form>
         <a class="btn-outline" href="/records/vehicle-invoice/export?from=<%= from %>&to=<%= to %>&vehicle_id=<%= vehicle.id %>"><%= t('exportCsv') %></a>
       <% } %>
     </div>
@@ -66,6 +71,10 @@
         <p class="text-slate-500"><%= t('totalRemaining') %></p>
         <p class="text-lg font-semibold"><%= totals.total_remaining %></p>
       </div>
+      <div class="card p-4">
+        <p class="text-slate-500"><%= t('savingsTitle') %></p>
+        <p class="text-lg font-semibold"><%= totals.total_savings || 0 %></p>
+      </div>
     </div>
 
     <div class="mt-6 card overflow-hidden">
@@ -97,6 +106,38 @@
                 <td class="px-4 py-3"><%= row.total_amount || 0 %></td>
                 <td class="px-4 py-3"><%= row.paid_amount || 0 %></td>
                 <td class="px-4 py-3"><%= row.remaining_amount || 0 %></td>
+              </tr>
+            <% }) %>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="mt-6 card overflow-hidden">
+      <div class="border-b border-slate-200 px-6 py-4">
+        <h2 class="text-lg font-semibold"><%= t('savingsByDateTitle') %></h2>
+        <p class="text-sm text-slate-500"><%= t('partnerSavingsInvoiceSubtitle') %></p>
+      </div>
+      <div class="overflow-x-auto">
+        <table class="table-base">
+          <thead class="table-head">
+            <tr>
+              <th class="px-4 py-3"><%= t('date') %></th>
+              <th class="px-4 py-3"><%= t('savingsTitle') %></th>
+              <th class="px-4 py-3"><%= t('note') %></th>
+            </tr>
+          </thead>
+          <tbody>
+            <% if (!(savingsRows || []).length) { %>
+              <tr>
+                <td class="px-4 py-4 text-slate-500" colspan="3"><%= t('noSavingsRows') %></td>
+              </tr>
+            <% } %>
+            <% (savingsRows || []).forEach((row) => { %>
+              <tr class="table-row">
+                <td class="px-4 py-3"><%= typeof formatDateDual === 'function' ? formatDateDual(row.entry_date) : row.entry_date %></td>
+                <td class="px-4 py-3"><%= row.savings_amount || 0 %></td>
+                <td class="px-4 py-3"><%= row.notes || '-' %></td>
               </tr>
             <% }) %>
           </tbody>

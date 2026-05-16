@@ -1,6 +1,7 @@
 <%- include('../partials/shell-start', { title }) %>
 <section class="py-8">
   <% const backupText = stats.lastBackupAt ? new Date(stats.lastBackupAt).toLocaleString() : t('backupNever'); %>
+  <% const dailyCollection = collectionSummary || { totalAmountCollected: 0, totalDeductions: 0, netCollectionAmount: 0, vehicleExpenses: 0, companyExpenses: 0, salaryGiven: 0, otherDeductions: 0, depositRefunds: 0, collectedByMethod: { cash: 0, bank: 0, eWallet: 0 } }; %>
   <div class="dashboard-hero">
     <div class="grid gap-5 xl:grid-cols-[1.2fr_0.8fr] xl:items-start">
       <div>
@@ -25,6 +26,38 @@
           <a class="btn-outline" href="/records/history"><%= t('activityLogTitle') %></a>
           <a class="btn-outline" href="/admin/reports/all"><%= t('openSnapshotView') %></a>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="mt-6 dashboard-panel">
+    <div class="flex flex-wrap items-center justify-between gap-3">
+      <div>
+        <h2 class="dashboard-panel-title"><%= t('collectionSummaryTitle') %></h2>
+        <p class="dashboard-panel-subtitle"><%= t('collectionSummaryNote') %></p>
+      </div>
+      <div class="flex flex-wrap gap-2">
+        <span class="pill"><%= t('selectedDate') %>: <%= formatDateDual(snapshotRanges.daily.date) %></span>
+        <a class="btn-outline" href="/admin/reports/collection-summary/print?from=<%= snapshotRanges.daily.from %>&to=<%= snapshotRanges.daily.to %>" target="_blank"><%= t('printCollectionSummary') %></a>
+      </div>
+    </div>
+    <div class="money-equation mt-4">
+      <div class="money-equation-card is-total">
+        <p class="money-equation-label"><%= t('totalAmountCollected') %></p>
+        <p class="money-equation-value"><%= dailyCollection.totalAmountCollected %></p>
+        <p class="money-equation-meta"><%= t('methodCash') %>: <%= dailyCollection.collectedByMethod.cash %> • <%= t('methodBank') %>: <%= dailyCollection.collectedByMethod.bank %> • <%= t('methodEWallet') %>: <%= dailyCollection.collectedByMethod.eWallet %></p>
+      </div>
+      <div class="money-equation-operator">-</div>
+      <div class="money-equation-card is-deduction">
+        <p class="money-equation-label"><%= t('collectionDeductions') %></p>
+        <p class="money-equation-value"><%= dailyCollection.totalDeductions %></p>
+        <p class="money-equation-meta"><%= t('companyPurchasesTitle') %>: <%= dailyCollection.companyExpenses %> • <%= t('vehicleExpensesTitle') %>: <%= dailyCollection.vehicleExpenses %> • <%= t('salaryPaid') %>: <%= dailyCollection.salaryGiven %> • <%= t('otherDeductions') %>: <%= (dailyCollection.otherDeductions || 0) + (dailyCollection.depositRefunds || 0) %></p>
+      </div>
+      <div class="money-equation-operator">=</div>
+      <div class="money-equation-card is-net">
+        <p class="money-equation-label"><%= t('expectedNetCollection') %></p>
+        <p class="money-equation-value <%= Number(dailyCollection.netCollectionAmount || 0) >= 0 ? 'text-emerald-700' : 'text-red-700' %>"><%= dailyCollection.netCollectionAmount %></p>
+        <p class="money-equation-meta"><%= t('sourceDailyCollection') %></p>
       </div>
     </div>
   </div>
@@ -76,7 +109,7 @@
           <p class="metric-meta"><%= t('exportsTitle') %>: <%= stats.todayExport.total || 0 %></p>
         </div>
         <div class="metric-card">
-          <p class="metric-label"><%= t('monthPaid') %></p>
+          <p class="metric-label"><%= t('monthRecordedPaid') %></p>
           <p class="metric-value"><%= stats.monthCombined.paid %></p>
           <p class="metric-meta"><%= t('customerPayments') %>: <%= stats.monthCustomer.paid %></p>
         </div>
@@ -134,6 +167,7 @@
       <input type="hidden" name="from" value="<%= snapshotRanges.daily.from %>" />
       <input type="hidden" name="to" value="<%= snapshotRanges.daily.to %>" />
       <button class="btn-primary" type="submit"><%= t('openSnapshotView') %></button>
+      <a class="btn-outline" id="snapshotPrintSummaryLink" href="/admin/reports/collection-summary/print?from=<%= snapshotRanges.daily.from %>&to=<%= snapshotRanges.daily.to %>" target="_blank"><%= t('printCollectionSummary') %></a>
     </form>
   </div>
 
@@ -152,6 +186,23 @@
     </div>
   <% } %>
 
+  <% if (stats.vehicleComplianceAlerts > 0) { %>
+    <div class="mt-6 card border border-amber-200 bg-amber-50 p-5">
+      <div class="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <p class="text-sm font-semibold text-amber-800"><%= t('expiringVehicleDocumentsTitle') %></p>
+          <p class="text-sm text-amber-700">
+            <%= stats.vehicleComplianceAlerts %> • <%= t('affectedVehicles') %>: <%= stats.vehicleComplianceAffected %> • <%= t('alertThreshold') %>: <%= stats.vehicleComplianceDays %> <%= t('days') %>
+          </p>
+        </div>
+        <div class="flex flex-wrap gap-2">
+          <a class="btn-primary" href="/admin/alerts"><%= t('alertCenterTitle') %></a>
+          <a class="btn-outline" href="/admin/vehicles"><%= t('vehicles') %></a>
+        </div>
+      </div>
+    </div>
+  <% } %>
+
   <div class="mt-6 metric-grid">
     <div class="metric-card metric-card-emphasis">
       <p class="metric-label"><%= t('totalVehicles') %></p>
@@ -159,7 +210,7 @@
       <p class="metric-meta"><%= t('totalWorkers') %>: <%= stats.workerCount %> • <%= t('totalStaffs') %>: <%= stats.staffCount %></p>
     </div>
     <div class="metric-card">
-      <p class="metric-label"><%= t('monthPaid') %></p>
+      <p class="metric-label"><%= t('monthRecordedPaid') %></p>
       <p class="metric-value"><%= stats.monthCombined.paid %></p>
       <p class="metric-meta"><%= t('methodCash') %>: <%= stats.monthPaidByMethod?.cash || 0 %> • <%= t('methodBank') %>: <%= stats.monthPaidByMethod?.bank || 0 %> • <%= t('methodEWallet') %>: <%= stats.monthPaidByMethod?.eWallet || 0 %></p>
     </div>
@@ -221,7 +272,7 @@
         <div class="metric-card">
           <p class="metric-label"><%= t('methodEWallet') %></p>
           <p class="metric-value"><%= stats.monthPaidByMethod?.eWallet || 0 %></p>
-          <p class="metric-meta"><%= t('monthPaid') %></p>
+          <p class="metric-meta"><%= t('monthRecordedPaid') %></p>
         </div>
       </div>
     </div>
@@ -310,6 +361,7 @@
     var fromInput = form.querySelector('input[name="from"]');
     var toInput = form.querySelector('input[name="to"]');
     var rangeText = document.getElementById("snapshotRangeText");
+    var printLink = document.getElementById("snapshotPrintSummaryLink");
     var buttons = Array.prototype.slice.call(wrap.querySelectorAll(".snapshot-range-btn"));
     var conversionCache = new Map();
     var rangeRenderToken = 0;
@@ -388,6 +440,9 @@
       });
       fromInput.value = button.getAttribute("data-from") || "";
       toInput.value = button.getAttribute("data-to") || "";
+      if (printLink) {
+        printLink.href = "/admin/reports/collection-summary/print?from=" + encodeURIComponent(fromInput.value) + "&to=" + encodeURIComponent(toInput.value);
+      }
       void renderRangeText();
     }
 

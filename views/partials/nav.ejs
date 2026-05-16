@@ -1,13 +1,47 @@
-<% const user = currentUser; %>
-<% const isAdmin = user && (user.role === 'ADMIN' || user.role === 'SUPER_ADMIN'); %>
-<% const isSuper = user && user.role === 'SUPER_ADMIN'; %>
-<% const roleLabel = user ? (user.role === 'SUPER_ADMIN' ? t('roleSuper') : user.role === 'ADMIN' ? t('roleAdmin') : t('workersTitle')) : ''; %>
-<% const canAccessModule = (moduleKey, action = 'view') => (typeof canModuleAccess === 'function' ? canModuleAccess(moduleKey, action) : true); %>
-<header class="app-header sticky top-0 z-50 border-b border-slate-200/80 bg-white/95 backdrop-blur shadow-sm">
+<%
+  const user = currentUser;
+  const isAdmin = user && (user.role === 'ADMIN' || user.role === 'SUPER_ADMIN');
+  const isSuper = user && user.role === 'SUPER_ADMIN';
+  const roleLabel = user ? (user.role === 'SUPER_ADMIN' ? t('roleSuper') : user.role === 'ADMIN' ? t('roleAdmin') : t('workersTitle')) : '';
+  const canAccessModule = (moduleKey, action = 'view') => (typeof canModuleAccess === 'function' ? canModuleAccess(moduleKey, action) : true);
+  const current = currentPath || '';
+  const isActive = (patterns = []) => patterns.some((pattern) => {
+    if (!pattern) return false;
+    return current === pattern || current.startsWith(`${pattern}/`);
+  });
+  const menuLinkClass = (patterns = []) => `menu-link${isActive(patterns) ? ' is-active' : ''}`;
+  const shortcutClass = (patterns = []) => `app-shortcut${isActive(patterns) ? ' is-active' : ''}`;
+  const shortcutLinks = [
+    canAccessModule('exports') ? { href: '/records/exports', label: t('exports'), patterns: ['/records/exports'] } : null,
+    canAccessModule('credits') ? { href: '/records/credits', label: t('credits'), patterns: ['/records/credits'] } : null,
+    canAccessModule('jar_sales') ? { href: '/records/jar-sales', label: t('jarSalesTitle'), patterns: ['/records/jar-sales'] } : null,
+    canAccessModule('history') ? { href: '/records/payment-history', label: t('paymentHistoryTitle'), patterns: ['/records/payment-history'] } : null
+  ].filter(Boolean);
+  const escapeHtml = (value) => String(value || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+  const menuSectionIconPaths = {
+    sales: '<rect x="3" y="6" width="18" height="12" rx="2"/><path d="M3 10h18"/><path d="M7 15h3"/>',
+    workforce: '<path d="M16 21v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2"/><circle cx="9.5" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
+    operations: '<path d="M10 17H5a2 2 0 0 1-2-2V6h11v11"/><path d="M14 9h4l3 4v4h-3"/><path d="M14 17h1"/><circle cx="7" cy="17" r="2"/><circle cx="17" cy="17" r="2"/>',
+    expenses: '<path d="M6 2h12v20l-3-2-3 2-3-2-3 2V2z"/><path d="M9 7h6"/><path d="M9 11h6"/><path d="M9 15h4"/>',
+    income: '<circle cx="12" cy="12" r="8"/><path d="M12 8v8"/><path d="M8 12h8"/>',
+    inventory: '<path d="M21 8 12 3 3 8l9 5 9-5z"/><path d="M3 8v8l9 5 9-5V8"/><path d="M12 13v8"/>',
+    reports: '<path d="M4 19V5"/><path d="M4 19h16"/><path d="M8 16v-5"/><path d="M12 16V8"/><path d="M16 16v-3"/>'
+  };
+  const menuSectionLabel = (iconKey, label) => {
+    const paths = menuSectionIconPaths[iconKey] || menuSectionIconPaths.reports;
+    return `<span class="menu-section-title"><span class="menu-section-icon" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">${paths}</svg></span><span>${escapeHtml(label)}</span></span>`;
+  };
+%>
+<header class="app-header sticky top-0 z-50 border-b border-slate-200/80 bg-white/95 backdrop-blur">
   <div class="mx-auto flex w-full max-w-6xl flex-wrap items-center justify-between gap-4 px-4 py-3">
     <div class="flex items-center gap-3">
       <a class="flex items-center gap-3" href="/">
-        <div class="flex h-10 w-10 items-center justify-center overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+        <div class="flex h-10 w-10 items-center justify-center overflow-hidden rounded-lg border border-slate-200 bg-white">
           <% if (logoPath) { %>
             <img src="<%= logoPath %>" alt="logo" class="h-10 w-10 object-contain" />
           <% } else { %>
@@ -20,23 +54,31 @@
         </div>
       </a>
       <% if (isSuper) { %>
-        <a class="btn-outline text-xs" href="/admin/settings#branding-settings"><%= t('editBranding') %></a>
+        <a class="btn-outline btn-sm" href="/admin/settings#branding-settings"><%= t('editBranding') %></a>
       <% } %>
     </div>
 
+    <% if (shortcutLinks.length) { %>
+      <div class="app-shortcuts">
+        <% shortcutLinks.forEach((link) => { %>
+          <a class="<%= shortcutClass(link.patterns) %>" href="<%= link.href %>"><%= link.label %></a>
+        <% }) %>
+      </div>
+    <% } %>
+
     <div class="flex items-center gap-2">
+      <div class="hidden text-right sm:block">
+        <p class="text-sm font-semibold"><%= user ? user.full_name : '' %></p>
+        <p class="text-xs text-slate-500"><%= roleLabel %></p>
+      </div>
       <% if (user) { %>
         <button id="menuToggle" class="btn-outline" type="button" aria-haspopup="true" aria-expanded="false">
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2">
             <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h16"/>
           </svg>
-          <span class="ml-2 text-xs font-semibold"><%= t('menu') %></span>
+          <span class="text-xs font-semibold"><%= t('menu') %></span>
         </button>
       <% } %>
-      <div class="hidden text-right sm:block">
-        <p class="text-sm font-semibold"><%= user ? user.full_name : '' %></p>
-        <p class="text-xs text-slate-500"><%= roleLabel %></p>
-      </div>
       <form method="post" action="/logout" onsubmit="return confirm('<%= t('logoutConfirm') %>');">
         <button class="btn-outline" type="submit">Logout</button>
       </form>
@@ -48,117 +90,145 @@
   <div id="menuPanel" class="fixed inset-0 z-50 hidden" hidden>
     <div class="absolute inset-0 bg-slate-900/30" data-close></div>
     <div class="absolute right-4 top-4 w-full max-w-sm drawer p-4">
-      <div class="flex items-center justify-between">
+      <div class="flex items-start justify-between gap-3 border-b border-slate-200 pb-4">
         <div>
-          <p class="text-sm font-semibold"><%= t('menu') %></p>
-          <p class="text-xs text-slate-500"><%= brandName || 'AQUA MSK' %></p>
+          <p class="text-sm font-semibold text-slate-900"><%= user.full_name %></p>
+          <p class="mt-1 text-xs text-slate-500"><%= roleLabel %> • <%= brandName || 'AQUA MSK' %></p>
         </div>
-        <button class="btn-outline" type="button" data-close><%= t('close') %></button>
+        <button class="btn-outline btn-sm" type="button" data-close><%= t('close') %></button>
       </div>
+
+      <% if (shortcutLinks.length) { %>
+        <div class="mt-4">
+          <p class="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500"><%= t('quickActions') %></p>
+          <div class="grid gap-1.5 sm:grid-cols-2">
+            <% shortcutLinks.forEach((link) => { %>
+              <a class="<%= menuLinkClass(link.patterns) %>" href="<%= link.href %>">
+                <span><%= link.label %></span>
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="m9 18 6-6-6-6"/>
+                </svg>
+              </a>
+            <% }) %>
+          </div>
+        </div>
+      <% } %>
+
       <div class="mt-4 text-sm menu-accordion">
         <% if (isAdmin) { %>
-          <details class="menu-section" open>
+          <details class="menu-section" <%= isActive(['/records/exports', '/records/credits', '/records/customers', '/records/jar-sales', '/admin/savings', '/records/reconciliation', '/records/customer-invoice', '/records/vehicle-invoice', '/records/payment-history']) ? 'open' : '' %>>
             <summary class="menu-section-summary">
-              <span><%= t('dashboard') %></span>
+              <%- menuSectionLabel('sales', t('menuSalesCredits')) %>
               <svg xmlns="http://www.w3.org/2000/svg" class="menu-section-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m6 9 6 6 6-6"/></svg>
             </summary>
             <div class="menu-section-body">
               <div class="menu-section-grid">
-                <a class="btn-outline" href="/admin"><%= t('dashboard') %></a>
-                <a class="btn-outline" href="/search"><%= t('search') %></a>
-                <a class="btn-outline" href="/admin/alerts"><%= t('alertCenterTitle') %></a>
+                <% if (canAccessModule('exports')) { %><a class="<%= menuLinkClass(['/records/exports']) %>" href="/records/exports"><span><%= t('exports') %></span><svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m9 18 6-6-6-6"/></svg></a><% } %>
+                <% if (canAccessModule('credits')) { %><a class="<%= menuLinkClass(['/records/credits']) %>" href="/records/credits"><span><%= t('credits') %></span><svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m9 18 6-6-6-6"/></svg></a><% } %>
+                <% if (canAccessModule('credits')) { %><a class="<%= menuLinkClass(['/records/customers']) %>" href="/records/customers"><span><%= t('customers') %></span><svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m9 18 6-6-6-6"/></svg></a><% } %>
+                <% if (canAccessModule('jar_sales')) { %><a class="<%= menuLinkClass(['/records/jar-sales']) %>" href="/records/jar-sales"><span><%= t('jarSalesTitle') %></span><svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m9 18 6-6-6-6"/></svg></a><% } %>
+                <% if (canAccessModule('savings')) { %><a class="<%= menuLinkClass(['/admin/savings']) %>" href="/admin/savings"><span><%= t('savingsTitle') %></span><svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m9 18 6-6-6-6"/></svg></a><% } %>
+                <% if (canAccessModule('reconciliation')) { %><a class="<%= menuLinkClass(['/records/reconciliation']) %>" href="/records/reconciliation"><span><%= t('reconciliationTitle') %></span><svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m9 18 6-6-6-6"/></svg></a><% } %>
+                <% if (canAccessModule('invoices')) { %><a class="<%= menuLinkClass(['/records/customer-invoice']) %>" href="/records/customer-invoice"><span><%= t('customerInvoiceTitle') %></span><svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m9 18 6-6-6-6"/></svg></a><% } %>
+                <% if (canAccessModule('invoices')) { %><a class="<%= menuLinkClass(['/records/vehicle-invoice']) %>" href="/records/vehicle-invoice"><span><%= t('vehicleInvoiceTitle') %></span><svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m9 18 6-6-6-6"/></svg></a><% } %>
+                <% if (canAccessModule('history')) { %><a class="<%= menuLinkClass(['/records/payment-history']) %>" href="/records/payment-history"><span><%= t('allPaymentHistoryTitle') %></span><svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m9 18 6-6-6-6"/></svg></a><% } %>
               </div>
             </div>
           </details>
 
-          <details class="menu-section">
+          <details class="menu-section" <%= isActive(['/admin/workers', '/admin/staffs', '/admin/staff-roles', '/admin/worker-attendance', '/admin/profile', '/admin/admins']) ? 'open' : '' %>>
             <summary class="menu-section-summary">
-              <span><%= t('menuWorkforce') %></span>
+              <%- menuSectionLabel('workforce', t('menuWorkforce')) %>
               <svg xmlns="http://www.w3.org/2000/svg" class="menu-section-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m6 9 6 6 6-6"/></svg>
             </summary>
             <div class="menu-section-body">
               <div class="menu-section-grid">
-                <a class="btn-outline" href="/admin/workers"><%= t('workers') %></a>
-                <% if (canAccessModule('staffs')) { %><a class="btn-outline" href="/admin/staffs"><%= t('staffsTitle') %></a><% } %>
-                <% if (canAccessModule('staffs')) { %><a class="btn-outline" href="/admin/staff-roles"><%= t('manageStaffRoles') %></a><% } %>
-                <% if (canAccessModule('attendance')) { %><a class="btn-outline" href="/admin/worker-attendance"><%= t('workerAttendanceTitle') %></a><% } %>
-                <a class="btn-outline" href="/admin/profile"><%= t('profileTitle') %></a>
-                <% if (isSuper) { %><a class="btn-outline" href="/admin/admins"><%= t('admins') %></a><% } %>
+                <a class="<%= menuLinkClass(['/admin/workers']) %>" href="/admin/workers"><span><%= t('workers') %></span><svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m9 18 6-6-6-6"/></svg></a>
+                <% if (canAccessModule('staffs')) { %><a class="<%= menuLinkClass(['/admin/staffs']) %>" href="/admin/staffs"><span><%= t('staffsTitle') %></span><svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m9 18 6-6-6-6"/></svg></a><% } %>
+                <% if (canAccessModule('staffs')) { %><a class="<%= menuLinkClass(['/admin/staff-roles']) %>" href="/admin/staff-roles"><span><%= t('manageStaffRoles') %></span><svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m9 18 6-6-6-6"/></svg></a><% } %>
+                <% if (canAccessModule('attendance')) { %><a class="<%= menuLinkClass(['/admin/worker-attendance']) %>" href="/admin/worker-attendance"><span><%= t('workerAttendanceTitle') %></span><svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m9 18 6-6-6-6"/></svg></a><% } %>
+                <a class="<%= menuLinkClass(['/admin/profile']) %>" href="/admin/profile"><span><%= t('profileTitle') %></span><svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m9 18 6-6-6-6"/></svg></a>
+                <% if (isSuper) { %><a class="<%= menuLinkClass(['/admin/admins']) %>" href="/admin/admins"><span><%= t('admins') %></span><svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m9 18 6-6-6-6"/></svg></a><% } %>
               </div>
             </div>
           </details>
 
-          <details class="menu-section">
+          <details class="menu-section" <%= isActive(['/admin/vehicles', '/records/company-vehicle-report', '/records/water-tests', '/records/cleaning-routines', '/worker']) ? 'open' : '' %>>
             <summary class="menu-section-summary">
-              <span><%= t('menuOperations') %></span>
+              <%- menuSectionLabel('operations', t('menuOperations')) %>
               <svg xmlns="http://www.w3.org/2000/svg" class="menu-section-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m6 9 6 6 6-6"/></svg>
             </summary>
             <div class="menu-section-body">
               <div class="menu-section-grid">
-                <% if (canAccessModule('vehicles')) { %><a class="btn-outline" href="/admin/vehicles"><%= t('vehicles') %></a><% } %>
-                <% if (canAccessModule('exports')) { %><a class="btn-outline" href="/records/exports"><%= t('exports') %></a><% } %>
-                <% if (canAccessModule('water_tests')) { %><a class="btn-outline" href="/records/water-tests"><%= t('waterTestsTitle') %></a><% } %>
-                <% if (canAccessModule('company_expenses')) { %><a class="btn-outline" href="/records/cleaning-routines"><%= t('cleaningRoutinesTitle') %></a><% } %>
-                <a class="btn-outline" href="/worker"><%= t('workerView') %></a>
+                <% if (canAccessModule('vehicles')) { %><a class="<%= menuLinkClass(['/admin/vehicles']) %>" href="/admin/vehicles"><span><%= t('vehicles') %></span><svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m9 18 6-6-6-6"/></svg></a><% } %>
+                <% if (canAccessModule('vehicles')) { %><a class="<%= menuLinkClass(['/records/company-vehicle-report']) %>" href="/records/company-vehicle-report"><span><%= t('companyVehicleReportTitle') %></span><svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m9 18 6-6-6-6"/></svg></a><% } %>
+                <% if (canAccessModule('water_tests')) { %><a class="<%= menuLinkClass(['/records/water-tests']) %>" href="/records/water-tests"><span><%= t('waterTestsTitle') %></span><svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m9 18 6-6-6-6"/></svg></a><% } %>
+                <% if (canAccessModule('company_expenses')) { %><a class="<%= menuLinkClass(['/records/cleaning-routines']) %>" href="/records/cleaning-routines"><span><%= t('cleaningRoutinesTitle') %></span><svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m9 18 6-6-6-6"/></svg></a><% } %>
+                <a class="<%= menuLinkClass(['/worker']) %>" href="/worker"><span><%= t('workerView') %></span><svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m9 18 6-6-6-6"/></svg></a>
               </div>
             </div>
           </details>
 
-          <details class="menu-section">
+          <details class="menu-section" <%= isActive(['/records/vehicle-expenses', '/records/company-purchases']) ? 'open' : '' %>>
             <summary class="menu-section-summary">
-              <span><%= t('menuFinance') %></span>
+              <%- menuSectionLabel('expenses', t('menuExpenses')) %>
               <svg xmlns="http://www.w3.org/2000/svg" class="menu-section-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m6 9 6 6 6-6"/></svg>
             </summary>
             <div class="menu-section-body">
               <div class="menu-section-grid">
-                <% if (canAccessModule('credits')) { %><a class="btn-outline" href="/records/credits"><%= t('credits') %></a><% } %>
-                <% if (canAccessModule('payment_ledger')) { %><a class="btn-outline" href="/records/payment-ledger"><%= t('paymentLedgerTitle') %></a><% } %>
-                <% if (canAccessModule('reconciliation')) { %><a class="btn-outline" href="/records/reconciliation"><%= t('reconciliationTitle') %></a><% } %>
-                <% if (canAccessModule('vehicle_expenses')) { %><a class="btn-outline" href="/records/vehicle-expenses"><%= t('vehicleExpensesTitle') %></a><% } %>
-                <% if (canAccessModule('company_expenses')) { %><a class="btn-outline" href="/records/company-purchases"><%= t('companyPurchasesTitle') %></a><% } %>
-                <% if (canAccessModule('jar_sales')) { %><a class="btn-outline" href="/records/jar-sales"><%= t('jarSalesTitle') %></a><% } %>
-                <% if (canAccessModule('jar_sales')) { %><a class="btn-outline" href="/records/jar-container-lending"><%= t('jarContainerLendingTitle') %></a><% } %>
-                <% if (canAccessModule('jar_sales')) { %><a class="btn-outline" href="/records/leakage-sales"><%= t('leakageJarSalesTitle') %></a><% } %>
-                <% if (canAccessModule('rentals')) { %><a class="btn-outline" href="/records/rentals"><%= t('rentalsTitle') %></a><% } %>
-                <% if (canAccessModule('savings')) { %><a class="btn-outline" href="/admin/savings"><%= t('savingsTitle') %></a><% } %>
-                <% if (canAccessModule('vendor_aging')) { %><a class="btn-outline" href="/records/vendor-aging"><%= t('vendorAgingTitle') %></a><% } %>
-                <% if (canAccessModule('invoices')) { %><a class="btn-outline" href="/records/customer-invoice"><%= t('customerInvoiceTitle') %></a><% } %>
-                <% if (canAccessModule('invoices')) { %><a class="btn-outline" href="/records/vehicle-invoice"><%= t('vehicleInvoiceTitle') %></a><% } %>
+                <% if (canAccessModule('vehicle_expenses')) { %><a class="<%= menuLinkClass(['/records/vehicle-expenses']) %>" href="/records/vehicle-expenses"><span><%= t('vehicleExpensesTitle') %></span><svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m9 18 6-6-6-6"/></svg></a><% } %>
+                <% if (canAccessModule('company_expenses')) { %><a class="<%= menuLinkClass(['/records/company-purchases']) %>" href="/records/company-purchases"><span><%= t('companyPurchasesTitle') %></span><svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m9 18 6-6-6-6"/></svg></a><% } %>
               </div>
             </div>
           </details>
 
-          <details class="menu-section">
+          <details class="menu-section" <%= isActive(['/records/jar-container-lending', '/records/leakage-sales', '/records/rentals']) ? 'open' : '' %>>
             <summary class="menu-section-summary">
-              <span><%= t('menuInventory') %></span>
+              <%- menuSectionLabel('income', t('menuOtherIncome')) %>
               <svg xmlns="http://www.w3.org/2000/svg" class="menu-section-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m6 9 6 6 6-6"/></svg>
             </summary>
             <div class="menu-section-body">
               <div class="menu-section-grid">
-                <% if (canAccessModule('imports')) { %><a class="btn-outline" href="/records/imports"><%= t('importsTitle') %></a><% } %>
-                <a class="btn-outline" href="/admin/import-item-types"><%= t('importItemTypesTitle') %></a>
-                <a class="btn-outline" href="/admin/jar-types"><%= t('jarTypesTitle') %></a>
+                <% if (canAccessModule('jar_sales')) { %><a class="<%= menuLinkClass(['/records/jar-container-lending']) %>" href="/records/jar-container-lending"><span><%= t('jarContainerLendingTitle') %></span><svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m9 18 6-6-6-6"/></svg></a><% } %>
+                <% if (canAccessModule('jar_sales')) { %><a class="<%= menuLinkClass(['/records/leakage-sales']) %>" href="/records/leakage-sales"><span><%= t('leakageJarSalesTitle') %></span><svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m9 18 6-6-6-6"/></svg></a><% } %>
+                <% if (canAccessModule('rentals')) { %><a class="<%= menuLinkClass(['/records/rentals']) %>" href="/records/rentals"><span><%= t('rentalsTitle') %></span><svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m9 18 6-6-6-6"/></svg></a><% } %>
               </div>
             </div>
           </details>
 
-          <details class="menu-section">
+          <details class="menu-section" <%= isActive(['/records/imports', '/records/vendor-aging', '/admin/import-item-types', '/admin/jar-types']) ? 'open' : '' %>>
             <summary class="menu-section-summary">
-              <span><%= t('menuReportsSettings') %></span>
+              <%- menuSectionLabel('inventory', t('menuInventory')) %>
+              <svg xmlns="http://www.w3.org/2000/svg" class="menu-section-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m6 9 6 6 6-6"/></svg>
+            </summary>
+            <div class="menu-section-body">
+              <div class="menu-section-grid">
+                <% if (canAccessModule('imports')) { %><a class="<%= menuLinkClass(['/records/imports']) %>" href="/records/imports"><span><%= t('importsTitle') %></span><svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m9 18 6-6-6-6"/></svg></a><% } %>
+                <% if (canAccessModule('vendor_aging')) { %><a class="<%= menuLinkClass(['/records/vendor-aging']) %>" href="/records/vendor-aging"><span><%= t('vendorAgingTitle') %></span><svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m9 18 6-6-6-6"/></svg></a><% } %>
+                <a class="<%= menuLinkClass(['/admin/import-item-types']) %>" href="/admin/import-item-types"><span><%= t('importItemTypesTitle') %></span><svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m9 18 6-6-6-6"/></svg></a>
+                <a class="<%= menuLinkClass(['/admin/jar-types']) %>" href="/admin/jar-types"><span><%= t('jarTypesTitle') %></span><svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m9 18 6-6-6-6"/></svg></a>
+              </div>
+            </div>
+          </details>
+
+          <details class="menu-section" <%= isActive(['/search', '/admin/alerts', '/records/history', '/admin/reports/all', '/admin/reports/payroll-summary', '/records/leakage-guard', '/admin/backup', '/admin/settings', '/admin/windows-kit', '/admin/recycle-bin', '/admin/recovery']) ? 'open' : '' %>>
+            <summary class="menu-section-summary">
+              <%- menuSectionLabel('reports', t('menuReportsSettings')) %>
               <svg xmlns="http://www.w3.org/2000/svg" class="menu-section-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m6 9 6 6 6-6"/></svg>
             </summary>
             <div class="menu-section-body space-y-3">
               <div class="menu-section-grid">
-                <% if (canAccessModule('history')) { %><a class="btn-outline" href="/records/history"><%= t('activityLogTitle') %></a><% } %>
-                <a class="btn-outline" href="/admin/reports/all"><%= t('allReportsTitle') %></a>
-                <a class="btn-outline" href="/admin/reports/payroll-summary"><%= t('payrollSummaryTitle') %></a>
-                <a class="btn-outline" href="/admin/audit"><%= t('auditCenterTitle') %></a>
-                <a class="btn-outline" href="/records/leakage-guard"><%= t('leakageGuardTitle') %></a>
-                <a class="btn-outline" href="/admin/backup"><%= t('backup') %></a>
-                <a class="btn-outline" href="/admin/settings"><%= t('settingsTitle') %></a>
-                <a class="btn-outline" href="/admin/windows-kit"><%= t('windowsKitTitle') %></a>
-                <a class="btn-outline" href="/admin/recycle-bin"><%= t('recycleBinTitle') %></a>
-                <% if (isSuper) { %><a class="btn-outline" href="/admin/recovery"><%= t('recoveryTitle') %></a><% } %>
+                <a class="<%= menuLinkClass(['/search']) %>" href="/search"><span><%= t('search') %></span><svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m9 18 6-6-6-6"/></svg></a>
+                <a class="<%= menuLinkClass(['/admin/alerts']) %>" href="/admin/alerts"><span><%= t('alertCenterTitle') %></span><svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m9 18 6-6-6-6"/></svg></a>
+                <% if (canAccessModule('history')) { %><a class="<%= menuLinkClass(['/records/history']) %>" href="/records/history"><span><%= t('activityLogTitle') %></span><svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m9 18 6-6-6-6"/></svg></a><% } %>
+                <a class="<%= menuLinkClass(['/admin/reports/all']) %>" href="/admin/reports/all"><span><%= t('allReportsTitle') %></span><svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m9 18 6-6-6-6"/></svg></a>
+                <a class="<%= menuLinkClass(['/admin/reports/payroll-summary']) %>" href="/admin/reports/payroll-summary"><span><%= t('payrollSummaryTitle') %></span><svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m9 18 6-6-6-6"/></svg></a>
+                <a class="<%= menuLinkClass(['/records/leakage-guard']) %>" href="/records/leakage-guard"><span><%= t('leakageGuardTitle') %></span><svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m9 18 6-6-6-6"/></svg></a>
+                <a class="<%= menuLinkClass(['/admin/backup']) %>" href="/admin/backup"><span><%= t('backup') %></span><svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m9 18 6-6-6-6"/></svg></a>
+                <a class="<%= menuLinkClass(['/admin/settings']) %>" href="/admin/settings"><span><%= t('settingsTitle') %></span><svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m9 18 6-6-6-6"/></svg></a>
+                <a class="<%= menuLinkClass(['/admin/windows-kit']) %>" href="/admin/windows-kit"><span><%= t('windowsKitTitle') %></span><svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m9 18 6-6-6-6"/></svg></a>
+                <a class="<%= menuLinkClass(['/admin/recycle-bin']) %>" href="/admin/recycle-bin"><span><%= t('recycleBinTitle') %></span><svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m9 18 6-6-6-6"/></svg></a>
+                <% if (isSuper) { %><a class="<%= menuLinkClass(['/admin/recovery']) %>" href="/admin/recovery"><span><%= t('recoveryTitle') %></span><svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m9 18 6-6-6-6"/></svg></a><% } %>
               </div>
               <div class="border-t border-slate-200 pt-3">
                 <p class="text-xs font-semibold uppercase tracking-wide text-slate-500"><%= t('language') %> / <%= t('fontSize') %></p>
@@ -180,93 +250,105 @@
             </div>
           </details>
         <% } else { %>
-          <details class="menu-section" open>
+          <details class="menu-section" <%= isActive(['/records/exports', '/records/credits', '/records/customers', '/records/jar-sales', '/records/savings', '/records/reconciliation', '/records/customer-invoice', '/records/vehicle-invoice', '/records/payment-history']) ? 'open' : '' %>>
             <summary class="menu-section-summary">
-              <span><%= t('dashboard') %></span>
+              <%- menuSectionLabel('sales', t('menuSalesCredits')) %>
               <svg xmlns="http://www.w3.org/2000/svg" class="menu-section-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m6 9 6 6 6-6"/></svg>
             </summary>
             <div class="menu-section-body">
               <div class="menu-section-grid">
-                <a class="btn-outline" href="/worker"><%= t('home') %></a>
-                <a class="btn-outline" href="/search"><%= t('search') %></a>
-                <a class="btn-outline" href="/records/alerts"><%= t('alertCenterTitle') %></a>
+                <% if (canAccessModule('exports')) { %><a class="<%= menuLinkClass(['/records/exports']) %>" href="/records/exports"><span><%= t('exports') %></span><svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m9 18 6-6-6-6"/></svg></a><% } %>
+                <% if (canAccessModule('credits')) { %><a class="<%= menuLinkClass(['/records/credits']) %>" href="/records/credits"><span><%= t('credits') %></span><svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m9 18 6-6-6-6"/></svg></a><% } %>
+                <% if (canAccessModule('credits')) { %><a class="<%= menuLinkClass(['/records/customers']) %>" href="/records/customers"><span><%= t('customers') %></span><svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m9 18 6-6-6-6"/></svg></a><% } %>
+                <% if (canAccessModule('jar_sales')) { %><a class="<%= menuLinkClass(['/records/jar-sales']) %>" href="/records/jar-sales"><span><%= t('jarSalesTitle') %></span><svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m9 18 6-6-6-6"/></svg></a><% } %>
+                <% if (canAccessModule('savings')) { %><a class="<%= menuLinkClass(['/records/savings']) %>" href="/records/savings"><span><%= t('savingsTitle') %></span><svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m9 18 6-6-6-6"/></svg></a><% } %>
+                <% if (canAccessModule('reconciliation')) { %><a class="<%= menuLinkClass(['/records/reconciliation']) %>" href="/records/reconciliation"><span><%= t('reconciliationTitle') %></span><svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m9 18 6-6-6-6"/></svg></a><% } %>
+                <% if (canAccessModule('invoices')) { %><a class="<%= menuLinkClass(['/records/customer-invoice']) %>" href="/records/customer-invoice"><span><%= t('customerInvoiceTitle') %></span><svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m9 18 6-6-6-6"/></svg></a><% } %>
+                <% if (canAccessModule('invoices')) { %><a class="<%= menuLinkClass(['/records/vehicle-invoice']) %>" href="/records/vehicle-invoice"><span><%= t('vehicleInvoiceTitle') %></span><svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m9 18 6-6-6-6"/></svg></a><% } %>
+                <% if (canAccessModule('history')) { %><a class="<%= menuLinkClass(['/records/payment-history']) %>" href="/records/payment-history"><span><%= t('allPaymentHistoryTitle') %></span><svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m9 18 6-6-6-6"/></svg></a><% } %>
               </div>
             </div>
           </details>
 
-          <details class="menu-section">
+          <details class="menu-section" <%= isActive(['/records/staffs', '/records/staff-attendance', '/records/profile']) ? 'open' : '' %>>
             <summary class="menu-section-summary">
-              <span><%= t('menuWorkforce') %></span>
+              <%- menuSectionLabel('workforce', t('menuWorkforce')) %>
               <svg xmlns="http://www.w3.org/2000/svg" class="menu-section-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m6 9 6 6 6-6"/></svg>
             </summary>
             <div class="menu-section-body">
               <div class="menu-section-grid">
-                <% if (canAccessModule('staffs')) { %><a class="btn-outline" href="/records/staffs"><%= t('staffsTitle') %></a><% } %>
-                <% if (canAccessModule('attendance')) { %><a class="btn-outline" href="/records/staff-attendance"><%= t('staffAttendanceTitle') %></a><% } %>
-                <a class="btn-outline" href="/records/profile"><%= t('profileTitle') %></a>
+                <% if (canAccessModule('staffs')) { %><a class="<%= menuLinkClass(['/records/staffs']) %>" href="/records/staffs"><span><%= t('staffsTitle') %></span><svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m9 18 6-6-6-6"/></svg></a><% } %>
+                <% if (canAccessModule('attendance')) { %><a class="<%= menuLinkClass(['/records/staff-attendance']) %>" href="/records/staff-attendance"><span><%= t('staffAttendanceTitle') %></span><svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m9 18 6-6-6-6"/></svg></a><% } %>
+                <a class="<%= menuLinkClass(['/records/profile']) %>" href="/records/profile"><span><%= t('profileTitle') %></span><svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m9 18 6-6-6-6"/></svg></a>
               </div>
             </div>
           </details>
 
-          <details class="menu-section">
+          <details class="menu-section" <%= isActive(['/records/vehicles', '/records/company-vehicle-report', '/records/water-tests', '/records/cleaning-routines']) ? 'open' : '' %>>
             <summary class="menu-section-summary">
-              <span><%= t('menuOperations') %></span>
+              <%- menuSectionLabel('operations', t('menuOperations')) %>
               <svg xmlns="http://www.w3.org/2000/svg" class="menu-section-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m6 9 6 6 6-6"/></svg>
             </summary>
             <div class="menu-section-body">
               <div class="menu-section-grid">
-                <% if (canAccessModule('vehicles')) { %><a class="btn-outline" href="/records/vehicles"><%= t('vehicles') %></a><% } %>
-                <% if (canAccessModule('exports')) { %><a class="btn-outline" href="/records/exports"><%= t('exports') %></a><% } %>
-                <% if (canAccessModule('water_tests')) { %><a class="btn-outline" href="/records/water-tests"><%= t('waterTestsTitle') %></a><% } %>
-                <% if (canAccessModule('company_expenses')) { %><a class="btn-outline" href="/records/cleaning-routines"><%= t('cleaningRoutinesTitle') %></a><% } %>
+                <% if (canAccessModule('vehicles')) { %><a class="<%= menuLinkClass(['/records/vehicles']) %>" href="/records/vehicles"><span><%= t('vehicles') %></span><svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m9 18 6-6-6-6"/></svg></a><% } %>
+                <% if (canAccessModule('vehicles')) { %><a class="<%= menuLinkClass(['/records/company-vehicle-report']) %>" href="/records/company-vehicle-report"><span><%= t('companyVehicleReportTitle') %></span><svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m9 18 6-6-6-6"/></svg></a><% } %>
+                <% if (canAccessModule('water_tests')) { %><a class="<%= menuLinkClass(['/records/water-tests']) %>" href="/records/water-tests"><span><%= t('waterTestsTitle') %></span><svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m9 18 6-6-6-6"/></svg></a><% } %>
+                <% if (canAccessModule('company_expenses')) { %><a class="<%= menuLinkClass(['/records/cleaning-routines']) %>" href="/records/cleaning-routines"><span><%= t('cleaningRoutinesTitle') %></span><svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m9 18 6-6-6-6"/></svg></a><% } %>
               </div>
             </div>
           </details>
 
-          <details class="menu-section">
+          <details class="menu-section" <%= isActive(['/records/vehicle-expenses', '/records/company-purchases']) ? 'open' : '' %>>
             <summary class="menu-section-summary">
-              <span><%= t('menuFinance') %></span>
+              <%- menuSectionLabel('expenses', t('menuExpenses')) %>
               <svg xmlns="http://www.w3.org/2000/svg" class="menu-section-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m6 9 6 6 6-6"/></svg>
             </summary>
             <div class="menu-section-body">
               <div class="menu-section-grid">
-                <% if (canAccessModule('credits')) { %><a class="btn-outline" href="/records/credits"><%= t('credits') %></a><% } %>
-                <% if (canAccessModule('payment_ledger')) { %><a class="btn-outline" href="/records/payment-ledger"><%= t('paymentLedgerTitle') %></a><% } %>
-                <% if (canAccessModule('reconciliation')) { %><a class="btn-outline" href="/records/reconciliation"><%= t('reconciliationTitle') %></a><% } %>
-                <% if (canAccessModule('vehicle_expenses')) { %><a class="btn-outline" href="/records/vehicle-expenses"><%= t('vehicleExpensesTitle') %></a><% } %>
-                <% if (canAccessModule('company_expenses')) { %><a class="btn-outline" href="/records/company-purchases"><%= t('companyPurchasesTitle') %></a><% } %>
-                <% if (canAccessModule('jar_sales')) { %><a class="btn-outline" href="/records/jar-sales"><%= t('jarSalesTitle') %></a><% } %>
-                <% if (canAccessModule('jar_sales')) { %><a class="btn-outline" href="/records/jar-container-lending"><%= t('jarContainerLendingTitle') %></a><% } %>
-                <% if (canAccessModule('jar_sales')) { %><a class="btn-outline" href="/records/leakage-sales"><%= t('leakageJarSalesTitle') %></a><% } %>
-                <% if (canAccessModule('rentals')) { %><a class="btn-outline" href="/records/rentals"><%= t('rentalsTitle') %></a><% } %>
-                <% if (canAccessModule('savings')) { %><a class="btn-outline" href="/records/savings"><%= t('savingsTitle') %></a><% } %>
-                <% if (canAccessModule('vendor_aging')) { %><a class="btn-outline" href="/records/vendor-aging"><%= t('vendorAgingTitle') %></a><% } %>
-                <% if (canAccessModule('invoices')) { %><a class="btn-outline" href="/records/customer-invoice"><%= t('customerInvoiceTitle') %></a><% } %>
-                <% if (canAccessModule('invoices')) { %><a class="btn-outline" href="/records/vehicle-invoice"><%= t('vehicleInvoiceTitle') %></a><% } %>
+                <% if (canAccessModule('vehicle_expenses')) { %><a class="<%= menuLinkClass(['/records/vehicle-expenses']) %>" href="/records/vehicle-expenses"><span><%= t('vehicleExpensesTitle') %></span><svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m9 18 6-6-6-6"/></svg></a><% } %>
+                <% if (canAccessModule('company_expenses')) { %><a class="<%= menuLinkClass(['/records/company-purchases']) %>" href="/records/company-purchases"><span><%= t('companyPurchasesTitle') %></span><svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m9 18 6-6-6-6"/></svg></a><% } %>
               </div>
             </div>
           </details>
 
-          <details class="menu-section">
+          <details class="menu-section" <%= isActive(['/records/jar-container-lending', '/records/leakage-sales', '/records/rentals']) ? 'open' : '' %>>
             <summary class="menu-section-summary">
-              <span><%= t('menuInventory') %></span>
+              <%- menuSectionLabel('income', t('menuOtherIncome')) %>
               <svg xmlns="http://www.w3.org/2000/svg" class="menu-section-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m6 9 6 6 6-6"/></svg>
             </summary>
             <div class="menu-section-body">
               <div class="menu-section-grid">
-                <% if (canAccessModule('imports')) { %><a class="btn-outline" href="/records/imports"><%= t('importsTitle') %></a><% } %>
+                <% if (canAccessModule('jar_sales')) { %><a class="<%= menuLinkClass(['/records/jar-container-lending']) %>" href="/records/jar-container-lending"><span><%= t('jarContainerLendingTitle') %></span><svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m9 18 6-6-6-6"/></svg></a><% } %>
+                <% if (canAccessModule('jar_sales')) { %><a class="<%= menuLinkClass(['/records/leakage-sales']) %>" href="/records/leakage-sales"><span><%= t('leakageJarSalesTitle') %></span><svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m9 18 6-6-6-6"/></svg></a><% } %>
+                <% if (canAccessModule('rentals')) { %><a class="<%= menuLinkClass(['/records/rentals']) %>" href="/records/rentals"><span><%= t('rentalsTitle') %></span><svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m9 18 6-6-6-6"/></svg></a><% } %>
               </div>
             </div>
           </details>
 
-          <details class="menu-section">
+          <details class="menu-section" <%= isActive(['/records/imports', '/records/vendor-aging']) ? 'open' : '' %>>
             <summary class="menu-section-summary">
-              <span><%= t('menuReportsSettings') %></span>
+              <%- menuSectionLabel('inventory', t('menuInventory')) %>
+              <svg xmlns="http://www.w3.org/2000/svg" class="menu-section-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m6 9 6 6 6-6"/></svg>
+            </summary>
+            <div class="menu-section-body">
+              <div class="menu-section-grid">
+                <% if (canAccessModule('imports')) { %><a class="<%= menuLinkClass(['/records/imports']) %>" href="/records/imports"><span><%= t('importsTitle') %></span><svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m9 18 6-6-6-6"/></svg></a><% } %>
+                <% if (canAccessModule('vendor_aging')) { %><a class="<%= menuLinkClass(['/records/vendor-aging']) %>" href="/records/vendor-aging"><span><%= t('vendorAgingTitle') %></span><svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m9 18 6-6-6-6"/></svg></a><% } %>
+              </div>
+            </div>
+          </details>
+
+          <details class="menu-section" <%= isActive(['/search', '/records/alerts', '/records/history']) ? 'open' : '' %>>
+            <summary class="menu-section-summary">
+              <%- menuSectionLabel('reports', t('menuReportsSettings')) %>
               <svg xmlns="http://www.w3.org/2000/svg" class="menu-section-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m6 9 6 6 6-6"/></svg>
             </summary>
             <div class="menu-section-body space-y-3">
               <div class="menu-section-grid">
-                <% if (canAccessModule('history')) { %><a class="btn-outline" href="/records/history"><%= t('activityLogTitle') %></a><% } %>
+                <a class="<%= menuLinkClass(['/search']) %>" href="/search"><span><%= t('search') %></span><svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m9 18 6-6-6-6"/></svg></a>
+                <a class="<%= menuLinkClass(['/records/alerts']) %>" href="/records/alerts"><span><%= t('alertCenterTitle') %></span><svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m9 18 6-6-6-6"/></svg></a>
+                <% if (canAccessModule('history')) { %><a class="<%= menuLinkClass(['/records/history']) %>" href="/records/history"><span><%= t('activityLogTitle') %></span><svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m9 18 6-6-6-6"/></svg></a><% } %>
               </div>
               <div class="border-t border-slate-200 pt-3">
                 <p class="text-xs font-semibold uppercase tracking-wide text-slate-500"><%= t('language') %> / <%= t('fontSize') %></p>
@@ -289,7 +371,7 @@
           </details>
         <% } %>
       </div>
-      </div>
+    </div>
   </div>
   <script>
     (function () {
@@ -365,19 +447,19 @@
       });
     }
 
-      function initThemeToggles() {
-        var buttons = Array.prototype.slice.call(document.querySelectorAll('.theme-toggle'));
-        if (!buttons.length) return;
-        function apply(theme) {
-          var allowed = ['classic', 'ocean', 'slate', 'sunrise', 'forest'];
-          var safe = allowed.indexOf(theme) >= 0 ? theme : 'classic';
-          document.documentElement.dataset.theme = safe;
-          try { localStorage.setItem('themePreset', safe); } catch (e) {}
-          document.querySelectorAll('input[name="theme_preset"]').forEach(function (input) {
-            input.value = safe;
-          });
-          setActive(buttons, function (btn) { return btn.dataset.theme === safe; });
-        }
+    function initThemeToggles() {
+      var buttons = Array.prototype.slice.call(document.querySelectorAll('.theme-toggle'));
+      if (!buttons.length) return;
+      function apply(theme) {
+        var allowed = ['classic', 'ocean', 'slate', 'sunrise', 'forest'];
+        var safe = allowed.indexOf(theme) >= 0 ? theme : 'classic';
+        document.documentElement.dataset.theme = safe;
+        try { localStorage.setItem('themePreset', safe); } catch (e) {}
+        document.querySelectorAll('input[name="theme_preset"]').forEach(function (input) {
+          input.value = safe;
+        });
+        setActive(buttons, function (btn) { return btn.dataset.theme === safe; });
+      }
       apply(document.documentElement.dataset.theme || 'classic');
       buttons.forEach(function (btn) {
         btn.addEventListener('click', function () {

@@ -1,61 +1,96 @@
 <%- include('../partials/shell-start', { title }) %>
 <section class="py-8">
-  <% const alertSummary = (typeof workerAlerts !== 'undefined' && workerAlerts) ? workerAlerts : { totalAlerts: 0, lowStockCount: 0, pendingCustomerCount: 0, pendingCustomerAmount: 0, pendingVehicleCount: 0, pendingVehicleAmount: 0 } %>
-  <% const finance = (typeof dailyFinance !== 'undefined' && dailyFinance) ? dailyFinance : {
-    date: today || '',
-    exports: { trips: 0, total: 0, paid: 0, credit: 0 },
-    jarSales: { count: 0, total: 0, paid: 0, credit: 0 },
-    leakageJarSales: { count: 0, total: 0, paid: 0, collected: 0, paymentCount: 0, collectedByMethod: { cash: 0, bank: 0, eWallet: 0 }, credit: 0 },
-    customerCredits: { count: 0, total: 0, paid: 0, remaining: 0, openCount: 0, openRemaining: 0 },
-    vehicleCredits: { trips: 0, total: 0, remaining: 0, openTrips: 0, openRemaining: 0 },
-    salaries: { paymentCount: 0, total: 0, fromCollection: 0, fromOther: 0, allTimeTotal: 0, allTimeCount: 0, allTimeFromCollection: 0, allTimeFromOther: 0 },
-    purchases: { count: 0, total: 0, paid: 0, fromCollection: 0, fromOther: 0, due: 0 },
-    imports: { count: 0, total: 0, paid: 0, fromCollection: 0, fromOther: 0, due: 0 },
-    vehicleExpenses: { count: 0, total: 0, paid: 0, fromCollection: 0, fromOther: 0, due: 0 },
-    rentals: { count: 0, total: 0, collection: 0 },
-    savings: { deposits: 0, withdrawals: 0, withdrawalFromCollection: 0 },
-    totals: { sales: 0, paidIn: 0, paidByMethod: { cash: 0, bank: 0, eWallet: 0 }, credited: 0, outflow: 0, net: 0 },
-    customerRows: [],
-    vehicleRows: []
+  <% const alertSummary = workerAlerts || { totalAlerts: 0, lowStockCount: 0, pendingCustomerCount: 0, pendingCustomerAmount: 0, pendingVehicleCount: 0, pendingVehicleAmount: 0 } %>
+  <% const range = workerRange || { period: 'day', date: selectedDate || today || '', from: selectedDate || today || '', to: selectedDate || today || '' } %>
+  <% const summary = workerSummary || {
+    netJarSold: 0,
+    netJarContainerSold: 0,
+    netBottleCasesSold: 0,
+    totalAmountCollected: 0,
+    netCollectionAmount: 0,
+    totalSalaryGiven: 0,
+    totalExpenses: 0,
+    companyExpensesTotal: 0,
+    vehicleExpensesTotal: 0,
+    totalCredit: 0,
+    paidByMethod: { cash: 0, bank: 0, eWallet: 0 },
+    collectionDeductions: { companyExpenses: 0, vehicleExpenses: 0, salaries: 0, other: 0 },
+    creditBreakdown: { exports: 0, customers: 0, jarSales: 0, leakage: 0 },
+    openCredits: { customerCount: 0, customerAmount: 0, vehicleCount: 0, vehicleAmount: 0 }
   } %>
-  <% const paidMethods = (finance.totals && finance.totals.paidByMethod) ? finance.totals.paidByMethod : { cash: 0, bank: 0, eWallet: 0 } %>
+  <% const summaryDeductionTotal = (summary.collectionDeductions.companyExpenses || 0) + (summary.collectionDeductions.vehicleExpenses || 0) + (summary.collectionDeductions.salaries || 0) + (summary.collectionDeductions.other || 0); %>
+  <% const periodOptions = [
+    { key: 'day', label: t('snapshotDaily') },
+    { key: 'week', label: t('snapshotWeekly') },
+    { key: 'month', label: t('snapshotMonthly') },
+    { key: 'year', label: t('snapshotYearly') }
+  ] %>
+
   <div class="dashboard-hero">
-    <div class="grid gap-5 xl:grid-cols-[1.1fr_0.9fr] xl:items-start">
+    <div class="grid gap-5 xl:grid-cols-[1.15fr_0.85fr] xl:items-start">
       <div>
         <p class="dashboard-kicker"><%= t('dashboard') %></p>
         <h1 class="mt-2 text-3xl font-semibold text-slate-900"><%= t('workerDashboardTitle') %></h1>
         <p class="mt-3 max-w-2xl text-sm leading-6 text-slate-600"><%= t('workerDashboardLead') %></p>
         <div class="mt-4 flex flex-wrap gap-2">
-          <span class="pill"><%= t('selectedDate') %>: <%= formatDateDual(finance.date) %></span>
+          <span class="pill"><%= t('selectedRange') %>: <%= formatDateDual(range.from) %> → <%= formatDateDual(range.to) %></span>
+          <span class="pill"><%= t('openCredits') %>: <%= (summary.openCredits.customerAmount || 0) + (summary.openCredits.vehicleAmount || 0) %></span>
           <span class="pill"><%= t('alertCenterTitle') %>: <%= alertSummary.totalAlerts %></span>
-          <span class="pill"><%= t('openCredits') %>: <%= (finance.customerCredits.openRemaining || 0) + (finance.vehicleCredits.openRemaining || 0) %></span>
         </div>
       </div>
       <div class="card card-soft p-5">
-        <p class="dashboard-kicker"><%= t('search') %></p>
-        <p class="mt-2 text-sm text-slate-600"><%= t('dashboardSearchHint') %></p>
-        <form class="mt-4 flex flex-col gap-3" method="get" action="/worker">
-          <div class="flex flex-col gap-3 sm:flex-row">
-            <div class="flex-1">
-              <label class="sr-only" for="workerDashboardDate"><%= t('date') %></label>
-              <input class="input" id="workerDashboardDate" type="date" name="date" value="<%= finance.date %>" />
-            </div>
-            <button class="btn-primary sm:min-w-[120px]" type="submit"><%= t('filter') %></button>
+        <form class="flex flex-col gap-3" method="get" action="/worker">
+          <input type="hidden" name="period" value="<%= range.period %>" />
+          <div>
+            <label class="label" for="workerDashboardDate"><%= t('date') %></label>
+            <input class="input" id="workerDashboardDate" type="date" name="date" value="<%= range.date %>" />
+          </div>
+          <div class="grid gap-2 sm:grid-cols-4">
+            <% periodOptions.forEach((option) => { %>
+              <a
+                class="<%= range.period === option.key ? 'btn-primary' : 'btn-outline' %> text-center"
+                href="/worker?date=<%= encodeURIComponent(range.date) %>&period=<%= option.key %>"
+              ><%= option.label %></a>
+            <% }) %>
+          </div>
+          <div class="flex flex-wrap gap-2">
+            <button class="btn-primary" type="submit"><%= t('filter') %></button>
+            <a class="btn-outline" href="/records/reconciliation/collection-summary/print?from=<%= range.from %>&to=<%= range.to %>" target="_blank"><%= t('printCollectionSummary') %></a>
           </div>
         </form>
         <form class="mt-3 flex flex-col gap-3 sm:flex-row" method="get" action="/search">
           <input class="input flex-1" type="text" name="q" placeholder="<%= t('searchGlobal') %>" />
           <button class="btn-outline sm:min-w-[120px]" type="submit"><%= t('search') %></button>
         </form>
-        <div class="mt-4 flex flex-wrap gap-2">
-          <a class="btn-outline relative" href="/records/alerts">
-            <span><%= t('alertCenterTitle') %></span>
-            <% if (alertSummary.totalAlerts > 0) { %>
-              <span class="ml-2 badge bg-red-100 text-red-700"><%= alertSummary.totalAlerts %></span>
-            <% } %>
-          </a>
-          <a class="btn-outline" href="/records/history"><%= t('activityLogTitle') %></a>
-        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="mt-6 dashboard-panel">
+    <div class="flex flex-wrap items-center justify-between gap-3">
+      <div>
+        <h2 class="dashboard-panel-title"><%= t('collectionSummaryTitle') %></h2>
+        <p class="dashboard-panel-subtitle"><%= t('collectionSummaryNote') %></p>
+      </div>
+      <span class="pill"><%= formatDateDual(range.from) %> → <%= formatDateDual(range.to) %></span>
+    </div>
+    <div class="money-equation mt-4">
+      <div class="money-equation-card is-total">
+        <p class="money-equation-label"><%= t('totalAmountCollected') %></p>
+        <p class="money-equation-value"><%= summary.totalAmountCollected %></p>
+        <p class="money-equation-meta"><%= t('methodCash') %>: <%= summary.paidByMethod.cash || 0 %> • <%= t('methodBank') %>: <%= summary.paidByMethod.bank || 0 %> • <%= t('methodEWallet') %>: <%= summary.paidByMethod.eWallet || 0 %></p>
+      </div>
+      <div class="money-equation-operator">-</div>
+      <div class="money-equation-card is-deduction">
+        <p class="money-equation-label"><%= t('collectionDeductions') %></p>
+        <p class="money-equation-value"><%= summaryDeductionTotal %></p>
+        <p class="money-equation-meta"><%= t('companyPurchasesTitle') %>: <%= summary.collectionDeductions.companyExpenses || 0 %> • <%= t('vehicleExpensesTitle') %>: <%= summary.collectionDeductions.vehicleExpenses || 0 %> • <%= t('salaryPaid') %>: <%= summary.collectionDeductions.salaries || 0 %> • <%= t('otherDeductions') %>: <%= summary.collectionDeductions.other || 0 %></p>
+      </div>
+      <div class="money-equation-operator">=</div>
+      <div class="money-equation-card is-net">
+        <p class="money-equation-label"><%= t('expectedNetCollection') %></p>
+        <p class="money-equation-value <%= Number(summary.netCollectionAmount || 0) >= 0 ? 'text-emerald-700' : 'text-red-700' %>"><%= summary.netCollectionAmount %></p>
+        <p class="money-equation-meta"><%= t('sourceDailyCollection') %></p>
       </div>
     </div>
   </div>
@@ -66,6 +101,12 @@
         <h2 class="dashboard-panel-title"><%= t('quickActions') %></h2>
         <p class="dashboard-panel-subtitle"><%= t('quickActionsWorkerHint') %></p>
       </div>
+      <a class="btn-outline relative" href="/records/alerts">
+        <span><%= t('alertCenterTitle') %></span>
+        <% if (alertSummary.totalAlerts > 0) { %>
+          <span class="ml-2 badge bg-red-100 text-red-700"><%= alertSummary.totalAlerts %></span>
+        <% } %>
+      </a>
     </div>
     <div class="action-grid mt-4">
       <a class="action-card action-card-primary" href="/records/exports/new">
@@ -88,330 +129,164 @@
         <p class="action-title"><%= t('updateStock') %></p>
         <p class="action-copy"><%= t('dashboardActionStockCopy') %></p>
       </a>
-      <a class="action-card" href="/records/reconciliation">
+      <a class="action-card" href="/records/reconciliation?from=<%= range.from %>&to=<%= range.to %>&date=<%= range.date %>">
         <p class="action-title"><%= t('reconciliationTitle') %></p>
         <p class="action-copy"><%= t('dashboardActionReconciliationCopy') %></p>
       </a>
     </div>
   </div>
 
-  <div class="mt-6 metric-grid">
-    <div class="metric-card metric-card-emphasis">
-      <p class="metric-label"><%= t('totalSales') %></p>
-      <p class="metric-value"><%= finance.totals.sales %></p>
-      <p class="metric-meta"><%= t('exportsTitle') %>: <%= finance.exports.total %> • <%= t('jarSalesTitle') %>: <%= finance.jarSales.total %></p>
-    </div>
-    <div class="metric-card">
-      <p class="metric-label"><%= t('cashCollected') %></p>
-      <p class="metric-value"><%= finance.totals.paidIn %></p>
-      <p class="metric-meta"><%= t('methodCash') %>: <%= paidMethods.cash || 0 %> • <%= t('methodBank') %>: <%= paidMethods.bank || 0 %> • <%= t('methodEWallet') %>: <%= paidMethods.eWallet || 0 %></p>
-    </div>
-    <div class="metric-card">
-      <p class="metric-label"><%= t('todayCredit') %></p>
-      <p class="metric-value"><%= finance.totals.credited %></p>
-      <p class="metric-meta"><%= t('customerCredits') %>: <%= finance.customerCredits.total %> • <%= t('workerPendingVehicleCredits') %>: <%= finance.vehicleCredits.total %></p>
-    </div>
-    <div class="metric-card">
-      <p class="metric-label"><%= t('dailyNetResult') %></p>
-      <p class="metric-value <%= finance.totals.net >= 0 ? 'text-emerald-700' : 'text-red-700' %>"><%= finance.totals.net %></p>
-      <p class="metric-meta"><%= t('salaryPaid') %>: <%= finance.salaries.total %> • <%= t('companyPurchasesTitle') %>: <%= finance.purchases.total %></p>
-    </div>
-  </div>
-
-  <div class="mt-6 card p-6">
-    <div class="flex flex-wrap items-end justify-between gap-3">
+  <div class="mt-6 dashboard-panel">
+    <div class="flex flex-wrap items-center justify-between gap-3">
       <div>
-        <h2 class="text-lg font-semibold"><%= t('dailyBusinessTitle') %></h2>
-        <p class="mt-1 text-sm text-slate-600"><%= t('dailyBusinessSubtitle') %></p>
+        <h2 class="dashboard-panel-title"><%= t('dailyBusinessTitle') %></h2>
+        <p class="dashboard-panel-subtitle"><%= t('workerSummaryFocus') %></p>
       </div>
-      <span class="pill"><%= formatDateDual(finance.date) %></span>
+      <span class="pill"><%= formatDateDual(range.from) %> → <%= formatDateDual(range.to) %></span>
     </div>
 
-    <div class="mt-4 flex flex-wrap gap-2">
-      <a class="btn-outline" href="#snapshot-overview"><%= t('snapshotOverview') %></a>
-      <a class="btn-outline" href="#snapshot-details"><%= t('snapshotDetailedTotals') %></a>
-      <a class="btn-outline" href="#snapshot-balances"><%= t('snapshotOpenBalances') %></a>
-      <a class="btn-outline" href="#snapshot-links"><%= t('snapshotQuickLinks') %></a>
-    </div>
-
-    <div class="mt-6" id="snapshot-overview">
-      <div class="mb-3 flex items-center justify-between gap-3">
-        <h3 class="text-base font-semibold text-slate-900"><%= t('snapshotOverview') %></h3>
-        <span class="pill"><%= finance.date %></span>
+    <div class="mt-4 metric-grid">
+      <div class="metric-card metric-card-emphasis">
+        <p class="metric-label"><%= t('netJars') %></p>
+        <p class="metric-value"><%= summary.netJarSold %></p>
+        <p class="metric-meta"><%= t('rangeTotals') %></p>
       </div>
-      <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <div class="card p-4">
-          <p class="text-slate-500"><%= t('totalSales') %></p>
-          <p class="text-xl font-semibold"><%= finance.totals.sales %></p>
-          <p class="text-xs text-slate-500"><%= t('exports') %>: <%= finance.exports.total %> • <%= t('jarSalesTitle') %>: <%= finance.jarSales.total %> • <%= t('leakageJarSalesTitle') %>: <%= finance.leakageJarSales?.total || 0 %></p>
-        </div>
-        <div class="card p-4">
-          <p class="text-slate-500"><%= t('cashCollected') %></p>
-          <p class="text-xl font-semibold"><%= finance.totals.paidIn %></p>
-          <p class="text-xs text-slate-500"><%= t('methodCash') %>: <%= paidMethods.cash || 0 %> • <%= t('methodBank') %>: <%= paidMethods.bank || 0 %> • <%= t('methodEWallet') %>: <%= paidMethods.eWallet || 0 %></p>
-        </div>
-        <div class="card p-4">
-          <p class="text-slate-500"><%= t('todayCredit') %></p>
-          <p class="text-xl font-semibold"><%= finance.totals.credited %></p>
-          <p class="text-xs text-slate-500"><%= t('customerCredits') %>: <%= finance.customerCredits.total %> • <%= t('workerPendingVehicleCredits') %>: <%= finance.vehicleCredits.total %></p>
-        </div>
-        <div class="card p-4">
-          <p class="text-slate-500"><%= t('dailyNetResult') %></p>
-          <p class="text-xl font-semibold <%= finance.totals.net >= 0 ? 'text-emerald-700' : 'text-red-700' %>"><%= finance.totals.net %></p>
-          <p class="text-xs text-slate-500"><%= t('salaryPaid') %>: <%= finance.salaries.total %> • <%= t('companyPurchasesTitle') %>: <%= finance.purchases.total %></p>
-        </div>
+      <div class="metric-card">
+        <p class="metric-label"><%= t('netJarContainerSold') %></p>
+        <p class="metric-value"><%= summary.netJarContainerSold %></p>
+        <p class="metric-meta"><%= t('rangeTotals') %></p>
       </div>
-    </div>
-
-    <div class="mt-6" id="snapshot-details">
-      <div class="mb-3 flex items-center justify-between gap-3">
-        <h3 class="text-base font-semibold text-slate-900"><%= t('snapshotDetailedTotals') %></h3>
-        <span class="text-xs text-slate-500"><%= t('dailyBusinessSubtitle') %></span>
+      <div class="metric-card">
+        <p class="metric-label"><%= t('netBottles') %></p>
+        <p class="metric-value"><%= summary.netBottleCasesSold %></p>
+        <p class="metric-meta"><%= t('rangeTotals') %></p>
       </div>
-      <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <div class="card p-4">
-          <p class="text-slate-500"><%= t('exportsTitle') %></p>
-          <p class="text-xl font-semibold"><%= finance.exports.total %></p>
-          <p class="text-xs text-slate-500"><%= t('tripCount') %>: <%= finance.exports.trips %></p>
-        </div>
-        <div class="card p-4">
-          <p class="text-slate-500"><%= t('jarSalesTitle') %></p>
-          <p class="text-xl font-semibold"><%= finance.jarSales.total %></p>
-          <p class="text-xs text-slate-500"><%= t('entries') %>: <%= finance.jarSales.count %></p>
-        </div>
-        <div class="card p-4">
-          <p class="text-slate-500"><%= t('leakageJarSalesTitle') %></p>
-          <p class="text-xl font-semibold"><%= finance.leakageJarSales?.total || 0 %></p>
-          <p class="text-xs text-slate-500"><%= t('cashCollected') %>: <%= finance.leakageJarSales?.collected || 0 %></p>
-        </div>
-        <div class="card p-4">
-          <p class="text-slate-500"><%= t('customerCredits') %></p>
-          <p class="text-xl font-semibold"><%= finance.customerCredits.total %></p>
-          <p class="text-xs text-slate-500"><%= t('remainingAmount') %>: <%= finance.customerCredits.remaining %></p>
-        </div>
-        <div class="card p-4">
-          <p class="text-slate-500"><%= t('workerPendingVehicleCredits') %></p>
-          <p class="text-xl font-semibold"><%= finance.vehicleCredits.total %></p>
-          <p class="text-xs text-slate-500"><%= t('remainingAmount') %>: <%= finance.vehicleCredits.remaining %></p>
-        </div>
-        <div class="card p-4">
-          <p class="text-slate-500"><%= t('salaryPaid') %></p>
-          <p class="text-xl font-semibold"><%= finance.salaries.total %></p>
-          <p class="text-xs text-slate-500"><%= t('paymentCount') %>: <%= finance.salaries.paymentCount %></p>
-        </div>
-        <div class="card p-4">
-          <p class="text-slate-500"><%= t('companyPurchasesTitle') %></p>
-          <p class="text-xl font-semibold"><%= finance.purchases.total %></p>
-          <p class="text-xs text-slate-500"><%= t('remainingAmount') %>: <%= finance.purchases.due %></p>
-        </div>
-        <div class="card p-4">
-          <p class="text-slate-500"><%= t('importsTitle') %></p>
-          <p class="text-xl font-semibold"><%= finance.imports.total %></p>
-          <p class="text-xs text-slate-500"><%= t('remainingAmount') %>: <%= finance.imports.due %></p>
-        </div>
-        <div class="card p-4">
-          <p class="text-slate-500"><%= t('vehicleExpensesTitle') %></p>
-          <p class="text-xl font-semibold"><%= finance.vehicleExpenses.total %></p>
-          <p class="text-xs text-slate-500"><%= t('remainingAmount') %>: <%= finance.vehicleExpenses.due %></p>
-        </div>
-        <div class="card p-4">
-          <p class="text-slate-500"><%= t('rentalsTitle') %></p>
-          <p class="text-xl font-semibold"><%= finance.rentals.total || 0 %></p>
-          <p class="text-xs text-slate-500"><%= t('rentCollectionAmount') %>: <%= finance.rentals.collection || 0 %></p>
-        </div>
-        <div class="card p-4">
-          <p class="text-slate-500"><%= t('savingsTitle') %></p>
-          <p class="text-xl font-semibold"><%= finance.savings.deposits || 0 %></p>
-          <p class="text-xs text-slate-500"><%= t('savingsWithdraw') %>: <%= finance.savings.withdrawals || 0 %></p>
-        </div>
+      <div class="metric-card">
+        <p class="metric-label"><%= t('salaryPaid') %></p>
+        <p class="metric-value"><%= summary.totalSalaryGiven %></p>
+        <p class="metric-meta"><%= t('sourceDailyCollection') %>: <%= summary.collectionDeductions.salaries || 0 %></p>
+      </div>
+      <div class="metric-card">
+        <p class="metric-label"><%= t('totalExpensesCombined') %></p>
+        <p class="metric-value"><%= summary.totalExpenses %></p>
+        <p class="metric-meta"><%= t('companyPurchasesTitle') %>: <%= summary.companyExpensesTotal || 0 %> • <%= t('vehicleExpensesTitle') %>: <%= summary.vehicleExpensesTotal || 0 %></p>
+      </div>
+      <div class="metric-card">
+        <p class="metric-label"><%= t('totalCreditAmount') %></p>
+        <p class="metric-value"><%= summary.totalCredit %></p>
+        <p class="metric-meta"><%= t('paymentHistoryTitle') %>: <%= t('rangeTotals') %></p>
+      </div>
+      <div class="metric-card">
+        <p class="metric-label"><%= t('totalAmountCollected') %></p>
+        <p class="metric-value"><%= summary.totalAmountCollected %></p>
+        <p class="metric-meta"><%= t('methodCash') %>: <%= summary.paidByMethod.cash || 0 %> • <%= t('methodBank') %>: <%= summary.paidByMethod.bank || 0 %> • <%= t('methodEWallet') %>: <%= summary.paidByMethod.eWallet || 0 %></p>
+      </div>
+      <div class="metric-card">
+        <p class="metric-label"><%= t('expectedNetCollection') %></p>
+        <p class="metric-value <%= Number(summary.netCollectionAmount || 0) >= 0 ? 'text-emerald-700' : 'text-red-700' %>"><%= summary.netCollectionAmount %></p>
+        <p class="metric-meta"><%= t('collectionDeductions') %>: <%= summaryDeductionTotal %></p>
       </div>
     </div>
 
-    <div class="mt-6" id="snapshot-balances">
-      <div class="mb-3 flex items-center justify-between gap-3">
-        <h3 class="text-base font-semibold text-slate-900"><%= t('snapshotOpenBalances') %></h3>
-        <span class="text-xs text-slate-500"><%= t('openCredits') %></span>
-      </div>
-      <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <div class="card p-4">
-          <p class="text-slate-500"><%= t('openCredits') %> (<%= t('customerCredits') %>)</p>
-          <p class="text-xl font-semibold"><%= finance.customerCredits.openRemaining %></p>
-          <p class="text-xs text-slate-500"><%= t('entries') %>: <%= finance.customerCredits.openCount %></p>
-        </div>
-        <div class="card p-4">
-          <p class="text-slate-500"><%= t('openCredits') %> (<%= t('workerPendingVehicleCredits') %>)</p>
-          <p class="text-xl font-semibold"><%= finance.vehicleCredits.openRemaining %></p>
-          <p class="text-xs text-slate-500"><%= t('tripCount') %>: <%= finance.vehicleCredits.openTrips %></p>
-        </div>
-        <div class="card p-4">
-          <p class="text-slate-500"><%= t('companyPurchasesTitle') %></p>
-          <p class="text-xl font-semibold"><%= finance.purchases.due %></p>
-          <p class="text-xs text-slate-500"><%= t('remainingAmount') %></p>
-        </div>
-        <div class="card p-4">
-          <p class="text-slate-500"><%= t('importsTitle') %> + <%= t('vehicleExpensesTitle') %></p>
-          <p class="text-xl font-semibold"><%= (finance.imports.due || 0) + (finance.vehicleExpenses.due || 0) %></p>
-          <p class="text-xs text-slate-500"><%= t('importsTitle') %>: <%= finance.imports.due || 0 %> • <%= t('vehicleExpensesTitle') %>: <%= finance.vehicleExpenses.due || 0 %></p>
-        </div>
-      </div>
-    </div>
-
-    <div class="mt-6" id="snapshot-links">
-      <div class="mb-3 flex items-center justify-between gap-3">
-        <h3 class="text-base font-semibold text-slate-900"><%= t('snapshotQuickLinks') %></h3>
-        <span class="text-xs text-slate-500"><%= t('viewSummary') %></span>
-      </div>
-      <div class="flex flex-wrap gap-2">
-        <a class="btn-outline" href="/records/exports?from=<%= finance.date %>&to=<%= finance.date %>"><%= t('viewExports') %></a>
-        <a class="btn-outline" href="/records/credits?from=<%= finance.date %>&to=<%= finance.date %>"><%= t('viewCredits') %></a>
-        <a class="btn-outline" href="/records/reconciliation?date=<%= finance.date %>&from=<%= finance.date %>&to=<%= finance.date %>"><%= t('reconciliationTitle') %></a>
-        <a class="btn-outline" href="/records/company-purchases?from=<%= finance.date %>&to=<%= finance.date %>"><%= t('companyPurchasesTitle') %></a>
-        <a class="btn-outline" href="/records/vehicle-expenses?from=<%= finance.date %>&to=<%= finance.date %>"><%= t('vehicleExpensesTitle') %></a>
-        <a class="btn-outline" href="/records/rentals?from=<%= finance.date %>&to=<%= finance.date %>"><%= t('rentalsTitle') %></a>
-        <a class="btn-outline" href="/records/staffs"><%= t('staffsTitle') %></a>
-      </div>
-    </div>
-
-    <div class="mt-4 grid gap-4 lg:grid-cols-2">
-      <div class="card overflow-hidden">
-        <div class="border-b border-slate-200/80 px-4 py-3">
-          <h3 class="font-semibold"><%= t('customerCreditsByDay') %></h3>
-        </div>
-        <div class="overflow-x-auto">
-          <table class="table-base">
-            <thead class="table-head">
-              <tr>
-                <th class="px-4 py-3"><%= t('customerName') %></th>
-                <th class="px-4 py-3"><%= t('entries') %></th>
-                <th class="px-4 py-3"><%= t('totalAmount') %></th>
-                <th class="px-4 py-3"><%= t('remainingAmount') %></th>
-                <th class="px-4 py-3"><%= t('details') %></th>
-              </tr>
-            </thead>
-            <tbody>
-              <% if (!finance.customerRows || finance.customerRows.length === 0) { %>
-                <tr>
-                  <td class="px-4 py-4 text-slate-500" colspan="5"><%= t('noCredits') %></td>
-                </tr>
-              <% } %>
-              <% (finance.customerRows || []).forEach((row) => { %>
-                <tr class="table-row">
-                  <td class="px-4 py-3"><%= row.customer_name || '-' %></td>
-                  <td class="px-4 py-3"><%= row.entry_count || 0 %></td>
-                  <td class="px-4 py-3"><%= row.total_amount || 0 %></td>
-                  <td class="px-4 py-3"><%= row.remaining_amount || 0 %></td>
-                  <td class="px-4 py-3">
-                    <a class="btn-outline h-8 px-3 text-xs" href="/records/credits?from=<%= finance.date %>&to=<%= finance.date %>&q=<%= encodeURIComponent(row.customer_name || '') %>"><%= t('viewDetails') %></a>
-                  </td>
-                </tr>
-              <% }) %>
-            </tbody>
-          </table>
+    <div class="mt-6 grid gap-4 lg:grid-cols-3">
+      <div class="card p-5">
+        <h3 class="font-semibold"><%= t('cashCollected') %></h3>
+        <div class="mt-4 space-y-3 text-sm">
+          <div class="flex items-center justify-between gap-3">
+            <span class="text-slate-500"><%= t('methodCash') %></span>
+            <strong><%= summary.paidByMethod.cash || 0 %></strong>
+          </div>
+          <div class="flex items-center justify-between gap-3">
+            <span class="text-slate-500"><%= t('methodBank') %></span>
+            <strong><%= summary.paidByMethod.bank || 0 %></strong>
+          </div>
+          <div class="flex items-center justify-between gap-3">
+            <span class="text-slate-500"><%= t('methodEWallet') %></span>
+            <strong><%= summary.paidByMethod.eWallet || 0 %></strong>
+          </div>
         </div>
       </div>
 
-      <div class="card overflow-hidden">
-        <div class="border-b border-slate-200/80 px-4 py-3">
-          <h3 class="font-semibold"><%= t('vehicleCreditsByDay') %></h3>
+      <div class="card p-5">
+        <h3 class="font-semibold"><%= t('collectionDeductions') %></h3>
+        <div class="mt-4 space-y-3 text-sm">
+          <div class="flex items-center justify-between gap-3">
+            <span class="text-slate-500"><%= t('companyPurchasesTitle') %></span>
+            <strong><%= summary.collectionDeductions.companyExpenses || 0 %></strong>
+          </div>
+          <div class="flex items-center justify-between gap-3">
+            <span class="text-slate-500"><%= t('vehicleExpensesTitle') %></span>
+            <strong><%= summary.collectionDeductions.vehicleExpenses || 0 %></strong>
+          </div>
+          <div class="flex items-center justify-between gap-3">
+            <span class="text-slate-500"><%= t('salaryPaid') %></span>
+            <strong><%= summary.collectionDeductions.salaries || 0 %></strong>
+          </div>
+          <div class="flex items-center justify-between gap-3">
+            <span class="text-slate-500"><%= t('otherDeductions') %></span>
+            <strong><%= summary.collectionDeductions.other || 0 %></strong>
+          </div>
         </div>
-        <div class="overflow-x-auto">
-          <table class="table-base">
-            <thead class="table-head">
-              <tr>
-                <th class="px-4 py-3"><%= t('vehicle') %></th>
-                <th class="px-4 py-3"><%= t('tripCount') %></th>
-                <th class="px-4 py-3"><%= t('totalAmount') %></th>
-                <th class="px-4 py-3"><%= t('remainingAmount') %></th>
-                <th class="px-4 py-3"><%= t('details') %></th>
-              </tr>
-            </thead>
-            <tbody>
-              <% if (!finance.vehicleRows || finance.vehicleRows.length === 0) { %>
-                <tr>
-                  <td class="px-4 py-4 text-slate-500" colspan="5"><%= t('noCredits') %></td>
-                </tr>
-              <% } %>
-              <% (finance.vehicleRows || []).forEach((row) => { %>
-                <tr class="table-row">
-                  <td class="px-4 py-3"><%= `${row.owner_name || '-'} • ${row.vehicle_number || '-'}` %></td>
-                  <td class="px-4 py-3"><%= row.trip_count || 0 %></td>
-                  <td class="px-4 py-3"><%= row.total_amount || 0 %></td>
-                  <td class="px-4 py-3"><%= row.remaining_amount || 0 %></td>
-                  <td class="px-4 py-3">
-                    <a class="btn-outline h-8 px-3 text-xs" href="/records/exports/daily-credit?date=<%= finance.date %>&vehicle_id=<%= row.vehicle_id %>"><%= t('viewDetails') %></a>
-                  </td>
-                </tr>
-              <% }) %>
-            </tbody>
-          </table>
+      </div>
+
+      <div class="card p-5">
+        <h3 class="font-semibold"><%= t('totalCredits') %></h3>
+        <div class="mt-4 space-y-3 text-sm">
+          <div class="flex items-center justify-between gap-3">
+            <span class="text-slate-500"><%= t('exportsTitle') %></span>
+            <strong><%= summary.creditBreakdown.exports || 0 %></strong>
+          </div>
+          <div class="flex items-center justify-between gap-3">
+            <span class="text-slate-500"><%= t('customerCredits') %></span>
+            <strong><%= summary.creditBreakdown.customers || 0 %></strong>
+          </div>
+          <div class="flex items-center justify-between gap-3">
+            <span class="text-slate-500"><%= t('jarSalesTitle') %></span>
+            <strong><%= summary.creditBreakdown.jarSales || 0 %></strong>
+          </div>
+          <div class="flex items-center justify-between gap-3">
+            <span class="text-slate-500"><%= t('leakageJarSalesTitle') %></span>
+            <strong><%= summary.creditBreakdown.leakage || 0 %></strong>
+          </div>
         </div>
       </div>
     </div>
   </div>
 
-  <div class="mt-6 card p-6">
-    <h2 class="text-lg font-semibold"><%= t('dailyChecklist') %></h2>
-    <ul class="mt-4 space-y-2 text-sm text-slate-600">
-      <li>• <%= t('checklistExport') %></li>
-      <li>• <%= t('checklistCredit') %></li>
-      <li>• <%= t('checklistPaid') %></li>
-    </ul>
-  </div>
-
-  <% const todayLabel = typeof today !== 'undefined' ? today : '' %>
-  <% const exportsSummary = (typeof myExports !== 'undefined' && myExports) ? myExports : { count: 0, total: 0 } %>
-  <% const creditsSummary = (typeof myCredits !== 'undefined' && myCredits) ? myCredits : { count: 0, total: 0, remaining: 0 } %>
-  <% const jarSalesSummary = (typeof myJarSales !== 'undefined' && myJarSales) ? myJarSales : { count: 0, total: 0 } %>
-  <% const vehicleExpenseSummary = (typeof myVehicleExpenses !== 'undefined' && myVehicleExpenses) ? myVehicleExpenses : { count: 0, total: 0 } %>
   <div class="mt-6 grid gap-4 lg:grid-cols-2">
     <div class="card p-6">
-      <h2 class="text-lg font-semibold"><%= t('myTodaySummary') %></h2>
-      <p class="mt-1 text-sm text-slate-600"><%= t('summaryForDate') %> <%= todayLabel %></p>
-      <div class="mt-4 grid gap-3 text-sm sm:grid-cols-2">
-        <div class="card p-4">
-          <p class="text-slate-500"><%= t('exportsTitle') %></p>
-          <p class="text-lg font-semibold"><%= exportsSummary.count %> • <%= exportsSummary.total %></p>
-        </div>
-        <div class="card p-4">
-          <p class="text-slate-500"><%= t('creditsTitle') %></p>
-          <p class="text-lg font-semibold"><%= creditsSummary.count %> • <%= creditsSummary.total %></p>
-          <p class="text-xs text-slate-500"><%= t('remainingAmount') %>: <%= creditsSummary.remaining %></p>
-        </div>
-        <div class="card p-4">
-          <p class="text-slate-500"><%= t('jarSalesTitle') %></p>
-          <p class="text-lg font-semibold"><%= jarSalesSummary.count %> • <%= jarSalesSummary.total %></p>
-        </div>
-        <div class="card p-4">
-          <p class="text-slate-500"><%= t('vehicleExpensesTitle') %></p>
-          <p class="text-lg font-semibold"><%= vehicleExpenseSummary.count %> • <%= vehicleExpenseSummary.total %></p>
-        </div>
+      <div class="flex items-center justify-between gap-3">
+        <h2 class="text-lg font-semibold"><%= t('openCredits') %></h2>
+        <a class="btn-outline h-9 px-3 text-xs" href="/records/payment-history?from=<%= range.from %>&to=<%= range.to %>"><%= t('paymentHistoryTitle') %></a>
       </div>
-    </div>
-    <div class="card p-6">
-      <h2 class="text-lg font-semibold"><%= t('workerOpsBoardTitle') %></h2>
-      <p class="mt-1 text-sm text-slate-600"><%= t('workerOpsBoardSubtitle') %></p>
-      <div class="mt-4 space-y-3 text-sm">
+      <div class="mt-4 grid gap-3 sm:grid-cols-2">
         <div class="card p-4">
-          <p class="text-slate-500"><%= t('workerPendingCustomerCredits') %></p>
-          <p class="text-lg font-semibold"><%= alertSummary.pendingCustomerCount %></p>
-          <p class="text-xs text-slate-500"><%= t('remainingAmount') %>: <%= alertSummary.pendingCustomerAmount %></p>
+          <p class="text-slate-500"><%= t('customerCredits') %></p>
+          <p class="text-lg font-semibold"><%= summary.openCredits.customerAmount || 0 %></p>
+          <p class="text-xs text-slate-500"><%= t('entries') %>: <%= summary.openCredits.customerCount || 0 %></p>
         </div>
         <div class="card p-4">
           <p class="text-slate-500"><%= t('workerPendingVehicleCredits') %></p>
-          <p class="text-lg font-semibold"><%= alertSummary.pendingVehicleCount %></p>
-          <p class="text-xs text-slate-500"><%= t('remainingAmount') %>: <%= alertSummary.pendingVehicleAmount %></p>
-        </div>
-        <div class="card p-4">
-          <p class="text-slate-500"><%= t('lowStockAlerts') %></p>
-          <p class="text-lg font-semibold"><%= alertSummary.lowStockCount %></p>
+          <p class="text-lg font-semibold"><%= summary.openCredits.vehicleAmount || 0 %></p>
+          <p class="text-xs text-slate-500"><%= t('tripCount') %>: <%= summary.openCredits.vehicleCount || 0 %></p>
         </div>
       </div>
+    </div>
+
+    <div class="card p-6">
+      <div class="flex items-center justify-between gap-3">
+        <h2 class="text-lg font-semibold"><%= t('snapshotQuickLinks') %></h2>
+        <a class="btn-outline h-9 px-3 text-xs" href="/records/history"><%= t('activityLogTitle') %></a>
+      </div>
       <div class="mt-4 flex flex-wrap gap-2">
-        <a class="btn-outline" href="/records/alerts"><%= t('openAlertCenter') %></a>
-        <a class="btn-outline" href="/records/history"><%= t('openHistory') %></a>
+        <a class="btn-outline" href="/records/exports?from=<%= range.from %>&to=<%= range.to %>"><%= t('viewExports') %></a>
+        <a class="btn-outline" href="/records/credits?from=<%= range.from %>&to=<%= range.to %>"><%= t('viewCredits') %></a>
+        <a class="btn-outline" href="/records/payment-history?from=<%= range.from %>&to=<%= range.to %>"><%= t('paymentHistoryTitle') %></a>
+        <a class="btn-outline" href="/records/reconciliation?from=<%= range.from %>&to=<%= range.to %>&date=<%= range.date %>"><%= t('reconciliationTitle') %></a>
+        <a class="btn-outline" href="/records/company-purchases?from=<%= range.from %>&to=<%= range.to %>"><%= t('companyPurchasesTitle') %></a>
+        <a class="btn-outline" href="/records/vehicle-expenses?from=<%= range.from %>&to=<%= range.to %>"><%= t('vehicleExpensesTitle') %></a>
       </div>
     </div>
   </div>
-
 </section>
 <%- include('../partials/shell-end') %>

@@ -1,0 +1,243 @@
+<%- include('../partials/shell-start', { title }) %>
+<section class="py-8">
+  <div class="flex flex-wrap items-center justify-between gap-3">
+    <div>
+      <h1 class="text-3xl font-semibold"><%= customer.name %></h1>
+      <p class="text-slate-600"><%= t('customerDetailSubtitle') %></p>
+    </div>
+    <div class="flex flex-wrap gap-2">
+      <a class="btn-outline" href="/records/customers"><%= t('back') %></a>
+      <a class="btn-outline" href="/records/credits?customer_id=<%= customer.id %>&q=<%= encodeURIComponent(customer.name) %>"><%= t('credits') %></a>
+      <a class="btn-outline" href="/records/customer-invoice?customer_id=<%= customer.id %>"><%= t('customerInvoiceTitle') %></a>
+      <a class="btn-primary" href="/records/customers/<%= customer.id %>/edit"><%= t('manage') %></a>
+    </div>
+  </div>
+
+  <div class="mt-4 flex flex-wrap items-center gap-2">
+    <span class="badge <%= Number(customer.is_active || 1) === 1 ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-700' %>">
+      <%= Number(customer.is_active || 1) === 1 ? t('active') : t('inactive') %>
+    </span>
+    <% if (customer.merged_into_name) { %>
+      <span class="badge bg-amber-100 text-amber-700"><%= t('mergedStatus') %></span>
+    <% } %>
+  </div>
+
+  <div class="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+    <div class="card p-4">
+      <p class="text-xs font-medium uppercase tracking-wide text-slate-500"><%= t('creditTotal') %></p>
+      <p class="mt-2 text-2xl font-semibold"><%= Number(summary.total_credit || 0) %></p>
+    </div>
+    <div class="card p-4">
+      <p class="text-xs font-medium uppercase tracking-wide text-slate-500"><%= t('creditPaid') %></p>
+      <p class="mt-2 text-2xl font-semibold"><%= Number(summary.total_paid || 0) %></p>
+    </div>
+    <div class="card p-4">
+      <p class="text-xs font-medium uppercase tracking-wide text-slate-500"><%= t('creditRemaining') %></p>
+      <p class="mt-2 text-2xl font-semibold"><%= Number(summary.total_remaining || 0) %></p>
+    </div>
+    <div class="card p-4">
+      <p class="text-xs font-medium uppercase tracking-wide text-slate-500"><%= t('tripCount') %></p>
+      <p class="mt-2 text-2xl font-semibold"><%= Number(summary.credit_count || 0) %></p>
+    </div>
+    <div class="card p-4">
+      <p class="text-xs font-medium uppercase tracking-wide text-slate-500"><%= t('paymentCount') %></p>
+      <p class="mt-2 text-2xl font-semibold"><%= Number(summary.total_payments || 0) %></p>
+    </div>
+  </div>
+
+  <div class="mt-6 grid gap-4 lg:grid-cols-3">
+    <div class="card p-6 lg:col-span-2">
+      <h2 class="text-lg font-semibold"><%= t('details') %></h2>
+      <div class="mt-4 grid gap-4 text-sm sm:grid-cols-2">
+        <div>
+          <p class="text-slate-500"><%= t('customerName') %></p>
+          <p class="font-semibold"><%= customer.name %></p>
+        </div>
+        <div>
+          <p class="text-slate-500"><%= t('status') %></p>
+          <p class="font-semibold"><%= Number(customer.is_active || 1) === 1 ? t('active') : t('inactive') %></p>
+        </div>
+        <div>
+          <p class="text-slate-500"><%= t('phone') %></p>
+          <p class="font-semibold"><%= customer.phone || '-' %></p>
+        </div>
+        <div>
+          <p class="text-slate-500"><%= t('customerLocation') %></p>
+          <p class="font-semibold"><%= customer.location || '-' %></p>
+        </div>
+        <div>
+          <p class="text-slate-500"><%= t('createdAt') %></p>
+          <p class="font-semibold"><%= customer.created_at || '-' %></p>
+        </div>
+        <div>
+          <p class="text-slate-500"><%= t('lastCreditDate') %></p>
+          <p class="font-semibold"><%= creditRows.length ? creditRows[0].credit_date : '-' %></p>
+        </div>
+      </div>
+    </div>
+
+    <div class="card p-6">
+      <h2 class="text-lg font-semibold"><%= t('customerNotesTitle') %></h2>
+      <div class="mt-4 space-y-3 text-sm text-slate-700">
+        <% if (customer.merged_into_name) { %>
+          <div class="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
+            <p class="font-semibold text-amber-800"><%= t('mergedIntoLabel') %></p>
+            <p class="mt-1"><%= customer.merged_into_name %></p>
+          </div>
+        <% } %>
+        <% if (Number(customer.is_active || 1) !== 1 && customer.deactivated_at) { %>
+          <div class="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+            <p class="font-semibold text-slate-800"><%= t('inactive') %></p>
+            <p class="mt-1"><%= customer.deactivated_at %></p>
+          </div>
+        <% } %>
+        <% if (!customer.merged_into_name && Number(customer.is_active || 1) === 1 && !(mergedAliases || []).length) { %>
+          <p class="text-slate-500"><%= t('customerDetailNoNotes') %></p>
+        <% } %>
+      </div>
+    </div>
+  </div>
+
+  <% if ((mergedAliases || []).length) { %>
+    <div class="mt-6 card p-6">
+      <div class="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 class="text-lg font-semibold"><%= t('mergedCustomersTitle') %></h2>
+          <p class="mt-1 text-sm text-slate-600"><%= t('mergedCustomersSubtitle') %></p>
+        </div>
+        <div class="text-sm text-slate-500"><%= mergedAliases.length %> <%= t('entries') %></div>
+      </div>
+      <div class="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+        <% mergedAliases.forEach((aliasRow) => { %>
+          <div class="record-panel">
+            <p class="font-semibold text-slate-900"><%= aliasRow.name %></p>
+            <p class="mt-1 text-sm text-slate-600">
+              <%= aliasRow.phone || '-' %>
+              <% if (aliasRow.location) { %> • <%= aliasRow.location %><% } %>
+            </p>
+            <p class="mt-2 text-xs text-slate-500"><%= aliasRow.deactivated_at || '-' %></p>
+          </div>
+        <% }) %>
+      </div>
+    </div>
+  <% } %>
+
+  <div class="mt-6 card p-6">
+    <div class="flex flex-wrap items-center justify-between gap-3">
+      <div>
+        <h2 class="text-lg font-semibold"><%= t('creditHistoryTitle') %></h2>
+        <p class="mt-1 text-sm text-slate-600"><%= t('customerDetailCreditSubtitle') %></p>
+      </div>
+      <div class="text-sm text-slate-500"><%= Number(summary.credit_count || 0) %> <%= t('entries') %></div>
+    </div>
+
+    <% if (!(creditRows || []).length) { %>
+      <div class="empty-state mt-4">
+        <p class="empty-state-title"><%= t('noCredits') %></p>
+        <p class="empty-state-copy"><%= t('emptyRangeHint') %></p>
+      </div>
+    <% } else { %>
+      <div class="mt-4 space-y-3">
+        <% creditRows.forEach((row) => { %>
+          <div class="record-card">
+            <div class="flex flex-wrap items-start justify-between gap-4">
+              <div>
+                <p class="font-semibold text-slate-900"><%= row.credit_date %></p>
+                <p class="mt-1 text-sm text-slate-600"><%= row.owner_name %> • <%= row.vehicle_number %></p>
+                <p class="mt-1 text-xs text-slate-500">
+                  <%= t('linkedTrip') %>: <%= row.trip_receipt_no || '-' %>
+                  <% if (row.trip_date) { %> • <%= t('tripDate') %>: <%= row.trip_date %><% } %>
+                </p>
+              </div>
+              <div class="surface-muted min-w-[220px] px-4 py-3 text-right">
+                <p class="text-xs font-semibold uppercase tracking-wide text-slate-500"><%= t('creditRemaining') %></p>
+                <p class="mt-1 text-lg font-semibold text-slate-900"><%= Number(row.remaining_amount || 0) %></p>
+                <p class="mt-1 text-xs text-slate-500"><%= t('paymentCount') %>: <%= Number(row.payment_count || 0) %></p>
+              </div>
+            </div>
+            <div class="mt-4 grid gap-3 sm:grid-cols-4">
+              <div class="record-panel">
+                <p class="record-panel-title"><%= t('creditTotal') %></p>
+                <p class="mt-2 font-semibold text-slate-900"><%= Number(row.amount || 0) %></p>
+              </div>
+              <div class="record-panel">
+                <p class="record-panel-title"><%= t('creditPaid') %></p>
+                <p class="mt-2 font-semibold text-slate-900"><%= Number(row.paid_amount || 0) %></p>
+              </div>
+              <div class="record-panel">
+                <p class="record-panel-title"><%= t('creditsLabel') %></p>
+                <div class="mt-2 space-y-1 text-sm text-slate-700">
+                  <div><%= t('jarLabel') %>: <%= Number(row.credit_jars || 0) %></div>
+                  <div><%= t('bottleCaseLabel') %>: <%= Number(row.credit_bottle_cases || 0) %></div>
+                  <div><%= t('dispenserLabel') %>: <%= Number(row.credit_dispensers || 0) %></div>
+                  <div><%= t('jarContainerLabel') %>: <%= Number(row.credit_jar_containers || 0) %></div>
+                </div>
+              </div>
+              <div class="record-panel">
+                <p class="record-panel-title"><%= t('actions') %></p>
+                <div class="mt-2 flex flex-wrap gap-2">
+                  <a class="btn-outline btn-sm" href="/records/credits/<%= row.id %>/payments"><%= t('paymentHistory') %></a>
+                  <a class="btn-outline btn-sm" href="/records/credits/<%= row.id %>/print" target="_blank"><%= t('print') %></a>
+                </div>
+              </div>
+            </div>
+          </div>
+        <% }) %>
+      </div>
+    <% } %>
+  </div>
+
+  <div class="mt-6 card p-6">
+    <div class="flex flex-wrap items-center justify-between gap-3">
+      <div>
+        <h2 class="text-lg font-semibold"><%= t('paymentHistoryTitle') %></h2>
+        <p class="mt-1 text-sm text-slate-600"><%= t('customerDetailPaymentSubtitle') %></p>
+      </div>
+      <div class="text-sm text-slate-500"><%= Number(paymentRows.length || 0) %> <%= t('entries') %></div>
+    </div>
+
+    <% if (!(paymentRows || []).length) { %>
+      <div class="empty-state mt-4">
+        <p class="empty-state-title"><%= t('noPayments') %></p>
+        <p class="empty-state-copy"><%= t('emptyRangeHint') %></p>
+      </div>
+    <% } else { %>
+      <div class="mt-4 overflow-x-auto">
+        <table class="table-base">
+          <thead class="table-head">
+            <tr>
+              <th class="px-4 py-3"><%= t('dateTime') %></th>
+              <th class="px-4 py-3"><%= t('paymentReceiptNo') %></th>
+              <th class="px-4 py-3"><%= t('amount') %></th>
+              <th class="px-4 py-3"><%= t('paymentMethodLabel') %></th>
+              <th class="px-4 py-3"><%= t('vehicleNumber') %></th>
+              <th class="px-4 py-3"><%= t('linkedTrip') %></th>
+              <th class="px-4 py-3"><%= t('note') %></th>
+              <th class="px-4 py-3"><%= t('recordedBy') %></th>
+              <th class="px-4 py-3 text-right"><%= t('print') %></th>
+            </tr>
+          </thead>
+          <tbody>
+            <% paymentRows.forEach((payment) => { %>
+              <% const methodLabel = payment.payment_method === 'BANK' ? t('methodBank') : payment.payment_method === 'E_WALLET' ? t('methodEWallet') : t('methodCash'); %>
+              <tr class="table-row">
+                <td class="px-4 py-3"><%= payment.paid_at %></td>
+                <td class="px-4 py-3"><%= payment.receipt_no || '-' %></td>
+                <td class="px-4 py-3"><%= Number(payment.amount || 0) %></td>
+                <td class="px-4 py-3"><%= methodLabel %></td>
+                <td class="px-4 py-3"><%= payment.vehicle_number || '-' %></td>
+                <td class="px-4 py-3"><%= payment.trip_receipt_no || '-' %></td>
+                <td class="px-4 py-3"><%= payment.note || '-' %></td>
+                <td class="px-4 py-3"><%= payment.recorded_by || '-' %></td>
+                <td class="px-4 py-3 text-right">
+                  <a class="btn-outline btn-sm" href="/records/credits/payments/<%= payment.id %>/print?autoprint=1" target="_blank"><%= t('print') %></a>
+                </td>
+              </tr>
+            <% }) %>
+          </tbody>
+        </table>
+      </div>
+    <% } %>
+  </div>
+</section>
+<%- include('../partials/shell-end') %>

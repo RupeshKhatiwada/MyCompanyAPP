@@ -50,17 +50,22 @@
           <% } %>
           <% payments.forEach((row) => { %>
             <% const methodLabel = row.payment_method === 'BANK' ? t('methodBank') : row.payment_method === 'E_WALLET' ? t('methodEWallet') : row.payment_method === 'MIXED' ? t('methodMixed') : t('methodCash'); %>
+            <% const sourceLabel = row.source_label_key ? t(row.source_label_key) : row.source === 'day' ? t('paymentSourceDay') : t('paymentSourceTrip'); %>
             <tr class="table-row">
               <td class="px-4 py-3"><%= row.created_at %></td>
               <td class="px-4 py-3"><%= row.export_date %></td>
               <td class="px-4 py-3"><%= row.receipt_no %></td>
               <td class="px-4 py-3"><%= row.payment_receipt_no || '-' %></td>
-              <td class="px-4 py-3"><%= row.source === 'day' ? t('paymentSourceDay') : t('paymentSourceTrip') %></td>
+              <td class="px-4 py-3"><%= sourceLabel %></td>
               <td class="px-4 py-3"><%= methodLabel %></td>
               <td class="px-4 py-3"><%= row.payment_amount %></td>
               <td class="px-4 py-3"><%= row.summary || '-' %></td>
               <td class="px-4 py-3 text-right">
-                <a class="btn-outline" href="/records/exports/payment-history/receipt/<%= row.log_id %>/print?autoprint=1" target="_blank"><%= t('print') %></a>
+                <% if (row.print_url) { %>
+                  <a class="btn-outline" href="<%= row.print_url %>" target="_blank"><%= t('print') %></a>
+                <% } else { %>
+                  <span class="text-slate-400">-</span>
+                <% } %>
               </td>
             </tr>
           <% }) %>

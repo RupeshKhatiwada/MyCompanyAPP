@@ -15,15 +15,15 @@
       </div>
       <div class="card p-4 sm:col-span-2">
         <p class="text-slate-500"><%= t('vehicle') %></p>
-        <p class="text-base font-semibold"><%= record.owner_name %> • <%= record.vehicle_number %></p>
+        <p class="text-base font-semibold"><%= Number(record.is_system) === 1 ? t('inPersonSale') : `${record.owner_name} • ${record.vehicle_number}` %></p>
       </div>
     </div>
 
     <div class="mt-6 flex flex-wrap gap-2">
-      <% if (!record.is_company) { %>
+      <% if (Number(record.is_system) !== 1) { %>
         <a
           class="btn-primary"
-          href="/records/credits/new?vehicle_id=<%= record.vehicle_id %>&credit_date=<%= record.export_date %>&trip_date=<%= record.export_date %>"
+          href="/records/credits/new?vehicle_id=<%= record.vehicle_id %>&credit_date=<%= record.export_date %>&trip_date=<%= record.export_date %>&export_id=<%= record.id %>"
         ><%= t('addCreditNow') %></a>
       <% } %>
       <a class="btn-outline" href="/records/exports/<%= record.id %>/print" target="_blank"><%= t('print') %></a>

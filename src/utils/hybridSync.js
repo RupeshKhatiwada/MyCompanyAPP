@@ -13,6 +13,7 @@ const HYBRID_SYNC_TABLES = [
   { name: "exports", idColumn: "id" },
   { name: "credits", idColumn: "id" },
   { name: "credit_payments", idColumn: "id" },
+  { name: "export_credit_payments", idColumn: "id" },
   { name: "jar_types", idColumn: "id" },
   { name: "jar_cap_types", idColumn: "id" },
   { name: "jar_sales", idColumn: "id" },

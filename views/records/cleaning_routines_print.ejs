@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="<%= lang %>">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title><%= t('cleaningRoutinesPrintTitle') %> | AQUA MSK</title>
+  <link rel="stylesheet" href="/css/styles.css?v=<%= assetVersion %>" />
+  <style>
+    @media print { .print-hidden { display: none !important; } }
+  </style>
+</head>
+<body class="bg-white text-slate-900">
+  <div class="mx-auto max-w-6xl p-6">
+    <div class="flex flex-wrap items-start justify-between gap-4">
+      <div class="flex-1">
+        <%- include('../partials/print-brand', { subtitle: t('cleaningRoutinesPrintTitle') }) %>
+        <p class="mt-2 text-sm text-slate-600">
+          <strong><%= t('from') %>:</strong> <%= typeof formatDateDual === 'function' ? formatDateDual(from) : from %>
+          &nbsp;|&nbsp;
+          <strong><%= t('to') %>:</strong> <%= typeof formatDateDual === 'function' ? formatDateDual(to) : to %>
+        </p>
+        <% if (statusFilter && statusFilter !== 'ALL') { %>
+          <p class="mt-1 text-sm text-slate-600"><strong><%= t('status') %>:</strong> <%= statusFilter === 'DONE' ? t('cleaningDone') : statusFilter === 'SKIPPED' ? t('cleaningSkipped') : t('cleaningPending') %></p>
+        <% } %>
+        <% if (q) { %>
+          <p class="mt-1 text-sm text-slate-600"><strong><%= t('search') %>:</strong> <%= q %></p>
+        <% } %>
+      </div>
+      <button class="btn-primary print-hidden" onclick="window.print()"><%= t('print') %></button>
+    </div>
+
+    <div class="mt-6 grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-4">
+      <div class="card p-4">
+        <p class="text-slate-500"><%= t('entries') %></p>
+        <p class="text-lg font-semibold"><%= totals.total %></p>
+      </div>
+      <div class="card p-4">
+        <p class="text-slate-500"><%= t('cleaningDone') %></p>
+        <p class="text-lg font-semibold"><%= totals.done %></p>
+      </div>
+      <div class="card p-4">
+        <p class="text-slate-500"><%= t('cleaningPending') %></p>
+        <p class="text-lg font-semibold"><%= totals.pending %></p>
+      </div>
+      <div class="card p-4">
+        <p class="text-slate-500"><%= t('cleaningSkipped') %></p>
+        <p class="text-lg font-semibold"><%= totals.skipped %></p>
+      </div>
+    </div>
+
+    <div class="mt-6 overflow-hidden rounded-2xl border border-slate-200">
+      <table class="table-base">
+        <thead class="table-head">
+          <tr>
+            <th class="px-4 py-3"><%= t('date') %></th>
+            <th class="px-4 py-3"><%= t('cleaningShift') %></th>
+            <th class="px-4 py-3"><%= t('cleaningArea') %></th>
+            <th class="px-4 py-3"><%= t('cleaningTask') %></th>
+            <th class="px-4 py-3"><%= t('cleanedBy') %></th>
+            <th class="px-4 py-3"><%= t('status') %></th>
+            <th class="px-4 py-3"><%= t('note') %></th>
+          </tr>
+        </thead>
+        <tbody>
+          <% if (!rows.length) { %>
+            <tr>
+              <td class="px-4 py-4 text-slate-500" colspan="7"><%= t('noData') %></td>
+            </tr>
+          <% } %>
+          <% rows.forEach((row) => { %>
+            <tr class="table-row">
+              <td class="px-4 py-3"><%= typeof formatDateDual === 'function' ? formatDateDual(row.routine_date) : row.routine_date %></td>
+              <td class="px-4 py-3"><%= row.shift === 'EVENING' ? t('eveningShift') : t('morningShift') %></td>
+              <td class="px-4 py-3"><%= row.area_name %></td>
+              <td class="px-4 py-3"><%= row.task_name %></td>
+              <td class="px-4 py-3"><%= row.cleaned_by || '-' %></td>
+              <td class="px-4 py-3"><%= row.status === 'DONE' ? t('cleaningDone') : row.status === 'SKIPPED' ? t('cleaningSkipped') : t('cleaningPending') %></td>
+              <td class="px-4 py-3"><%= row.note || '-' %></td>
+            </tr>
+          <% }) %>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</body>
+</html>

@@ -1,0 +1,214 @@
+<%- include('../partials/shell-start', { title }) %>
+<section class="py-8">
+  <div class="page-header">
+    <div class="flex flex-wrap items-center justify-between gap-3">
+      <div>
+        <h1 class="text-3xl font-semibold"><%= t('customers') %></h1>
+        <p class="mt-1 text-slate-600"><%= t('customersSubtitle') %></p>
+      </div>
+      <div class="flex flex-wrap gap-2">
+        <a class="btn-outline" href="/records/customers?include_inactive=<%= includeInactive ? '0' : '1' %>&q=<%= encodeURIComponent(q || '') %>&status=<%= status || 'all' %>">
+          <%= includeInactive ? t('hideArchived') : t('showArchived') %>
+        </a>
+        <a class="btn-primary" href="/records/customers/new"><%= t('addCustomerTitle') %></a>
+      </div>
+    </div>
+  </div>
+
+  <% if (notice) { %>
+    <div class="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700"><%= t(notice) %></div>
+  <% } %>
+  <% if (error) { %>
+    <div class="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"><%= t(error) %></div>
+  <% } %>
+
+  <div class="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+    <div class="card p-4">
+      <p class="text-xs font-medium uppercase tracking-wide text-slate-500"><%= t('customerCount') %></p>
+      <p class="mt-2 text-2xl font-semibold"><%= Number(summary.total || 0) %></p>
+    </div>
+    <div class="card p-4">
+      <p class="text-xs font-medium uppercase tracking-wide text-slate-500"><%= t('active') %></p>
+      <p class="mt-2 text-2xl font-semibold"><%= Number(summary.active || 0) %></p>
+    </div>
+    <div class="card p-4">
+      <p class="text-xs font-medium uppercase tracking-wide text-slate-500"><%= t('customersWithOutstandingCredit') %></p>
+      <p class="mt-2 text-2xl font-semibold"><%= Number(summary.outstanding || 0) %></p>
+    </div>
+    <div class="card p-4">
+      <p class="text-xs font-medium uppercase tracking-wide text-slate-500"><%= t('totalRemaining') %></p>
+      <p class="mt-2 text-2xl font-semibold"><%= Number(summary.total_remaining || 0) %></p>
+    </div>
+  </div>
+
+  <div class="mt-6 card p-5">
+    <form class="grid gap-3 lg:grid-cols-5" method="get" action="/records/customers">
+      <input type="hidden" name="include_inactive" value="<%= includeInactive ? '1' : '0' %>" />
+      <div class="lg:col-span-3">
+        <label class="label"><%= t('search') %></label>
+        <input class="input mt-1" type="text" name="q" value="<%= q || '' %>" placeholder="<%= t('searchPlaceholder') %>" />
+      </div>
+      <div>
+        <label class="label"><%= t('status') %></label>
+        <select class="input mt-1" name="status">
+          <option value="all" <%= status === 'all' ? 'selected' : '' %>><%= t('all') %></option>
+          <option value="outstanding" <%= status === 'outstanding' ? 'selected' : '' %>><%= t('outstandingStatus') %></option>
+          <option value="cleared" <%= status === 'cleared' ? 'selected' : '' %>><%= t('settledStatus') %></option>
+          <option value="no_credit" <%= status === 'no_credit' ? 'selected' : '' %>><%= t('noCreditStatus') %></option>
+        </select>
+      </div>
+      <div class="flex items-end">
+        <button class="btn-outline w-full" type="submit"><%= t('filter') %></button>
+      </div>
+    </form>
+  </div>
+
+  <div class="mt-6 card p-5">
+    <div class="flex items-center justify-between gap-3">
+      <div>
+        <h2 class="text-lg font-semibold"><%= t('activeCustomersTitle') %></h2>
+        <p class="mt-1 text-sm text-slate-600"><%= t('activeCustomersSubtitle') %></p>
+      </div>
+      <div class="text-sm text-slate-500"><%= Number(activeRows.length || 0) %> <%= t('entries') %></div>
+    </div>
+
+    <% if (!activeRows.length) { %>
+      <div class="empty-state mt-4">
+        <p class="empty-state-title"><%= t('noCustomersFound') %></p>
+        <p class="empty-state-copy"><%= t('emptyRangeHint') %></p>
+      </div>
+    <% } else { %>
+      <div class="mt-4 space-y-3">
+        <% activeRows.forEach((row) => { %>
+          <% const hasOutstanding = Number(row.total_remaining || 0) > 0; %>
+          <% const hasCreditHistory = Number(row.credit_rows || 0) > 0; %>
+          <% const statusLabel = hasOutstanding ? t('outstandingStatus') : (hasCreditHistory ? t('settledStatus') : t('noCreditStatus')); %>
+          <% const statusClass = hasOutstanding ? 'bg-red-100 text-red-700' : (hasCreditHistory ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-700'); %>
+          <div class="record-card">
+            <div class="flex flex-wrap items-start justify-between gap-4">
+              <div>
+                <div class="flex flex-wrap items-center gap-2">
+                  <p class="font-semibold text-slate-900"><%= row.name %></p>
+                  <span class="badge <%= statusClass %>"><%= statusLabel %></span>
+                  <span class="badge bg-emerald-100 text-emerald-700"><%= t('active') %></span>
+                </div>
+                <p class="mt-2 text-sm text-slate-600">
+                  <%= row.phone || '-' %>
+                  <% if (row.location) { %> • <%= row.location %><% } %>
+                </p>
+                <p class="mt-1 text-xs text-slate-500"><%= t('lastCreditDate') %>: <%= row.last_credit_date || '-' %></p>
+              </div>
+              <div class="surface-muted min-w-[210px] px-4 py-3 text-right">
+                <p class="text-xs font-semibold uppercase tracking-wide text-slate-500"><%= t('totalRemaining') %></p>
+                <p class="mt-1 text-lg font-semibold text-slate-900"><%= Number(row.total_remaining || 0) %></p>
+                <p class="mt-1 text-xs text-slate-500"><%= t('tripCount') %>: <%= Number(row.credit_rows || 0) %></p>
+              </div>
+            </div>
+
+            <div class="mt-4 grid gap-3 sm:grid-cols-3">
+              <div class="record-panel">
+                <p class="record-panel-title"><%= t('creditsTitle') %></p>
+                <div class="mt-2 space-y-1 text-slate-700">
+                  <div><span class="text-slate-500"><%= t('tripCount') %>:</span> <%= Number(row.credit_rows || 0) %></div>
+                  <div><span class="text-slate-500"><%= t('totalAmount') %>:</span> <%= Number(row.total_amount || 0) %></div>
+                </div>
+              </div>
+              <div class="record-panel">
+                <p class="record-panel-title"><%= t('paymentHistory') %></p>
+                <div class="mt-2 space-y-1 text-slate-700">
+                  <div><span class="text-slate-500"><%= t('totalPaidAmount') %>:</span> <%= Number(row.total_paid || 0) %></div>
+                  <div><span class="text-slate-500"><%= t('totalRemaining') %>:</span> <%= Number(row.total_remaining || 0) %></div>
+                </div>
+              </div>
+              <div class="record-panel">
+                <p class="record-panel-title"><%= t('customerStatusTitle') %></p>
+                <div class="mt-2 space-y-1 text-slate-700">
+                  <div><span class="text-slate-500"><%= t('status') %>:</span> <%= statusLabel %></div>
+                  <div><span class="text-slate-500"><%= t('lastCreditDate') %>:</span> <%= row.last_credit_date || '-' %></div>
+                </div>
+              </div>
+            </div>
+
+            <div class="record-actions">
+              <a class="btn-outline btn-sm" href="/records/customers/<%= row.id %>"><%= t('viewDetails') %></a>
+              <a class="btn-outline btn-sm" href="/records/credits?customer_id=<%= row.id %>&q=<%= encodeURIComponent(row.name) %>"><%= t('credits') %></a>
+              <a class="btn-outline btn-sm" href="/records/customer-invoice?customer_id=<%= row.id %>"><%= t('customerInvoiceTitle') %></a>
+              <a class="btn-outline btn-sm" href="/records/customers/<%= row.id %>/edit"><%= t('manage') %></a>
+              <a class="btn-outline btn-sm" href="/records/customers/<%= row.id %>/merge"><%= t('merge') %></a>
+              <form method="post" action="/records/customers/<%= row.id %>/archive" onsubmit="return confirm('<%= t('archiveCustomerConfirm') %>');">
+                <button class="btn-outline btn-sm" type="submit"><%= t('archive') %></button>
+              </form>
+              <% if (Number(row.credit_rows || 0) === 0) { %>
+                <form method="post" action="/records/customers/<%= row.id %>/delete" onsubmit="return confirm('<%= t('deleteCustomerConfirm') %>');">
+                  <button class="btn-danger btn-sm" type="submit"><%= t('delete') %></button>
+                </form>
+              <% } %>
+            </div>
+          </div>
+        <% }) %>
+      </div>
+    <% } %>
+  </div>
+
+  <% if (includeInactive) { %>
+    <div class="mt-6 card p-5">
+      <div class="flex items-center justify-between gap-3">
+        <div>
+          <h2 class="text-lg font-semibold"><%= t('archivedCustomersTitle') %></h2>
+          <p class="mt-1 text-sm text-slate-600"><%= t('archivedCustomersSubtitle') %></p>
+        </div>
+        <div class="text-sm text-slate-500"><%= Number(archivedRows.length || 0) %> <%= t('entries') %></div>
+      </div>
+
+      <% if (!archivedRows.length) { %>
+        <div class="empty-state mt-4">
+          <p class="empty-state-title"><%= t('noArchivedCustomers') %></p>
+          <p class="empty-state-copy"><%= t('emptyRangeHint') %></p>
+        </div>
+      <% } else { %>
+        <div class="mt-4 space-y-3">
+          <% archivedRows.forEach((row) => { %>
+            <div class="record-card">
+              <div class="flex flex-wrap items-start justify-between gap-4">
+                <div>
+                  <div class="flex flex-wrap items-center gap-2">
+                    <p class="font-semibold text-slate-900"><%= row.name %></p>
+                    <span class="badge bg-slate-100 text-slate-700"><%= t('inactive') %></span>
+                    <% if (row.merged_into_name) { %>
+                      <span class="badge bg-amber-100 text-amber-700"><%= t('mergedStatus') %></span>
+                    <% } %>
+                  </div>
+                  <p class="mt-2 text-sm text-slate-600">
+                    <%= row.phone || '-' %>
+                    <% if (row.location) { %> • <%= row.location %><% } %>
+                  </p>
+                  <% if (row.merged_into_name) { %>
+                    <p class="mt-1 text-xs text-slate-500"><%= t('mergedIntoLabel') %>: <%= row.merged_into_name %></p>
+                  <% } %>
+                </div>
+                <div class="surface-muted min-w-[210px] px-4 py-3 text-right">
+                  <p class="text-xs font-semibold uppercase tracking-wide text-slate-500"><%= t('totalRemaining') %></p>
+                  <p class="mt-1 text-lg font-semibold text-slate-900"><%= Number(row.total_remaining || 0) %></p>
+                  <p class="mt-1 text-xs text-slate-500"><%= t('tripCount') %>: <%= Number(row.credit_rows || 0) %></p>
+                </div>
+              </div>
+              <div class="record-actions">
+                <a class="btn-outline btn-sm" href="/records/customers/<%= row.merged_into_customer_id || row.id %>"><%= t('viewDetails') %></a>
+                <form method="post" action="/records/customers/<%= row.id %>/activate" onsubmit="return confirm('<%= t('activateCustomerConfirm') %>');">
+                  <button class="btn-primary btn-sm" type="submit"><%= t('active') %></button>
+                </form>
+                <a class="btn-outline btn-sm" href="/records/customers/<%= row.merged_into_customer_id || row.id %>/edit"><%= t('manage') %></a>
+                <% if (Number(row.credit_rows || 0) === 0) { %>
+                  <form method="post" action="/records/customers/<%= row.id %>/delete" onsubmit="return confirm('<%= t('deleteCustomerConfirm') %>');">
+                    <button class="btn-danger btn-sm" type="submit"><%= t('delete') %></button>
+                  </form>
+                <% } %>
+              </div>
+            </div>
+          <% }) %>
+        </div>
+      <% } %>
+    </div>
+  <% } %>
+</section>
+<%- include('../partials/shell-end') %>

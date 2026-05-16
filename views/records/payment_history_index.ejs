@@ -1,0 +1,189 @@
+<%- include('../partials/shell-start', { title }) %>
+<section class="py-8">
+  <%
+    const sourceLabelMap = {
+      all: t('allSources'),
+      EXPORT_PAYMENT: t('paymentSourceExport'),
+      EXPORT_CREDIT: t('paymentSourceExportCredit'),
+      CUSTOMER_CREDIT: t('paymentSourceCustomerCredit'),
+      JAR_SALE: t('paymentSourceJarSale'),
+      JAR_CONTAINER_LENDING: t('paymentSourceJarContainerLending'),
+      JAR_CONTAINER_REFUND: t('paymentSourceJarContainerRefund'),
+      SAVINGS: t('paymentSourceSavings'),
+      RENTAL_INCOME: t('paymentSourceRentalIncome'),
+      LEAKAGE_JAR_SALE: t('paymentSourceLeakageJarSale'),
+      IMPORT_PAYMENT: t('paymentSourceImport'),
+      PURCHASE_PAYMENT: t('paymentSourcePurchase'),
+      VEHICLE_EXPENSE_PAYMENT: t('paymentSourceVehicleExpense'),
+      STAFF_SALARY: t('paymentSourceStaffSalary'),
+      WORKER_SALARY: t('paymentSourceWorkerSalary')
+    };
+    const visibleRows = rows || [];
+    const selectedSourceLabel = sourceLabelMap[source] || source;
+  %>
+
+  <div class="page-header">
+    <div class="card-toolbar">
+      <div>
+        <h1 class="text-3xl font-semibold"><%= t('allPaymentHistoryTitle') %></h1>
+        <p class="mt-1 text-slate-600"><%= t('allPaymentHistorySubtitle') %></p>
+      </div>
+      <div class="surface-muted px-4 py-3 text-sm text-slate-600">
+        <div><span class="font-medium text-slate-800"><%= t('selectedRange') %>:</span> <%= from %> -> <%= to %></div>
+        <div class="mt-1"><span class="font-medium text-slate-800"><%= t('paymentSource') %>:</span> <%= selectedSourceLabel %></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+    <div class="card p-5">
+      <p class="text-sm text-slate-500"><%= t('allEntries') %></p>
+      <p class="mt-2 text-2xl font-semibold"><%= totals.count %></p>
+    </div>
+    <div class="card p-5">
+      <p class="text-sm text-slate-500"><%= t('inflow') %></p>
+      <p class="mt-2 text-2xl font-semibold text-emerald-700"><%= totals.inflow %></p>
+    </div>
+    <div class="card p-5">
+      <p class="text-sm text-slate-500"><%= t('outflow') %></p>
+      <p class="mt-2 text-2xl font-semibold text-red-700"><%= totals.outflow %></p>
+    </div>
+    <div class="card p-5">
+      <p class="text-sm text-slate-500"><%= t('netAmount') %></p>
+      <p class="mt-2 text-2xl font-semibold <%= totals.net >= 0 ? 'text-emerald-700' : 'text-red-700' %>"><%= totals.net %></p>
+    </div>
+  </div>
+
+  <div class="mt-6 card p-5">
+    <div class="card-toolbar">
+      <div class="flex flex-wrap gap-2 text-sm">
+        <a class="btn-outline" href="/records/payment-history?from=<%= today %>&to=<%= today %>&source=<%= source %>&q=<%= encodeURIComponent(q || '') %>"><%= t('presetToday') %></a>
+        <a class="btn-outline" href="/records/payment-history?from=<%= monthStart %>&to=<%= today %>&source=<%= source %>&q=<%= encodeURIComponent(q || '') %>"><%= t('presetThisMonth') %></a>
+        <a class="btn-outline" href="/records/payment-history?from=<%= yearStart %>&to=<%= today %>&source=<%= source %>&q=<%= encodeURIComponent(q || '') %>"><%= t('presetThisYear') %></a>
+      </div>
+      <div class="text-sm text-slate-500">
+        <%= t('paymentHistoryShowingRange', { start: pagination.startRow, end: pagination.endRow, total: pagination.totalRows }) %>
+      </div>
+    </div>
+
+    <form class="mt-5 grid gap-3 lg:grid-cols-5" method="get" action="/records/payment-history">
+      <div>
+        <label class="label"><%= t('from') %></label>
+        <input class="input mt-1" type="date" name="from" value="<%= from %>" />
+      </div>
+      <div>
+        <label class="label"><%= t('to') %></label>
+        <input class="input mt-1" type="date" name="to" value="<%= to %>" />
+      </div>
+      <div>
+        <label class="label"><%= t('paymentSource') %></label>
+        <select class="input mt-1" name="source">
+          <% (sourceOptions || []).forEach((option) => { %>
+            <option value="<%= option %>" <%= source === option ? 'selected' : '' %>><%= sourceLabelMap[option] || option %></option>
+          <% }) %>
+        </select>
+      </div>
+      <div class="lg:col-span-2">
+        <label class="label"><%= t('search') %></label>
+        <input class="input mt-1" type="text" name="q" value="<%= q || '' %>" placeholder="<%= t('party') %> / <%= t('details') %>" />
+      </div>
+      <div class="lg:col-span-5 flex justify-end">
+        <button class="btn-outline" type="submit"><%= t('filter') %></button>
+      </div>
+    </form>
+  </div>
+
+  <div class="mt-6 card p-5">
+    <div class="flex flex-wrap items-start justify-between gap-3">
+      <div>
+        <h2 class="text-lg font-semibold"><%= t('paymentHistoryTitle') %></h2>
+        <p class="mt-1 text-sm text-slate-600"><%= t('paymentHistoryEverythingHint') %></p>
+      </div>
+      <div class="flex flex-wrap items-center gap-2">
+        <% const pageParams = new URLSearchParams({ from, to, source, q: q || '' }); %>
+        <% if (pagination.hasPrev) { pageParams.set('page', String(pagination.page - 1)); %>
+          <a class="btn-outline btn-sm" href="/records/payment-history?<%= pageParams.toString() %>"><%= t('previousPage') %></a>
+        <% } %>
+        <% if (pagination.hasNext) { pageParams.set('page', String(pagination.page + 1)); %>
+          <a class="btn-outline btn-sm" href="/records/payment-history?<%= pageParams.toString() %>"><%= t('nextPage') %></a>
+        <% } %>
+      </div>
+    </div>
+
+    <% if (!visibleRows.length) { %>
+      <div class="empty-state mt-4">
+        <p class="empty-state-title"><%= t('noPaymentHistory') %></p>
+        <p class="empty-state-copy"><%= t('emptyRangeHint') %></p>
+      </div>
+    <% } else { %>
+      <div class="mt-4 space-y-3">
+        <% visibleRows.forEach((row) => { %>
+          <%
+            const isOutflow = Number(row.amount || 0) < 0;
+            const methodLabel = row.payment_method === 'BANK' ? t('methodBank') : row.payment_method === 'E_WALLET' ? t('methodEWallet') : row.payment_method === 'MIXED' ? t('methodMixed') : t('methodCash');
+            const sourceLabel = sourceLabelMap[row.source_key] || row.source_key;
+            const paymentSourceLabel = row.payment_source === 'OWNER_PERSONAL'
+              ? t('sourceOwnerPersonal')
+              : row.payment_source === 'BANK_OTHER'
+                ? t('sourceBankOther')
+                : row.payment_source === 'DAILY_COLLECTION'
+                  ? t('sourceDailyCollection')
+                  : (row.payment_source || '-');
+          %>
+          <div class="record-card">
+            <div class="flex flex-wrap items-start justify-between gap-4">
+              <div>
+                <div class="flex flex-wrap items-center gap-2">
+                  <span class="status-pill status-pill-neutral"><%= sourceLabel %></span>
+                  <span class="status-pill <%= isOutflow ? 'status-pill-outflow' : 'status-pill-inflow' %>">
+                    <%= isOutflow ? t('outflow') : t('inflow') %>
+                  </span>
+                  <span class="status-pill status-pill-neutral"><%= methodLabel %></span>
+                </div>
+                <p class="mt-2 font-semibold text-slate-900"><%= typeof formatDateDual === 'function' ? formatDateDual(row.payment_date) : row.payment_date %></p>
+                <p class="mt-1 text-sm text-slate-600"><%= row.party_name || '-' %></p>
+              </div>
+              <div class="surface-muted min-w-[180px] px-4 py-3 text-right">
+                <p class="text-xs font-semibold uppercase tracking-wide text-slate-500"><%= t('amount') %></p>
+                <p class="mt-1 text-lg font-semibold <%= isOutflow ? 'text-red-700' : 'text-emerald-700' %>"><%= row.amount %></p>
+                <p class="mt-1 text-xs text-slate-500"><%= methodLabel %></p>
+              </div>
+            </div>
+
+            <div class="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+              <div class="record-panel">
+                <p class="record-panel-title"><%= t('paymentMethodLabel') %></p>
+                <div class="mt-2 space-y-1 text-slate-700">
+                  <div><span class="text-slate-500"><%= t('paymentMethodLabel') %>:</span> <%= methodLabel %></div>
+                  <div><span class="text-slate-500"><%= t('paymentSourceLabel') %>:</span> <%= paymentSourceLabel %></div>
+                </div>
+              </div>
+              <div class="record-panel">
+                <p class="record-panel-title"><%= t('party') %></p>
+                <div class="mt-2 space-y-1 text-slate-700">
+                  <div><span class="text-slate-500"><%= t('party') %>:</span> <%= row.party_name || '-' %></div>
+                  <div><span class="text-slate-500"><%= t('vehicle') %>:</span> <%= row.vehicle_label || '-' %></div>
+                </div>
+              </div>
+              <div class="record-panel">
+                <p class="record-panel-title"><%= t('receiptNo') %></p>
+                <div class="mt-2 space-y-1 text-slate-700">
+                  <div><span class="text-slate-500"><%= t('receiptNo') %>:</span> <%= row.receipt_no || '-' %></div>
+                  <div><span class="text-slate-500"><%= t('reference') %>:</span> <%= row.reference_no || '-' %></div>
+                </div>
+              </div>
+              <div class="record-panel">
+                <p class="record-panel-title"><%= t('recordedBy') %></p>
+                <div class="mt-2 space-y-1 text-slate-700">
+                  <div><span class="text-slate-500"><%= t('recordedBy') %>:</span> <%= row.recorded_by || '-' %></div>
+                  <div><span class="text-slate-500"><%= t('details') %>:</span> <%= row.details || '-' %></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        <% }) %>
+      </div>
+    <% } %>
+  </div>
+</section>
+<%- include('../partials/shell-end') %>

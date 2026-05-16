@@ -1,34 +1,173 @@
 <%- include('../partials/shell-start', { title }) %>
 <section class="py-8">
-  <div class="flex flex-wrap items-center justify-between gap-3">
-    <div>
-      <h1 class="text-3xl font-semibold"><%= t('allReportsTitle') %></h1>
-      <p class="text-slate-600"><%= t('allReportsSubtitle') %></p>
-    </div>
-    <div class="flex flex-wrap gap-2">
-      <a class="btn-outline" href="/admin/reports/all/export?from=<%= from %>&to=<%= to %>"><%= t('exportCsv') %></a>
-      <button class="btn-primary" onclick="window.print()"><%= t('print') %></button>
+  <div class="page-header">
+    <div class="card-toolbar">
+      <div>
+        <h1 class="text-3xl font-semibold"><%= t('allReportsTitle') %></h1>
+        <p class="text-slate-600"><%= t('allReportsSubtitle') %></p>
+      </div>
+      <div class="flex flex-wrap gap-2">
+        <a class="btn-outline" href="/admin/reports/all/export?from=<%= from %>&to=<%= to %>"><%= t('exportCsv') %></a>
+        <a class="btn-outline" href="/admin/reports/collection-summary/print?from=<%= from %>&to=<%= to %>" target="_blank"><%= t('printCollectionSummary') %></a>
+        <button class="btn-primary" onclick="window.print()"><%= t('print') %></button>
+      </div>
     </div>
   </div>
 
-  <form class="mt-4 flex flex-wrap items-end gap-3 print-hidden" method="get" action="/admin/reports/all">
-    <div>
-      <label class="label"><%= t('from') %></label>
-      <input class="input" type="date" name="from" value="<%= from %>" />
+  <div class="mt-6 card p-5 print-hidden">
+    <div class="card-toolbar">
+      <div class="surface-muted px-4 py-3 text-sm text-slate-600">
+        <div><span class="font-medium text-slate-800"><%= t('selectedRange') %>:</span> <%= from %> -> <%= to %></div>
+      </div>
+      <div class="flex flex-wrap gap-2">
+        <a class="btn-outline" href="/admin/reports/all?from=<%= today %>&to=<%= today %>"><%= t('presetToday') %></a>
+        <a class="btn-outline" href="/admin/reports/all?from=<%= weekStart %>&to=<%= today %>"><%= t('presetThisWeek') %></a>
+        <a class="btn-outline" href="/admin/reports/all?from=<%= monthStart %>&to=<%= today %>"><%= t('presetThisMonth') %></a>
+        <a class="btn-outline" href="/admin/reports/all?from=<%= yearStart %>&to=<%= today %>"><%= t('presetThisYear') %></a>
+      </div>
     </div>
-    <div>
-      <label class="label"><%= t('to') %></label>
-      <input class="input" type="date" name="to" value="<%= to %>" />
-    </div>
-    <button class="btn-outline" type="submit"><%= t('filter') %></button>
-    <a class="btn-outline" href="/admin/reports/all?from=<%= today %>&to=<%= today %>"><%= t('presetToday') %></a>
-    <a class="btn-outline" href="/admin/reports/all?from=<%= weekStart %>&to=<%= today %>"><%= t('presetThisWeek') %></a>
-    <a class="btn-outline" href="/admin/reports/all?from=<%= monthStart %>&to=<%= today %>"><%= t('presetThisMonth') %></a>
-    <a class="btn-outline" href="/admin/reports/all?from=<%= yearStart %>&to=<%= today %>"><%= t('presetThisYear') %></a>
-  </form>
+    <form class="mt-5 grid gap-3 md:grid-cols-3 lg:grid-cols-5" method="get" action="/admin/reports/all">
+      <div>
+        <label class="label"><%= t('from') %></label>
+        <input class="input mt-1" type="date" name="from" value="<%= from %>" />
+      </div>
+      <div>
+        <label class="label"><%= t('to') %></label>
+        <input class="input mt-1" type="date" name="to" value="<%= to %>" />
+      </div>
+      <div class="md:col-span-3 lg:col-span-1 flex items-end">
+        <button class="btn-outline w-full" type="submit"><%= t('filter') %></button>
+      </div>
+    </form>
+  </div>
 
   <% const importLabels = { JAR_CONTAINER: t('importItemJarContainer'), JAR_CAP: t('importItemJarCap'), CHEMICAL_LABEL: t('importItemChemicalLabel'), LABEL_STICKER: t('importItemLabelSticker'), DATE_LABEL: t('importItemDateLabel') }; %>
+  <div class="mt-6 report-shortcut-group print-hidden">
+    <div class="card-toolbar">
+      <div>
+        <h2 class="text-lg font-semibold"><%= t('reportShortcutsTitle') %></h2>
+        <p class="mt-1 text-sm text-slate-600"><%= t('reportShortcutsSubtitle') %></p>
+      </div>
+    </div>
+    <div class="mt-4 grid gap-4 xl:grid-cols-4">
+      <div class="surface-muted p-4">
+        <p class="section-kicker"><%= t('reportGroupDailyMoney') %></p>
+        <div class="mt-3 grid gap-3">
+          <a class="action-card" href="/admin/reports/daily-close?from=<%= from %>&to=<%= to %>">
+            <p class="action-title"><%= t('dailyCloseTitle') %></p>
+            <p class="action-copy"><%= t('dailyCloseSubtitle') %></p>
+          </a>
+          <a class="action-card" href="/admin/reports/summary?from=<%= from %>&to=<%= to %>">
+            <p class="action-title"><%= t('collectionSummaryTitle') %></p>
+            <p class="action-copy"><%= t('collectionSummarySubtitle') %></p>
+          </a>
+          <a class="action-card" href="/admin/reports/profit?from=<%= from %>&to=<%= to %>">
+            <p class="action-title"><%= t('profitSummaryTitle') %></p>
+            <p class="action-copy"><%= t('profitSummarySubtitle') %></p>
+          </a>
+        </div>
+      </div>
+      <div class="surface-muted p-4">
+        <p class="section-kicker"><%= t('reportGroupSalesCredits') %></p>
+        <div class="mt-3 grid gap-3">
+          <a class="action-card" href="/admin/reports/export-summary?from=<%= from %>&to=<%= to %>">
+            <p class="action-title"><%= t('exportSummaryTitle') %></p>
+            <p class="action-copy"><%= t('exportSummarySubtitle') %></p>
+          </a>
+          <a class="action-card" href="/admin/reports/sales?from=<%= from %>&to=<%= to %>">
+            <p class="action-title"><%= t('salesReportTitle') %></p>
+            <p class="action-copy"><%= t('salesReportSubtitle') %></p>
+          </a>
+          <a class="action-card" href="/admin/reports/credit-aging?from=<%= from %>&to=<%= to %>">
+            <p class="action-title"><%= t('creditAgingTitle') %></p>
+            <p class="action-copy"><%= t('creditAgingSubtitle') %></p>
+          </a>
+          <a class="action-card" href="/admin/reports/customer-ledger?from=<%= from %>&to=<%= to %>">
+            <p class="action-title"><%= t('customerLedgerTitle') %></p>
+            <p class="action-copy"><%= t('customerLedgerSubtitle') %></p>
+          </a>
+        </div>
+      </div>
+      <div class="surface-muted p-4">
+        <p class="section-kicker"><%= t('reportGroupInventory') %></p>
+        <div class="mt-3 grid gap-3">
+          <a class="action-card" href="/admin/reports/inventory?from=<%= from %>&to=<%= to %>">
+            <p class="action-title"><%= t('inventorySummaryTitle') %></p>
+            <p class="action-copy"><%= t('inventorySummarySubtitle') %></p>
+          </a>
+          <a class="action-card" href="/admin/reports/stock-ledger?from=<%= from %>&to=<%= to %>">
+            <p class="action-title"><%= t('stockLedgerTitle') %></p>
+            <p class="action-copy"><%= t('stockLedgerSubtitle') %></p>
+          </a>
+          <a class="action-card" href="/admin/reports/vehicle-trips?from=<%= from %>&to=<%= to %>">
+            <p class="action-title"><%= t('vehicleTripsTitle') %></p>
+            <p class="action-copy"><%= t('vehicleTripsSubtitle') %></p>
+          </a>
+        </div>
+      </div>
+      <div class="surface-muted p-4">
+        <p class="section-kicker"><%= t('reportGroupTeam') %></p>
+        <div class="mt-3 grid gap-3">
+          <a class="action-card" href="/admin/reports/payroll-summary?from=<%= from %>&to=<%= to %>">
+            <p class="action-title"><%= t('payrollSummaryTitle') %></p>
+            <p class="action-copy"><%= t('payrollSummarySubtitle') %></p>
+          </a>
+          <a class="action-card" href="/admin/reports/customer-statement?from=<%= from %>&to=<%= to %>">
+            <p class="action-title"><%= t('customerStatementTitle') %></p>
+            <p class="action-copy"><%= t('customerStatementSubtitle') %></p>
+          </a>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <div class="mt-6 grid gap-4">
+    <div class="card p-6">
+      <div class="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 class="text-lg font-semibold"><%= t('collectionSummaryTitle') %></h2>
+          <p class="text-sm text-slate-600"><%= t('collectionSummarySubtitle') %></p>
+        </div>
+        <a class="btn-outline" href="/admin/reports/collection-summary/print?from=<%= from %>&to=<%= to %>" target="_blank"><%= t('printCollectionSummary') %></a>
+      </div>
+      <div class="money-equation mt-4">
+        <div class="money-equation-card is-total">
+          <p class="money-equation-label"><%= t('totalAmountCollected') %></p>
+          <p class="money-equation-value"><%= collectionPrintSummary.totalAmountCollected %></p>
+          <p class="money-equation-meta"><%= t('methodCash') %>: <%= collectionPrintSummary.collectedByMethod.cash %> • <%= t('methodBank') %>: <%= collectionPrintSummary.collectedByMethod.bank %> • <%= t('methodEWallet') %>: <%= collectionPrintSummary.collectedByMethod.eWallet %></p>
+        </div>
+        <div class="money-equation-operator">-</div>
+        <div class="money-equation-card is-deduction">
+          <p class="money-equation-label"><%= t('collectionDeductions') %></p>
+          <p class="money-equation-value"><%= collectionPrintSummary.totalDeductions %></p>
+          <p class="money-equation-meta"><%= t('companyPurchasesTitle') %>: <%= collectionPrintSummary.companyExpenses %> • <%= t('vehicleExpensesTitle') %>: <%= collectionPrintSummary.vehicleExpenses %> • <%= t('salaryPaid') %>: <%= collectionPrintSummary.salaryGiven %> • <%= t('otherDeductions') %>: <%= (collectionPrintSummary.otherDeductions || 0) + (collectionPrintSummary.depositRefunds || 0) %></p>
+        </div>
+        <div class="money-equation-operator">=</div>
+        <div class="money-equation-card is-net">
+          <p class="money-equation-label"><%= t('expectedNetCollection') %></p>
+          <p class="money-equation-value <%= Number(collectionPrintSummary.netCollectionAmount || 0) >= 0 ? 'text-emerald-700' : 'text-red-700' %>"><%= collectionPrintSummary.netCollectionAmount %></p>
+          <p class="money-equation-meta"><%= t('collectionSummaryNote') %></p>
+        </div>
+      </div>
+      <div class="mt-4 grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-4">
+        <div class="card p-4"><p class="text-slate-500"><%= t('netJars') %></p><p class="text-lg font-semibold"><%= collectionPrintSummary.netJarSold %></p></div>
+        <div class="card p-4"><p class="text-slate-500"><%= t('netJarContainerSold') %></p><p class="text-lg font-semibold"><%= collectionPrintSummary.netJarContainerSold %></p></div>
+        <div class="card p-4"><p class="text-slate-500"><%= t('netBottles') %></p><p class="text-lg font-semibold"><%= collectionPrintSummary.netBottleCases %></p></div>
+        <div class="card p-4"><p class="text-slate-500"><%= t('vehicleExpensesTitle') %></p><p class="text-lg font-semibold"><%= collectionPrintSummary.vehicleExpenses %></p></div>
+        <div class="card p-4"><p class="text-slate-500"><%= t('companyPurchasesTitle') %></p><p class="text-lg font-semibold"><%= collectionPrintSummary.companyExpenses %></p></div>
+        <div class="card p-4"><p class="text-slate-500"><%= t('salaryPaid') %></p><p class="text-lg font-semibold"><%= collectionPrintSummary.salaryGiven %></p></div>
+        <div class="card p-4"><p class="text-slate-500"><%= t('collectionDeductions') %></p><p class="text-lg font-semibold"><%= collectionPrintSummary.totalDeductions %></p></div>
+      </div>
+      <div class="mt-4 flex flex-wrap gap-3 text-xs text-slate-500">
+        <span><%= t('methodCash') %>: <%= collectionPrintSummary.collectedByMethod.cash %></span>
+        <span><%= t('methodBank') %>: <%= collectionPrintSummary.collectedByMethod.bank %></span>
+        <span><%= t('methodEWallet') %>: <%= collectionPrintSummary.collectedByMethod.eWallet %></span>
+        <% if (collectionPrintSummary.otherDeductions > 0) { %>
+          <span><%= t('otherDeductions') %>: <%= collectionPrintSummary.otherDeductions %></span>
+        <% } %>
+      </div>
+    </div>
+
     <div class="card p-6">
       <div class="flex flex-wrap items-center justify-between gap-3">
         <div>
@@ -64,10 +203,22 @@
                   <td class="px-4 py-3"><%= snapshotSummary.exports.eWallet %></td>
                 </tr>
                 <tr class="table-row">
+                  <td class="px-4 py-3"><%= t('exportCreditPayments') %></td>
+                  <td class="px-4 py-3"><%= snapshotSummary.exportCreditPayments.cash %></td>
+                  <td class="px-4 py-3"><%= snapshotSummary.exportCreditPayments.bank %></td>
+                  <td class="px-4 py-3"><%= snapshotSummary.exportCreditPayments.eWallet %></td>
+                </tr>
+                <tr class="table-row">
                   <td class="px-4 py-3"><%= t('customerPayments') %></td>
                   <td class="px-4 py-3"><%= snapshotSummary.customerCredits.cash %></td>
                   <td class="px-4 py-3"><%= snapshotSummary.customerCredits.bank %></td>
                   <td class="px-4 py-3"><%= snapshotSummary.customerCredits.eWallet %></td>
+                </tr>
+                <tr class="table-row">
+                  <td class="px-4 py-3"><%= t('jarContainerLendingTitle') %></td>
+                  <td class="px-4 py-3"><%= snapshotSummary.containerDeposits.cash %></td>
+                  <td class="px-4 py-3"><%= snapshotSummary.containerDeposits.bank %></td>
+                  <td class="px-4 py-3"><%= snapshotSummary.containerDeposits.eWallet %></td>
                 </tr>
                 <tr class="table-row">
                   <td class="px-4 py-3"><%= t('rentalsTitle') %></td>
@@ -114,6 +265,7 @@
                 <tr class="table-row"><td class="px-4 py-3"><%= t('staffsTitle') %> <%= t('salaryPaid') %></td><td class="px-4 py-3"><%= snapshotSummary.deductionRows.staffSalaries %></td></tr>
                 <tr class="table-row"><td class="px-4 py-3"><%= t('workersTitle') %> <%= t('salaryPaid') %></td><td class="px-4 py-3"><%= snapshotSummary.deductionRows.workerSalaries %></td></tr>
                 <tr class="table-row"><td class="px-4 py-3"><%= t('savingsWithdraw') %></td><td class="px-4 py-3"><%= snapshotSummary.deductionRows.savingsWithdrawals %></td></tr>
+                <tr class="table-row"><td class="px-4 py-3"><%= t('depositRefundLabel') %></td><td class="px-4 py-3"><%= snapshotSummary.deductionRows.containerDepositRefunds %></td></tr>
                 <tr class="table-row font-semibold"><td class="px-4 py-3"><%= t('deductedFromCollection') %></td><td class="px-4 py-3"><%= snapshotSummary.deductions %></td></tr>
               </tbody>
             </table>
@@ -166,6 +318,43 @@
           </table>
         </div>
       </details>
+      <details class="mt-6">
+        <summary class="cursor-pointer text-sm font-semibold text-slate-700"><%= t('paymentSourceExportCredit') %></summary>
+        <div class="mt-4 overflow-x-auto">
+          <table class="table-base text-sm">
+            <thead class="table-head">
+              <tr>
+                <th class="px-4 py-3"><%= t('paymentDate') %></th>
+                <th class="px-4 py-3"><%= t('paymentReceiptNo') %></th>
+                <th class="px-4 py-3"><%= t('vehicle') %></th>
+                <th class="px-4 py-3"><%= t('date') %></th>
+                <th class="px-4 py-3"><%= t('receiptNo') %></th>
+                <th class="px-4 py-3"><%= t('amount') %></th>
+                <th class="px-4 py-3"><%= t('paymentMethodLabel') %></th>
+                <th class="px-4 py-3"><%= t('note') %></th>
+              </tr>
+            </thead>
+            <tbody>
+              <% if (!exportCreditPaymentRows || exportCreditPaymentRows.length === 0) { %>
+                <tr><td class="px-4 py-4 text-slate-500" colspan="8"><%= t('noPayments') %></td></tr>
+              <% } %>
+              <% (exportCreditPaymentRows || []).forEach((row) => { %>
+                <% const methodLabel = row.payment_method === 'BANK' ? t('methodBank') : row.payment_method === 'E_WALLET' ? t('methodEWallet') : row.payment_method === 'MIXED' ? t('methodMixed') : t('methodCash'); %>
+                <tr class="table-row">
+                  <td class="px-4 py-3"><%= row.payment_date %></td>
+                  <td class="px-4 py-3"><%= row.receipt_no || '-' %></td>
+                  <td class="px-4 py-3"><%= row.vehicle_number ? `${row.owner_name || ''} • ${row.vehicle_number}` : (row.owner_name || '-') %></td>
+                  <td class="px-4 py-3"><%= row.export_date || '-' %></td>
+                  <td class="px-4 py-3"><%= row.export_receipt_no || '-' %></td>
+                  <td class="px-4 py-3"><%= row.amount %></td>
+                  <td class="px-4 py-3"><%= methodLabel %></td>
+                  <td class="px-4 py-3"><%= row.note || '-' %></td>
+                </tr>
+              <% }) %>
+            </tbody>
+          </table>
+        </div>
+      </details>
     </div>
 
     <div class="card p-6">
@@ -187,13 +376,12 @@
                 <th class="px-4 py-3"><%= t('vehicle') %></th>
                 <th class="px-4 py-3"><%= t('customerName') %></th>
                 <th class="px-4 py-3"><%= t('amount') %></th>
-                <th class="px-4 py-3"><%= t('paidAmount') %></th>
                 <th class="px-4 py-3"><%= t('remainingAmount') %></th>
               </tr>
             </thead>
             <tbody>
               <% if (!creditsRows || creditsRows.length === 0) { %>
-                <tr><td class="px-4 py-4 text-slate-500" colspan="6"><%= t('noCredits') %></td></tr>
+                <tr><td class="px-4 py-4 text-slate-500" colspan="5"><%= t('noCredits') %></td></tr>
               <% } %>
               <% creditsRows.forEach((row) => { %>
                 <tr class="table-row">
@@ -201,8 +389,44 @@
                   <td class="px-4 py-3"><%= `${row.owner_name} • ${row.vehicle_number}` %></td>
                   <td class="px-4 py-3"><%= row.customer_name %></td>
                   <td class="px-4 py-3"><%= row.amount %></td>
-                  <td class="px-4 py-3"><%= row.paid_amount %></td>
                   <td class="px-4 py-3"><%= row.remaining_amount %></td>
+                </tr>
+              <% }) %>
+            </tbody>
+          </table>
+        </div>
+      </details>
+      <details class="mt-6">
+        <summary class="cursor-pointer text-sm font-semibold text-slate-700"><%= t('customerPayments') %></summary>
+        <div class="mt-4 overflow-x-auto">
+          <table class="table-base text-sm">
+            <thead class="table-head">
+              <tr>
+                <th class="px-4 py-3"><%= t('paymentDate') %></th>
+                <th class="px-4 py-3"><%= t('paymentReceiptNo') %></th>
+                <th class="px-4 py-3"><%= t('customerName') %></th>
+                <th class="px-4 py-3"><%= t('vehicle') %></th>
+                <th class="px-4 py-3"><%= t('creditDate') %></th>
+                <th class="px-4 py-3"><%= t('amount') %></th>
+                <th class="px-4 py-3"><%= t('paymentMethodLabel') %></th>
+                <th class="px-4 py-3"><%= t('note') %></th>
+              </tr>
+            </thead>
+            <tbody>
+              <% if (!creditPaymentRows || creditPaymentRows.length === 0) { %>
+                <tr><td class="px-4 py-4 text-slate-500" colspan="8"><%= t('noPayments') %></td></tr>
+              <% } %>
+              <% (creditPaymentRows || []).forEach((row) => { %>
+                <% const methodLabel = row.payment_method === 'BANK' ? t('methodBank') : row.payment_method === 'E_WALLET' ? t('methodEWallet') : row.payment_method === 'MIXED' ? t('methodMixed') : t('methodCash'); %>
+                <tr class="table-row">
+                  <td class="px-4 py-3"><%= row.payment_date %></td>
+                  <td class="px-4 py-3"><%= row.receipt_no || '-' %></td>
+                  <td class="px-4 py-3"><%= row.customer_name || '-' %></td>
+                  <td class="px-4 py-3"><%= row.vehicle_number ? `${row.owner_name || ''} • ${row.vehicle_number}` : '-' %></td>
+                  <td class="px-4 py-3"><%= row.credit_date || '-' %></td>
+                  <td class="px-4 py-3"><%= row.amount %></td>
+                  <td class="px-4 py-3"><%= methodLabel %></td>
+                  <td class="px-4 py-3"><%= row.note || '-' %></td>
                 </tr>
               <% }) %>
             </tbody>

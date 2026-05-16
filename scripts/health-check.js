@@ -79,6 +79,7 @@ ensureDir(path.join(projectRoot, "data", "backups"));
 let db = null;
 try {
   ({ db } = require(path.join(projectRoot, "src", "db")));
+  const { getFinancialIntegrityReport } = require(path.join(projectRoot, "src", "utils", "financialIntegrity"));
   const requiredTables = [
     "users",
     "vehicles",
@@ -102,6 +103,18 @@ try {
     db.prepare("SELECT COUNT(*) as count FROM users WHERE is_active = 1").get().count || 0
   );
   notes.push(`Active users: ${activeUsers}`);
+  const integrityReport = getFinancialIntegrityReport(db, { limit: 3 });
+  if (integrityReport.hasIssues) {
+    const detailLines = integrityReport.groups
+      .filter((group) => Number(group.count || 0) > 0)
+      .map((group) => {
+        const samples = (group.examples || []).join("; ");
+        return `${group.key}: ${group.count}${samples ? ` [${samples}]` : ""}`;
+      });
+    failures.push(`Financial integrity issues found:\n${detailLines.join("\n")}`);
+  } else {
+    notes.push("Financial integrity: OK");
+  }
 } catch (err) {
   failures.push(`DB check failed: ${err.message || err}`);
 } finally {

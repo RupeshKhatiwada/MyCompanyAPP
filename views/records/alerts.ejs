@@ -8,7 +8,7 @@
     <div class="badge bg-red-100 text-red-700"><%= t('total') %>: <%= summary.totalAlerts %></div>
   </div>
 
-  <div class="mt-6 grid gap-4 md:grid-cols-3">
+  <div class="mt-6 grid gap-4 md:grid-cols-4">
     <div class="stat-card">
       <p class="text-sm text-slate-500"><%= t('workerPendingCustomerCredits') %></p>
       <p class="mt-2 text-2xl font-semibold"><%= summary.pendingCustomerCount %></p>
@@ -23,6 +23,11 @@
       <p class="text-sm text-slate-500"><%= t('lowStockAlerts') %></p>
       <p class="mt-2 text-2xl font-semibold"><%= summary.lowStockCount %></p>
       <p class="mt-1 text-xs text-slate-500"><%= t('alertThreshold') %>: <%= thresholds.itemLowThreshold %></p>
+    </div>
+    <div class="stat-card">
+      <p class="text-sm text-slate-500"><%= t('expiringVehicleDocumentsTitle') %></p>
+      <p class="mt-2 text-2xl font-semibold"><%= summary.complianceAlertCount %></p>
+      <p class="mt-1 text-xs text-slate-500"><%= t('alertThreshold') %>: <%= thresholds.vehicleComplianceDays %> <%= t('days') %></p>
     </div>
   </div>
 
@@ -92,6 +97,51 @@
           </tbody>
         </table>
       </div>
+    </div>
+  </div>
+
+  <div class="mt-6 card p-6">
+    <div class="flex items-center justify-between">
+      <div>
+        <h2 class="text-lg font-semibold"><%= t('expiringVehicleDocumentsTitle') %></h2>
+        <p class="mt-1 text-sm text-slate-500"><%= t('expiringVehicleDocumentsSubtitle') %></p>
+      </div>
+      <a class="btn-outline" href="/records/vehicles"><%= t('vehicles') %></a>
+    </div>
+    <div class="mt-4 overflow-x-auto">
+      <table class="table-base text-sm">
+        <thead class="table-head">
+          <tr>
+            <th class="px-4 py-3"><%= t('vehicleNumber') %></th>
+            <th class="px-4 py-3"><%= t('ownerName') %></th>
+            <th class="px-4 py-3"><%= t('details') %></th>
+            <th class="px-4 py-3"><%= t('date') %></th>
+            <th class="px-4 py-3"><%= t('status') %></th>
+            <th class="px-4 py-3"><%= t('daysRemaining') %></th>
+          </tr>
+        </thead>
+        <tbody>
+          <% if (!vehicleComplianceAlerts || !vehicleComplianceAlerts.rows || vehicleComplianceAlerts.rows.length === 0) { %>
+            <tr>
+              <td class="px-4 py-4 text-slate-500" colspan="6"><%= t('noData') %></td>
+            </tr>
+          <% } %>
+          <% (vehicleComplianceAlerts?.rows || []).forEach((row) => { %>
+            <tr class="table-row">
+              <td class="px-4 py-3"><%= row.vehicle_number %></td>
+              <td class="px-4 py-3"><%= row.owner_name %></td>
+              <td class="px-4 py-3"><%= t(row.label_key) %></td>
+              <td class="px-4 py-3"><%= row.expiry_date %></td>
+              <td class="px-4 py-3">
+                <span class="badge <%= row.status === 'EXPIRED' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700' %>">
+                  <%= row.status === 'EXPIRED' ? t('complianceExpired') : t('complianceDueSoon') %>
+                </span>
+              </td>
+              <td class="px-4 py-3"><%= row.status === 'EXPIRED' ? Math.abs(Number(row.days_remaining || 0)) : Number(row.days_remaining || 0) %></td>
+            </tr>
+          <% }) %>
+        </tbody>
+      </table>
     </div>
   </div>
 

@@ -1,145 +1,264 @@
 <%- include('../partials/shell-start', { title }) %>
 <section class="py-8">
-  <div class="flex flex-wrap items-center justify-between gap-3">
-    <div>
-      <h1 class="text-3xl font-semibold"><%= t('jarContainerLendingTitle') %></h1>
-      <p class="text-slate-600"><%= t('jarContainerLendingSubtitle') %></p>
+  <%
+    const lendingRows = rows || [];
+    const followUpRows = lendingRows.filter((row) => Number(row.outstanding_quantity || 0) > 0 || Number(row.deposit_due || 0) > 0);
+    const followUpSummary = followUpRows.reduce((acc, row) => {
+      acc.count += 1;
+      acc.outstanding += Number(row.outstanding_quantity || 0);
+      acc.depositDue += Number(row.deposit_due || 0);
+      acc.depositHeld += Number(row.deposit_held || 0);
+      return acc;
+    }, { count: 0, outstanding: 0, depositDue: 0, depositHeld: 0 });
+  %>
+
+  <div class="page-header">
+    <div class="flex flex-wrap items-start justify-between gap-4">
+      <div>
+        <h1 class="text-3xl font-semibold"><%= t('jarContainerLendingTitle') %></h1>
+        <p class="mt-1 text-slate-600"><%= t('jarContainerLendingSubtitle') %></p>
+      </div>
+      <div class="flex flex-wrap gap-2">
+        <a class="btn-outline" href="/records/payment-history?from=<%= from %>&to=<%= to %>&source=JAR_CONTAINER_LENDING"><%= t('paymentHistoryTitle') %></a>
+        <a class="btn-primary" href="/records/jar-container-lending/new"><%= t('addJarContainerLendingTitle') %></a>
+      </div>
     </div>
-    <a class="btn-primary" href="/records/jar-container-lending/new"><%= t('addJarContainerLendingTitle') %></a>
   </div>
 
   <% if (error) { %>
-    <div class="mt-4 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700"><%= error %></div>
+    <div class="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"><%= error %></div>
   <% } %>
   <% if (success) { %>
-    <div class="mt-4 rounded-lg bg-emerald-50 px-4 py-3 text-sm text-emerald-700"><%= success %></div>
+    <div class="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700"><%= success %></div>
   <% } %>
 
-  <div class="mt-6 grid gap-3 text-sm md:grid-cols-5">
+  <div class="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
     <div class="card p-4">
-      <p class="text-slate-500"><%= t('availableInStorage') %></p>
-      <p class="text-lg font-semibold"><%= jarContainerBalance %></p>
+      <p class="text-xs font-medium uppercase tracking-wide text-slate-500"><%= t('availableInStorage') %></p>
+      <p class="mt-2 text-2xl font-semibold"><%= jarContainerBalance %></p>
+      <p class="mt-1 text-xs text-slate-500"><%= from %> -> <%= to %></p>
     </div>
     <div class="card p-4">
-      <p class="text-slate-500"><%= t('jarContainerLentOutTitle') %></p>
-      <p class="text-lg font-semibold"><%= lentOutBalance %></p>
+      <p class="text-xs font-medium uppercase tracking-wide text-slate-500"><%= t('jarContainerLentOutTitle') %></p>
+      <p class="mt-2 text-2xl font-semibold"><%= lentOutBalance %></p>
+      <p class="mt-1 text-xs text-slate-500"><%= t('entries') %>: <%= lendingRows.length %></p>
     </div>
     <div class="card p-4">
-      <p class="text-slate-500"><%= t('quantity') %></p>
-      <p class="text-lg font-semibold"><%= totals.lent %></p>
+      <p class="text-xs font-medium uppercase tracking-wide text-slate-500"><%= t('outstandingQuantity') %></p>
+      <p class="mt-2 text-2xl font-semibold"><%= totals.outstanding %></p>
+      <p class="mt-1 text-xs text-slate-500"><%= t('returnedQuantity') %>: <%= totals.returned %></p>
     </div>
     <div class="card p-4">
-      <p class="text-slate-500"><%= t('returnedQuantity') %></p>
-      <p class="text-lg font-semibold"><%= totals.returned %></p>
+      <p class="text-xs font-medium uppercase tracking-wide text-slate-500"><%= t('depositReceived') %></p>
+      <p class="mt-2 text-2xl font-semibold"><%= totals.depositReceived %></p>
+      <p class="mt-1 text-xs text-slate-500"><%= t('depositTarget') %>: <%= totals.depositTarget %></p>
     </div>
     <div class="card p-4">
-      <p class="text-slate-500"><%= t('depositHeld') %></p>
-      <p class="text-lg font-semibold"><%= totals.depositHeld %></p>
+      <p class="text-xs font-medium uppercase tracking-wide text-slate-500"><%= t('depositHeld') %></p>
+      <p class="mt-2 text-2xl font-semibold"><%= totals.depositHeld %></p>
+      <p class="mt-1 text-xs text-slate-500"><%= t('depositDue') %>: <%= followUpSummary.depositDue %></p>
     </div>
   </div>
 
-  <form class="mt-6 flex flex-wrap items-end gap-3" method="get" action="/records/jar-container-lending">
-    <div>
-      <label class="label"><%= t('from') %></label>
-      <input class="input" type="date" name="from" value="<%= from %>" />
+  <div class="mt-6 card p-5">
+    <div class="flex flex-wrap items-start justify-between gap-4">
+      <div class="surface-muted px-4 py-3 text-sm text-slate-600">
+        <div><span class="font-medium text-slate-800"><%= t('selectedRange') %>:</span> <%= from %> -> <%= to %></div>
+        <div class="mt-1"><span class="font-medium text-slate-800"><%= t('entries') %>:</span> <%= lendingRows.length %></div>
+        <div class="mt-1"><span class="font-medium text-slate-800"><%= t('search') %>:</span> <%= q || '-' %></div>
+      </div>
+      <div class="flex flex-wrap gap-2 text-sm">
+        <a class="btn-outline" href="/records/jar-container-lending?from=<%= today %>&to=<%= today %>&q=<%= encodeURIComponent(q || '') %>"><%= t('presetToday') %></a>
+        <a class="btn-outline" href="/records/jar-container-lending?from=<%= monthStart %>&to=<%= today %>&q=<%= encodeURIComponent(q || '') %>"><%= t('presetThisMonth') %></a>
+        <a class="btn-outline" href="/records/jar-container-lending?from=<%= yearStart %>&to=<%= today %>&q=<%= encodeURIComponent(q || '') %>"><%= t('presetThisYear') %></a>
+      </div>
     </div>
-    <div>
-      <label class="label"><%= t('to') %></label>
-      <input class="input" type="date" name="to" value="<%= to %>" />
-    </div>
-    <div class="min-w-[240px]">
-      <label class="label"><%= t('search') %></label>
-      <input class="input" type="text" name="q" value="<%= q %>" placeholder="<%= t('jarContainerLendingSearchPlaceholder') %>" />
-    </div>
-    <button class="btn-outline" type="submit"><%= t('filter') %></button>
-  </form>
 
-  <div class="mt-6 card overflow-hidden">
-    <div class="overflow-x-auto">
-      <table class="table-base">
-        <thead class="table-head">
-          <tr>
-            <th class="px-4 py-3"><%= t('date') %></th>
-            <th class="px-4 py-3"><%= t('jarType') %></th>
-            <th class="px-4 py-3"><%= t('customer') %></th>
-            <th class="px-4 py-3"><%= t('phone') %></th>
-            <th class="px-4 py-3"><%= t('location') %></th>
-            <th class="px-4 py-3"><%= t('lendingSource') %></th>
-            <th class="px-4 py-3"><%= t('vehicle') %></th>
-            <th class="px-4 py-3"><%= t('quantity') %></th>
-            <th class="px-4 py-3"><%= t('returnedQuantity') %></th>
-            <th class="px-4 py-3"><%= t('outstandingQuantity') %></th>
-            <th class="px-4 py-3"><%= t('depositTarget') %></th>
-            <th class="px-4 py-3"><%= t('depositReceived') %></th>
-            <th class="px-4 py-3"><%= t('depositHeld') %></th>
-            <th class="px-4 py-3"><%= t('note') %></th>
-            <th class="px-4 py-3"><%= t('recordedBy') %></th>
-            <th class="table-action-sticky px-4 py-3 text-right"><%= t('actions') %></th>
-          </tr>
-        </thead>
-        <tbody>
-          <% if (!rows.length) { %>
-            <tr>
-              <td class="px-4 py-4 text-slate-500" colspan="16"><%= t('noData') %></td>
-            </tr>
-          <% } %>
-          <% rows.forEach((row) => { %>
-            <tr class="table-row">
-              <td class="px-4 py-3"><%= row.lend_date %></td>
-              <td class="px-4 py-3 font-medium"><%= row.jar_name %></td>
-              <td class="px-4 py-3"><%= row.customer_name %></td>
-              <td class="px-4 py-3"><%= row.phone || '-' %></td>
-              <td class="px-4 py-3"><%= row.location || '-' %></td>
-              <td class="px-4 py-3">
-                <span class="badge <%= String(row.source_type || 'STORAGE').toUpperCase() === 'VEHICLE' ? 'bg-cyan-50 text-cyan-700' : 'bg-slate-100 text-slate-700' %>">
-                  <%= String(row.source_type || 'STORAGE').toUpperCase() === 'VEHICLE' ? t('sourceVehicle') : t('sourceStorage') %>
-                </span>
-              </td>
-              <td class="px-4 py-3">
-                <% if (row.vehicle_number) { %>
-                  <div class="font-medium"><%= row.vehicle_number %></div>
-                  <div class="text-xs text-slate-500"><%= row.owner_name || '-' %></div>
-                <% } else { %>
-                  -
-                <% } %>
-              </td>
-              <td class="px-4 py-3"><%= row.quantity %></td>
-              <td class="px-4 py-3"><%= row.returned_quantity %></td>
-              <td class="px-4 py-3">
-                <span class="badge <%= Number(row.outstanding_quantity || 0) > 0 ? 'bg-amber-50 text-amber-700' : 'bg-emerald-50 text-emerald-700' %>">
-                  <%= row.outstanding_quantity %>
-                </span>
-              </td>
-              <td class="px-4 py-3"><%= row.deposit_amount %></td>
-              <td class="px-4 py-3">
-                <div><%= row.deposit_paid_amount %></div>
-                <% if (Number(row.deposit_due || 0) > 0) { %>
-                  <div class="text-xs text-slate-500"><%= t('remainingAmount') %>: <%= row.deposit_due %></div>
-                <% } %>
-              </td>
-              <td class="px-4 py-3"><%= row.deposit_held %></td>
-              <td class="px-4 py-3"><%= row.note || '-' %></td>
-              <td class="px-4 py-3"><%= row.recorded_by || '-' %></td>
-              <td class="table-action-sticky px-4 py-3 text-right">
-                <details class="action-menu">
-                  <summary class="btn-outline h-9 w-9 flex items-center justify-center">⋯</summary>
-                  <div class="action-menu-panel">
-                    <% if (Number(row.deposit_due || 0) > 0) { %>
-                      <a class="action-menu-item" href="/records/jar-container-lending/<%= row.id %>/payments"><%= t('addDepositPayment') %></a>
+    <form class="mt-5 grid gap-3 lg:grid-cols-4" method="get" action="/records/jar-container-lending">
+      <div>
+        <label class="label"><%= t('from') %></label>
+        <input class="input mt-1" type="date" name="from" value="<%= from %>" />
+      </div>
+      <div>
+        <label class="label"><%= t('to') %></label>
+        <input class="input mt-1" type="date" name="to" value="<%= to %>" />
+      </div>
+      <div class="lg:col-span-2">
+        <label class="label"><%= t('search') %></label>
+        <input class="input mt-1" type="text" name="q" value="<%= q %>" placeholder="<%= t('jarContainerLendingSearchPlaceholder') %>" />
+      </div>
+      <div class="lg:col-span-4 flex justify-end">
+        <button class="btn-outline" type="submit"><%= t('filter') %></button>
+      </div>
+    </form>
+  </div>
+
+  <div class="mt-6 grid gap-6 xl:grid-cols-[minmax(0,1.55fr)_minmax(320px,0.95fr)]">
+    <div class="card p-5">
+      <div class="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 class="text-lg font-semibold"><%= t('jarContainerLendingTitle') %></h2>
+          <p class="mt-1 text-sm text-slate-600"><%= t('jarContainerLendingSubtitle') %></p>
+        </div>
+        <div class="text-sm text-slate-500"><%= from %> -> <%= to %></div>
+      </div>
+
+      <% if (!lendingRows.length) { %>
+        <div class="surface-muted mt-4 p-5 text-sm text-slate-500"><%= t('noData') %></div>
+      <% } else { %>
+        <div class="mt-4 space-y-3">
+          <% lendingRows.forEach((row) => { %>
+            <% const sourceIsVehicle = String(row.source_type || 'STORAGE').toUpperCase() === 'VEHICLE'; %>
+            <% const vehicleLabel = row.vehicle_number ? `${row.owner_name || '-'} • ${row.vehicle_number}` : '-'; %>
+            <% const outstandingPositive = Number(row.outstanding_quantity || 0) > 0; %>
+            <% const depositDuePositive = Number(row.deposit_due || 0) > 0; %>
+            <div class="record-card">
+              <div class="flex flex-wrap items-start justify-between gap-4">
+                <div>
+                  <div class="flex flex-wrap items-center gap-2">
+                    <p class="font-semibold text-slate-900"><%= row.customer_name %></p>
+                    <span class="badge <%= sourceIsVehicle ? 'bg-cyan-50 text-cyan-700' : 'bg-slate-100 text-slate-700' %>">
+                      <%= sourceIsVehicle ? t('sourceVehicle') : t('sourceStorage') %>
+                    </span>
+                    <% if (Number(row.is_company || 0) === 1) { %>
+                      <span class="badge bg-sky-100 text-sky-700"><%= t('companyVehicle') %></span>
                     <% } %>
-                    <a class="action-menu-item" href="/records/jar-container-lending/<%= row.id %>/payments"><%= t('depositHistory') %></a>
-                    <a class="action-menu-item" href="/records/jar-container-lending/<%= row.id %>/returns"><%= t('manageReturns') %></a>
-                    <a class="action-menu-item" href="/records/jar-container-lending/<%= row.id %>/edit"><%= t('edit') %></a>
+                  </div>
+                  <p class="mt-1 text-xs text-slate-500"><%= row.lend_date %> • <%= row.jar_name %></p>
+                  <p class="mt-2 text-sm text-slate-600"><%= row.phone || '-' %><% if (row.location) { %> • <%= row.location %><% } %></p>
+                </div>
+                <div class="surface-muted min-w-[190px] px-4 py-3 text-right">
+                  <p class="text-xs font-semibold uppercase tracking-wide text-slate-500"><%= t('outstandingQuantity') %></p>
+                  <p class="mt-1 text-lg font-semibold text-slate-900"><%= row.outstanding_quantity %></p>
+                  <p class="mt-1 text-xs text-slate-500"><%= t('depositHeld') %>: <%= row.deposit_held %></p>
+                </div>
+              </div>
+
+              <div class="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                <div class="surface-muted p-3 text-sm">
+                  <p class="text-xs font-semibold uppercase tracking-wide text-slate-500"><%= t('quickSummary') %></p>
+                  <div class="mt-2 space-y-1 text-slate-700">
+                    <div><span class="text-slate-500"><%= t('quantity') %>:</span> <%= row.quantity %></div>
+                    <div><span class="text-slate-500"><%= t('returnedQuantity') %>:</span> <%= row.returned_quantity %></div>
+                    <div><span class="text-slate-500"><%= t('outstandingQuantity') %>:</span> <%= row.outstanding_quantity %></div>
+                  </div>
+                </div>
+                <div class="surface-muted p-3 text-sm">
+                  <p class="text-xs font-semibold uppercase tracking-wide text-slate-500"><%= t('depositSummary') %></p>
+                  <div class="mt-2 space-y-1 text-slate-700">
+                    <div><span class="text-slate-500"><%= t('depositTarget') %>:</span> <%= row.deposit_amount %></div>
+                    <div><span class="text-slate-500"><%= t('depositReceived') %>:</span> <%= row.deposit_paid_amount %></div>
+                    <div><span class="text-slate-500"><%= t('depositDue') %>:</span> <%= row.deposit_due %></div>
+                  </div>
+                </div>
+                <div class="surface-muted p-3 text-sm">
+                  <p class="text-xs font-semibold uppercase tracking-wide text-slate-500"><%= t('vehicle') %></p>
+                  <div class="mt-2 space-y-1 text-slate-700">
+                    <div><span class="text-slate-500"><%= t('lendingSource') %>:</span> <%= sourceIsVehicle ? t('sourceVehicle') : t('sourceStorage') %></div>
+                    <div><span class="text-slate-500"><%= t('vehicle') %>:</span> <%= vehicleLabel %></div>
+                  </div>
+                </div>
+                <div class="surface-muted p-3 text-sm">
+                  <p class="text-xs font-semibold uppercase tracking-wide text-slate-500"><%= t('recordedBy') %></p>
+                  <div class="mt-2 space-y-1 text-slate-700">
+                    <div><span class="text-slate-500"><%= t('recordedBy') %>:</span> <%= row.recorded_by || '-' %></div>
+                    <div><span class="text-slate-500"><%= t('note') %>:</span> <%= row.note || '-' %></div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="mt-4 flex flex-wrap gap-2">
+                <% if (depositDuePositive) { %>
+                  <a class="btn-outline btn-sm" href="/records/jar-container-lending/<%= row.id %>/payments"><%= t('addDepositPayment') %></a>
+                <% } %>
+                <a class="btn-outline btn-sm" href="/records/jar-container-lending/<%= row.id %>/payments"><%= t('depositHistory') %></a>
+                <a class="btn-outline btn-sm" href="/records/jar-container-lending/<%= row.id %>/returns"><%= t('manageReturns') %></a>
+                <a class="btn-outline btn-sm" href="/records/jar-container-lending/<%= row.id %>/edit"><%= t('edit') %></a>
+                <details class="action-menu">
+                  <summary class="btn-outline btn-sm">⋯</summary>
+                  <div class="action-menu-panel">
                     <form method="post" action="/records/jar-container-lending/<%= row.id %>/delete" onsubmit="return confirm('<%= t('deleteJarContainerLendingConfirm') %>');">
                       <button class="action-menu-item action-menu-danger" type="submit"><%= t('delete') %></button>
                     </form>
                   </div>
                 </details>
-              </td>
-            </tr>
+              </div>
+
+              <% if (outstandingPositive || depositDuePositive) { %>
+                <div class="mt-4 flex flex-wrap gap-2 text-xs">
+                  <% if (outstandingPositive) { %>
+                    <span class="badge bg-amber-50 text-amber-700"><%= t('outstandingQuantity') %>: <%= row.outstanding_quantity %></span>
+                  <% } %>
+                  <% if (depositDuePositive) { %>
+                    <span class="badge bg-red-50 text-red-700"><%= t('depositDue') %>: <%= row.deposit_due %></span>
+                  <% } %>
+                </div>
+              <% } %>
+            </div>
           <% }) %>
-        </tbody>
-      </table>
+        </div>
+      <% } %>
+    </div>
+
+    <div class="card p-5">
+      <div class="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 class="text-lg font-semibold"><%= t('managePaymentsAndReturns') %></h2>
+          <p class="mt-1 text-sm text-slate-600"><%= t('jarContainerLendingManageHint') %></p>
+        </div>
+        <a class="btn-outline btn-sm" href="/records/payment-history?from=<%= from %>&to=<%= to %>&source=JAR_CONTAINER_REFUND"><%= t('paymentHistoryTitle') %></a>
+      </div>
+
+      <div class="mt-4 grid gap-3 sm:grid-cols-3 xl:grid-cols-1">
+        <div class="surface-muted p-4">
+          <p class="text-xs font-semibold uppercase tracking-wide text-slate-500"><%= t('entries') %></p>
+          <p class="mt-2 text-xl font-semibold text-slate-900"><%= followUpSummary.count %></p>
+          <p class="mt-1 text-xs text-slate-500"><%= t('managePaymentsAndReturns') %></p>
+        </div>
+        <div class="surface-muted p-4">
+          <p class="text-xs font-semibold uppercase tracking-wide text-slate-500"><%= t('outstandingQuantity') %></p>
+          <p class="mt-2 text-xl font-semibold text-slate-900"><%= followUpSummary.outstanding %></p>
+          <p class="mt-1 text-xs text-slate-500"><%= t('jarContainerLentOutTitle') %></p>
+        </div>
+        <div class="surface-muted p-4">
+          <p class="text-xs font-semibold uppercase tracking-wide text-slate-500"><%= t('depositDue') %></p>
+          <p class="mt-2 text-xl font-semibold text-slate-900"><%= followUpSummary.depositDue %></p>
+          <p class="mt-1 text-xs text-slate-500"><%= t('depositHeld') %>: <%= followUpSummary.depositHeld %></p>
+        </div>
+      </div>
+
+      <% if (!followUpRows.length) { %>
+        <div class="surface-muted mt-4 p-5 text-sm text-slate-500"><%= t('noData') %></div>
+      <% } else { %>
+        <div class="mt-4 space-y-3">
+          <% followUpRows.forEach((row) => { %>
+            <% const followUpVehicle = row.vehicle_number ? `${row.owner_name || '-'} • ${row.vehicle_number}` : '-'; %>
+            <div class="record-card">
+              <div class="flex flex-wrap items-start justify-between gap-4">
+                <div>
+                  <p class="font-semibold text-slate-900"><%= row.customer_name %></p>
+                  <p class="mt-1 text-xs text-slate-500"><%= row.lend_date %> • <%= row.jar_name %></p>
+                  <p class="mt-2 text-sm text-slate-600"><%= followUpVehicle %></p>
+                </div>
+                <div class="surface-muted min-w-[170px] px-4 py-3 text-right">
+                  <p class="text-xs font-semibold uppercase tracking-wide text-slate-500"><%= t('depositDue') %></p>
+                  <p class="mt-1 text-lg font-semibold text-slate-900"><%= row.deposit_due %></p>
+                  <p class="mt-1 text-xs text-slate-500"><%= t('outstandingQuantity') %>: <%= row.outstanding_quantity %></p>
+                </div>
+              </div>
+
+              <div class="mt-4 flex flex-wrap gap-2">
+                <% if (Number(row.deposit_due || 0) > 0) { %>
+                  <a class="btn-outline btn-sm" href="/records/jar-container-lending/<%= row.id %>/payments"><%= t('addDepositPayment') %></a>
+                <% } %>
+                <% if (Number(row.outstanding_quantity || 0) > 0) { %>
+                  <a class="btn-outline btn-sm" href="/records/jar-container-lending/<%= row.id %>/returns"><%= t('manageReturns') %></a>
+                <% } %>
+              </div>
+            </div>
+          <% }) %>
+        </div>
+      <% } %>
     </div>
   </div>
 </section>

@@ -1,5 +1,6 @@
 <%- include('../partials/shell-start', { title }) %>
 <% const routeBase = typeof vehicleRouteBase === 'string' && vehicleRouteBase ? vehicleRouteBase : '/admin/vehicles'; %>
+<% const compliance = vehicleCompliance || {}; %>
 <section class="py-8">
   <div class="flex items-center justify-between">
     <div>
@@ -30,6 +31,38 @@
         <input class="h-4 w-4" type="checkbox" id="is_company" name="is_company" <%= vehicle && vehicle.is_company ? 'checked' : '' %> />
         <label class="label !mb-0" for="is_company"><%= t('companyVehicle') %></label>
       </div>
+      <div id="companyComplianceSection" class="space-y-4 rounded-2xl border border-slate-200 bg-slate-50 p-4 <%= vehicle && vehicle.is_company ? '' : 'hidden' %>">
+        <div>
+          <p class="text-sm font-semibold text-slate-900"><%= t('vehicleComplianceSectionTitle') %></p>
+          <p class="mt-1 text-xs text-slate-500"><%= t('vehicleComplianceSectionSubtitle') %></p>
+        </div>
+        <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          <div>
+            <label class="label"><%= t('insuranceDetails') %></label>
+            <input class="input" type="text" name="insurance_details" value="<%= compliance.insurance_details || '' %>" placeholder="<%= t('insuranceDetailsPlaceholder') %>" />
+          </div>
+          <div>
+            <label class="label"><%= t('insuranceExpiry') %></label>
+            <input class="input" type="date" name="insurance_expiry" value="<%= compliance.insurance_expiry || '' %>" />
+          </div>
+          <div>
+            <label class="label"><%= t('permitDetails') %></label>
+            <input class="input" type="text" name="permit_details" value="<%= compliance.permit_details || '' %>" placeholder="<%= t('permitDetailsPlaceholder') %>" />
+          </div>
+          <div>
+            <label class="label"><%= t('permitExpiry') %></label>
+            <input class="input" type="date" name="permit_expiry" value="<%= compliance.permit_expiry || '' %>" />
+          </div>
+          <div>
+            <label class="label"><%= t('taxExpiry') %></label>
+            <input class="input" type="date" name="tax_expiry" value="<%= compliance.tax_expiry || '' %>" />
+          </div>
+        </div>
+        <div>
+          <label class="label"><%= t('note') %></label>
+          <input class="input" type="text" name="compliance_note" value="<%= compliance.note || '' %>" placeholder="<%= t('vehicleComplianceNotePlaceholder') %>" />
+        </div>
+      </div>
       <div>
         <label class="label"><%= t('profilePhoto') %></label>
         <input class="input" type="file" name="profile_pic" accept="image/*" />
@@ -45,11 +78,15 @@
   (() => {
     const companyCheckbox = document.getElementById("is_company");
     const ownerNameLabel = document.getElementById("ownerNameLabel");
+    const companyComplianceSection = document.getElementById("companyComplianceSection");
     if (!companyCheckbox || !ownerNameLabel) return;
     const ownerText = "<%= t('ownerName') %>";
     const driverText = "<%= t('driverName') %>";
     const syncLabel = () => {
       ownerNameLabel.textContent = companyCheckbox.checked ? driverText : ownerText;
+      if (companyComplianceSection) {
+        companyComplianceSection.classList.toggle("hidden", !companyCheckbox.checked);
+      }
     };
     companyCheckbox.addEventListener("change", syncLabel);
     syncLabel();

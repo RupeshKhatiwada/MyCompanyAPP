@@ -37,7 +37,7 @@ const getQuickAnswer = (req, message) => {
   const lower = message.toLowerCase();
   const { from, to } = buildPeriod(message);
 
-  if (lower.includes("most credit") || lower.includes("सबैभन्दा बढी उधार") || lower.includes("most outstanding")) {
+  if (lower.includes("most credit") || lower.includes("सबैभन्दा बढी उधारो") || lower.includes("most outstanding")) {
     const topCustomer = db.prepare(
       `SELECT customer_name, SUM(amount - paid_amount) as remaining
        FROM credits

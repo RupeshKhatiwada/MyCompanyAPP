@@ -10,7 +10,7 @@
         <% const shareText = `${t('customerStatementTitle')}\n${t('customerName')}: ${customer}\n${t('from')}: ${from}\n${t('to')}: ${to}\n${t('totalCredits')}: ${totals.credit_total}\n${t('totalPayments')}: ${totals.payment_total}\n${t('remainingAmount')}: ${totals.balance}`; %>
         <a class="btn-outline" href="https://wa.me/?text=<%= encodeURIComponent(shareText) %>" target="_blank"><%= t('shareWhatsapp') %></a>
         <button class="btn-outline" type="button" data-copy="<%= encodeURIComponent(shareText) %>"><%= t('copyMessage') %></button>
-        <a class="btn-outline" href="/admin/reports/customer-statement/print?customer=<%= encodeURIComponent(customer) %>&from=<%= from %>&to=<%= to %>" target="_blank"><%= t('print') %></a>
+        <a class="btn-outline" href="/admin/reports/customer-statement/print?customer_id=<%= customerId || '' %>&customer=<%= encodeURIComponent(customer) %>&from=<%= from %>&to=<%= to %>" target="_blank"><%= t('print') %></a>
       <% } %>
     </div>
   </div>
@@ -18,10 +18,15 @@
   <form class="mt-4 flex flex-wrap items-end gap-3" method="get" action="/admin/reports/customer-statement">
     <div class="min-w-[220px]">
       <label class="label"><%= t('customerName') %></label>
-      <select class="input" name="customer">
+      <select class="input" name="customer_ref">
         <option value=""><%= t('selectCustomer') %></option>
-        <% customers.forEach((name) => { %>
-          <option value="<%= name %>" <%= name === customer ? 'selected' : '' %>><%= name %></option>
+        <% customers.forEach((row) => { %>
+          <% const parts = [row.name]; %>
+          <% if (row.phone) parts.push(row.phone); %>
+          <% if (row.location) parts.push(row.location); %>
+          <% if (Number(row.is_active || 1) !== 1) parts.push(t('inactive')); %>
+          <% if (Number(row.is_legacy || 0) === 1) parts.push(t('legacyCustomer')); %>
+          <option value="<%= row.value %>" <%= row.value === customerRef ? 'selected' : '' %>><%= parts.join(' • ') %></option>
         <% }) %>
       </select>
     </div>

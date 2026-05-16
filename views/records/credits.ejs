@@ -2,66 +2,24 @@
 <section class="py-8">
   <% const customerCreditFromValue = typeof customerCreditFrom !== 'undefined' ? customerCreditFrom : from; %>
   <% const customerCreditToValue = typeof customerCreditTo !== 'undefined' ? customerCreditTo : to; %>
+  <% const selectedCustomerId = typeof customerId !== 'undefined' ? Number(customerId || 0) : 0; %>
   <% const safeCustomerCumulativeSummary = typeof customerCumulativeSummary !== 'undefined' ? customerCumulativeSummary : { customer_count: 0, total_amount: 0, total_paid: 0, total_remaining: 0 }; %>
   <% const safeCustomerCumulativeAllTime = typeof customerCumulativeAllTime !== 'undefined' ? Number(customerCumulativeAllTime || 0) : 0; %>
   <% const safeCustomerCumulativeDetailsByCustomer = typeof customerCumulativeDetailsByCustomer !== 'undefined' ? customerCumulativeDetailsByCustomer : {}; %>
-  <div class="flex flex-wrap items-center justify-between gap-3">
-    <div>
-      <h1 class="text-3xl font-semibold"><%= t('creditsTitle') %></h1>
-      <p class="text-slate-600"><%= t('creditsSubtitle') %></p>
-    </div>
-    <div class="flex flex-wrap gap-2">
-      <a class="btn-outline" href="/records/credits/export?from=<%= from %>&to=<%= to %>&status=<%= status %>&q=<%= encodeURIComponent(q || '') %>&sort=<%= sort %>&customer_credit_from=<%= customerCreditFromValue %>&customer_credit_to=<%= customerCreditToValue %>"><%= t('exportCsv') %></a>
-      <a class="btn-primary" href="/records/credits/new"><%= t('addCreditTitle') %></a>
+  <div class="page-header">
+    <div class="flex flex-wrap items-center justify-between gap-3">
+      <div>
+        <h1 class="text-3xl font-semibold"><%= t('creditsTitle') %></h1>
+        <p class="mt-1 text-slate-600"><%= t('creditsSubtitle') %></p>
+      </div>
+      <div class="flex flex-wrap gap-2">
+        <a class="btn-outline" href="/records/customers"><%= t('customers') %></a>
+        <a class="btn-outline" href="/records/payment-history?from=<%= from %>&to=<%= to %>&source=CUSTOMER_CREDIT"><%= t('paymentHistoryTitle') %></a>
+        <a class="btn-outline" href="/records/credits/export?from=<%= from %>&to=<%= to %>&status=<%= status %>&q=<%= encodeURIComponent(q || '') %>&sort=<%= sort %>&customer_credit_from=<%= customerCreditFromValue %>&customer_credit_to=<%= customerCreditToValue %><%= selectedCustomerId ? `&customer_id=${selectedCustomerId}` : '' %>"><%= t('exportCsv') %></a>
+        <a class="btn-primary" href="/records/credits/new"><%= t('addCreditTitle') %></a>
+      </div>
     </div>
   </div>
-
-  <div class="mt-4 flex flex-wrap gap-2 text-sm">
-    <a class="btn-outline" href="/records/credits?from=<%= today %>&to=<%= today %>&status=<%= status %>&customer_credit_from=<%= customerCreditFromValue %>&customer_credit_to=<%= customerCreditToValue %>"><%= t('presetToday') %></a>
-    <a class="btn-outline" href="/records/credits?from=<%= monthStart %>&to=<%= today %>&status=<%= status %>&customer_credit_from=<%= customerCreditFromValue %>&customer_credit_to=<%= customerCreditToValue %>"><%= t('presetThisMonth') %></a>
-    <a class="btn-outline" href="/records/credits?from=<%= yearStart %>&to=<%= today %>&status=<%= status %>&customer_credit_from=<%= customerCreditFromValue %>&customer_credit_to=<%= customerCreditToValue %>"><%= t('presetThisYear') %></a>
-  </div>
-
-  <form class="mt-4 flex flex-wrap items-end gap-3" method="get" action="/records/credits">
-    <input type="hidden" name="customer_credit_from" value="<%= customerCreditFromValue %>" />
-    <input type="hidden" name="customer_credit_to" value="<%= customerCreditToValue %>" />
-    <div>
-      <label class="label"><%= t('from') %></label>
-      <input class="input" type="date" name="from" value="<%= from %>" />
-    </div>
-    <div>
-      <label class="label"><%= t('to') %></label>
-      <input class="input" type="date" name="to" value="<%= to %>" />
-    </div>
-    <div>
-      <label class="label"><%= t('status') %></label>
-      <select class="input" name="status">
-        <option value="all" <%= status === 'all' ? 'selected' : '' %>><%= t('all') %></option>
-        <option value="paid" <%= status === 'paid' ? 'selected' : '' %>><%= t('paid') %></option>
-        <option value="unpaid" <%= status === 'unpaid' ? 'selected' : '' %>><%= t('unpaid') %></option>
-        <option value="partial" <%= status === 'partial' ? 'selected' : '' %>><%= t('statusPartial') %></option>
-      </select>
-    </div>
-    <div class="min-w-[220px]">
-      <label class="label"><%= t('search') %></label>
-      <input class="input" type="text" name="q" value="<%= q || '' %>" placeholder="<%= t('searchPlaceholder') %>" />
-    </div>
-    <div>
-      <label class="label"><%= t('sortBy') %></label>
-      <select class="input" name="sort">
-        <option value="date_desc" <%= sort === 'date_desc' ? 'selected' : '' %>><%= t('sortDateDesc') %></option>
-        <option value="date_asc" <%= sort === 'date_asc' ? 'selected' : '' %>><%= t('sortDateAsc') %></option>
-        <option value="amount_desc" <%= sort === 'amount_desc' ? 'selected' : '' %>><%= t('sortAmountDesc') %></option>
-        <option value="amount_asc" <%= sort === 'amount_asc' ? 'selected' : '' %>><%= t('sortAmountAsc') %></option>
-        <option value="jars_desc" <%= sort === 'jars_desc' ? 'selected' : '' %>><%= t('sortJarsDesc') %></option>
-        <option value="paid_first" <%= sort === 'paid_first' ? 'selected' : '' %>><%= t('sortPaidFirst') %></option>
-        <option value="unpaid_first" <%= sort === 'unpaid_first' ? 'selected' : '' %>><%= t('sortUnpaidFirst') %></option>
-        <option value="paid_amount_desc" <%= sort === 'paid_amount_desc' ? 'selected' : '' %>><%= t('sortPaidAmountDesc') %></option>
-        <option value="remaining_desc" <%= sort === 'remaining_desc' ? 'selected' : '' %>><%= t('sortRemainingDesc') %></option>
-      </select>
-    </div>
-    <button class="btn-outline" type="submit"><%= t('filter') %></button>
-  </form>
 
   <% if (notice) { %>
     <div class="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700"><%= t(notice) %></div>
@@ -70,99 +28,197 @@
     <div class="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"><%= t(error) %></div>
   <% } %>
 
-  <div class="mt-6 card">
-    <div class="overflow-x-auto">
-      <table class="table-base">
-        <thead class="table-head">
-          <tr>
-            <th class="px-4 py-3"><%= t('date') %></th>
-            <th class="px-4 py-3"><%= t('receiptNo') %></th>
-            <th class="px-4 py-3"><%= t('tripDate') %></th>
-            <th class="px-4 py-3"><%= t('vehicle') %></th>
-            <th class="px-4 py-3"><%= t('customerName') %></th>
-            <th class="px-4 py-3"><%= t('amount') %></th>
-            <th class="px-4 py-3"><%= t('paidAmount') %></th>
-            <th class="px-4 py-3"><%= t('remainingAmount') %></th>
-            <th class="px-4 py-3"><%= t('credits') %></th>
-            <th class="px-4 py-3"><%= t('status') %></th>
-            <th class="px-4 py-3"><%= t('recordedBy') %></th>
-            <th class="table-action-sticky px-4 py-3 text-right"><%= t('actions') %></th>
-          </tr>
-        </thead>
-        <tbody>
-          <% if (creditsRows.length === 0) { %>
-            <tr>
-              <td class="px-4 py-4 text-slate-500" colspan="12"><%= t('noCredits') %></td>
-            </tr>
-          <% } %>
-          <% creditsRows.forEach((record) => { %>
-            <% const isPaid = record.paid_amount >= record.amount; %>
-            <% const isPartial = !isPaid && record.paid_amount > 0; %>
-            <% const statusLabel = isPaid ? t('paid') : (isPartial ? t('statusPartial') : t('unpaid')); %>
-            <% const statusClass = isPaid ? 'bg-emerald-100 text-emerald-700' : (isPartial ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700'); %>
-            <% const paidCash = Number(record.paid_cash_amount || 0); %>
-            <% const paidBank = Number(record.paid_bank_amount || 0); %>
-            <% const paidEWallet = Number(record.paid_ewallet_amount || 0); %>
-            <% const activeMethods = [paidCash > 0, paidBank > 0, paidEWallet > 0].filter(Boolean).length; %>
-            <% const methodLabel = activeMethods > 1 ? t('methodMixed') : (paidBank > 0 ? t('methodBank') : (paidEWallet > 0 ? t('methodEWallet') : t('methodCash'))); %>
-            <tr class="table-row">
-              <td class="px-4 py-3"><%= record.credit_date %></td>
-              <td class="px-4 py-3"><%= record.receipt_no || (`#${record.id}`) %></td>
-              <td class="px-4 py-3"><%= record.trip_date || '-' %></td>
-              <td class="px-4 py-3 font-medium">
-                <div><%= `${record.owner_name} • ${record.vehicle_number}` %></div>
-                <% if (Number(record.is_company || 0) === 1) { %>
-                  <div class="text-xs text-slate-500"><%= t('companyVehicle') %></div>
-                <% } %>
-              </td>
-              <td class="px-4 py-3">
-                <div><%= record.customer_name %></div>
+  <div class="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+    <div class="card p-4">
+      <p class="text-xs font-medium uppercase tracking-wide text-slate-500"><%= t('totalAmount') %></p>
+      <p class="mt-2 text-2xl font-semibold"><%= creditTotals.total_amount %></p>
+    </div>
+    <div class="card p-4">
+      <p class="text-xs font-medium uppercase tracking-wide text-slate-500"><%= t('totalPaidAmount') %></p>
+      <p class="mt-2 text-2xl font-semibold"><%= creditTotals.total_paid %></p>
+    </div>
+    <div class="card p-4">
+      <p class="text-xs font-medium uppercase tracking-wide text-slate-500"><%= t('totalRemaining') %></p>
+      <p class="mt-2 text-2xl font-semibold"><%= creditTotals.total_remaining %></p>
+    </div>
+    <div class="card p-4">
+      <p class="text-xs font-medium uppercase tracking-wide text-slate-500"><%= t('customerCount') %></p>
+      <p class="mt-2 text-2xl font-semibold"><%= safeCustomerCumulativeSummary.customer_count %></p>
+    </div>
+  </div>
+
+  <div class="mt-6 card p-5">
+    <div class="card-toolbar">
+      <div class="surface-muted px-4 py-3 text-sm text-slate-600">
+        <div><span class="font-medium text-slate-800"><%= t('selectedRange') %>:</span> <%= from %> -> <%= to %></div>
+        <div class="mt-1"><span class="font-medium text-slate-800"><%= t('entries') %>:</span> <%= creditsRows.length %></div>
+        <div class="mt-1"><span class="font-medium text-slate-800"><%= t('search') %>:</span> <%= q || '-' %></div>
+      </div>
+      <div class="flex flex-wrap gap-2 text-sm">
+        <a class="btn-outline" href="/records/credits?from=<%= today %>&to=<%= today %>&status=<%= status %>&q=<%= encodeURIComponent(q || '') %>&sort=<%= sort %>&customer_credit_from=<%= today %>&customer_credit_to=<%= today %><%= selectedCustomerId ? `&customer_id=${selectedCustomerId}` : '' %>"><%= t('presetToday') %></a>
+        <a class="btn-outline" href="/records/credits?from=<%= monthStart %>&to=<%= today %>&status=<%= status %>&q=<%= encodeURIComponent(q || '') %>&sort=<%= sort %>&customer_credit_from=<%= monthStart %>&customer_credit_to=<%= today %><%= selectedCustomerId ? `&customer_id=${selectedCustomerId}` : '' %>"><%= t('presetThisMonth') %></a>
+        <a class="btn-outline" href="/records/credits?from=<%= yearStart %>&to=<%= today %>&status=<%= status %>&q=<%= encodeURIComponent(q || '') %>&sort=<%= sort %>&customer_credit_from=<%= yearStart %>&customer_credit_to=<%= today %><%= selectedCustomerId ? `&customer_id=${selectedCustomerId}` : '' %>"><%= t('presetThisYear') %></a>
+      </div>
+    </div>
+
+    <form class="mt-5 grid gap-3 lg:grid-cols-6" method="get" action="/records/credits">
+      <input type="hidden" name="customer_credit_from" value="<%= customerCreditFromValue %>" />
+      <input type="hidden" name="customer_credit_to" value="<%= customerCreditToValue %>" />
+      <% if (selectedCustomerId) { %><input type="hidden" name="customer_id" value="<%= selectedCustomerId %>" /><% } %>
+      <div>
+        <label class="label"><%= t('from') %></label>
+        <input class="input mt-1" type="date" name="from" value="<%= from %>" />
+      </div>
+      <div>
+        <label class="label"><%= t('to') %></label>
+        <input class="input mt-1" type="date" name="to" value="<%= to %>" />
+      </div>
+      <div>
+        <label class="label"><%= t('status') %></label>
+        <select class="input mt-1" name="status">
+          <option value="all" <%= status === 'all' ? 'selected' : '' %>><%= t('all') %></option>
+          <option value="paid" <%= status === 'paid' ? 'selected' : '' %>><%= t('paid') %></option>
+          <option value="unpaid" <%= status === 'unpaid' ? 'selected' : '' %>><%= t('unpaid') %></option>
+          <option value="partial" <%= status === 'partial' ? 'selected' : '' %>><%= t('statusPartial') %></option>
+        </select>
+      </div>
+      <div class="lg:col-span-2">
+        <label class="label"><%= t('search') %></label>
+        <input class="input mt-1" type="text" name="q" value="<%= q || '' %>" placeholder="<%= t('searchPlaceholder') %>" />
+      </div>
+      <div>
+        <label class="label"><%= t('sortBy') %></label>
+        <select class="input mt-1" name="sort">
+          <option value="date_desc" <%= sort === 'date_desc' ? 'selected' : '' %>><%= t('sortDateDesc') %></option>
+          <option value="date_asc" <%= sort === 'date_asc' ? 'selected' : '' %>><%= t('sortDateAsc') %></option>
+          <option value="amount_desc" <%= sort === 'amount_desc' ? 'selected' : '' %>><%= t('sortAmountDesc') %></option>
+          <option value="amount_asc" <%= sort === 'amount_asc' ? 'selected' : '' %>><%= t('sortAmountAsc') %></option>
+          <option value="jars_desc" <%= sort === 'jars_desc' ? 'selected' : '' %>><%= t('sortJarsDesc') %></option>
+          <option value="paid_first" <%= sort === 'paid_first' ? 'selected' : '' %>><%= t('sortPaidFirst') %></option>
+          <option value="unpaid_first" <%= sort === 'unpaid_first' ? 'selected' : '' %>><%= t('sortUnpaidFirst') %></option>
+          <option value="paid_amount_desc" <%= sort === 'paid_amount_desc' ? 'selected' : '' %>><%= t('sortPaidAmountDesc') %></option>
+          <option value="remaining_desc" <%= sort === 'remaining_desc' ? 'selected' : '' %>><%= t('sortRemainingDesc') %></option>
+        </select>
+      </div>
+      <div class="lg:col-span-6 flex justify-end">
+        <button class="btn-outline" type="submit"><%= t('filter') %></button>
+      </div>
+    </form>
+  </div>
+
+  <div class="mt-6 card p-5">
+    <div class="flex flex-wrap items-start justify-between gap-3">
+      <div>
+        <h2 class="text-lg font-semibold"><%= t('creditsTitle') %></h2>
+        <p class="mt-1 text-sm text-slate-600"><%= t('creditsSubtitle') %></p>
+      </div>
+      <div class="text-sm text-slate-500"><%= from %> -> <%= to %></div>
+    </div>
+
+    <% if (creditsRows.length === 0) { %>
+      <div class="empty-state mt-4">
+        <p class="empty-state-title"><%= t('noCredits') %></p>
+        <p class="empty-state-copy"><%= t('emptyRangeHint') %></p>
+      </div>
+    <% } else { %>
+      <div class="mt-4 space-y-3">
+        <% creditsRows.forEach((record) => { %>
+          <% const isPaid = record.paid_amount >= record.amount; %>
+          <% const isPartial = !isPaid && record.paid_amount > 0; %>
+          <% const statusLabel = isPaid ? t('paid') : (isPartial ? t('statusPartial') : t('unpaid')); %>
+          <% const statusClass = isPaid ? 'status-pill-paid' : (isPartial ? 'status-pill-partial' : 'status-pill-unpaid'); %>
+          <% const paidCash = Number(record.paid_cash_amount || 0); %>
+          <% const paidBank = Number(record.paid_bank_amount || 0); %>
+          <% const paidEWallet = Number(record.paid_ewallet_amount || 0); %>
+          <% const activeMethods = [paidCash > 0, paidBank > 0, paidEWallet > 0].filter(Boolean).length; %>
+          <% const methodLabel = activeMethods > 1 ? t('methodMixed') : (paidBank > 0 ? t('methodBank') : (paidEWallet > 0 ? t('methodEWallet') : t('methodCash'))); %>
+          <div class="record-card">
+            <div class="flex flex-wrap items-start justify-between gap-4">
+              <div>
+                <div class="flex flex-wrap items-center gap-2">
+                  <p class="font-semibold text-slate-900"><%= record.customer_name %></p>
+                  <span class="status-pill <%= statusClass %>"><%= statusLabel %></span>
+                  <% if (Number(record.is_company || 0) === 1) { %>
+                    <span class="status-pill status-pill-company"><%= t('companyVehicle') %></span>
+                  <% } %>
+                </div>
+                <p class="mt-1 text-xs text-slate-500"><%= record.credit_date %> • <%= record.receipt_no || (`#${record.id}`) %> • <%= t('tripDate') %>: <%= record.trip_date || '-' %></p>
+                <p class="mt-2 text-sm text-slate-600"><%= `${record.owner_name} • ${record.vehicle_number}` %></p>
                 <% if (record.customer_phone || record.customer_location) { %>
-                  <div class="text-xs text-slate-500">
+                  <p class="mt-1 text-xs text-slate-500">
                     <%= record.customer_phone || '-' %>
                     <% if (record.customer_location) { %>
                       • <%= record.customer_location %>
                     <% } %>
-                  </div>
+                  </p>
                 <% } %>
-              </td>
-              <td class="px-4 py-3"><%= record.amount %></td>
-              <td class="px-4 py-3">
-                <div><%= record.paid_amount %></div>
-                <div class="text-xs text-slate-500"><%= methodLabel %></div>
-              </td>
-              <td class="px-4 py-3"><%= record.remaining_amount %></td>
-              <td class="px-4 py-3">
-                <div><%= t('jars') %>: <%= record.credit_jars %>, <%= t('bottleCases') %>: <%= record.credit_bottle_cases %></div>
-                <div class="text-xs text-slate-500"><%= t('dispensers') %>: <%= record.credit_dispensers || 0 %>, <%= t('creditJarContainers') %>: <%= record.credit_jar_containers || 0 %></div>
-              </td>
-              <td class="px-4 py-3">
-                <span class="badge <%= statusClass %>"><%= statusLabel %></span>
-              </td>
-              <td class="px-4 py-3"><%= record.recorded_by || '-' %></td>
-              <td class="table-action-sticky px-4 py-3 text-right">
-                <details class="action-menu">
-                  <summary class="btn-outline h-9 w-9 flex items-center justify-center">⋯</summary>
-                  <div class="action-menu-panel">
-                    <a class="action-menu-item" href="/records/credits/<%= record.id %>/payments"><%= t('addPayment') %></a>
-                    <a class="action-menu-item" href="/records/credits/<%= record.id %>/payments"><%= t('paymentHistory') %></a>
-                    <form method="post" action="/records/credits/<%= record.id %>/paid">
-                      <input type="hidden" name="paid" value="<%= isPaid ? 0 : 1 %>" />
-                      <button class="action-menu-item" type="submit"><%= isPaid ? t('markUnpaid') : t('markPaid') %></button>
-                    </form>
-                    <a class="action-menu-item" href="/records/credits/<%= record.id %>/print" target="_blank"><%= t('print') %></a>
-                    <a class="action-menu-item" href="/records/credits/<%= record.id %>/edit"><%= t('edit') %></a>
-                    <form method="post" action="/records/credits/<%= record.id %>/delete" onsubmit="return confirm('<%= t('deleteCreditConfirm') %>');">
-                      <button class="action-menu-item action-menu-danger" type="submit"><%= t('delete') %></button>
-                    </form>
-                  </div>
-                </details>
-              </td>
-            </tr>
-          <% }) %>
-        </tbody>
-      </table>
-    </div>
+              </div>
+              <div class="surface-muted min-w-[190px] px-4 py-3 text-right">
+                <p class="text-xs font-semibold uppercase tracking-wide text-slate-500"><%= t('remainingAmount') %></p>
+                <p class="mt-1 text-lg font-semibold text-slate-900"><%= record.remaining_amount %></p>
+                <p class="mt-1 text-xs text-slate-500"><%= t('amount') %>: <%= record.amount %> • <%= t('paidAmount') %>: <%= record.paid_amount %></p>
+              </div>
+            </div>
+
+            <div class="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+              <div class="record-panel">
+                <p class="record-panel-title"><%= t('credits') %></p>
+                <div class="mt-2 space-y-1 text-slate-700">
+                  <div><span class="text-slate-500"><%= t('jars') %>:</span> <%= record.credit_jars %></div>
+                  <div><span class="text-slate-500"><%= t('bottleCases') %>:</span> <%= record.credit_bottle_cases %></div>
+                  <div><span class="text-slate-500"><%= t('dispensers') %>:</span> <%= record.credit_dispensers || 0 %></div>
+                  <div><span class="text-slate-500"><%= t('creditJarContainers') %>:</span> <%= record.credit_jar_containers || 0 %></div>
+                </div>
+              </div>
+              <div class="record-panel">
+                <p class="record-panel-title"><%= t('paymentMethodLabel') %></p>
+                <div class="mt-2 space-y-1 text-slate-700">
+                  <div><span class="text-slate-500"><%= t('methodCash') %>:</span> <%= paidCash %></div>
+                  <div><span class="text-slate-500"><%= t('methodBank') %>:</span> <%= paidBank %></div>
+                  <div><span class="text-slate-500"><%= t('methodEWallet') %>:</span> <%= paidEWallet %></div>
+                  <div><span class="text-slate-500"><%= t('status') %>:</span> <%= methodLabel %></div>
+                </div>
+              </div>
+              <div class="record-panel">
+                <p class="record-panel-title"><%= t('vehicle') %></p>
+                <div class="mt-2 space-y-1 text-slate-700">
+                  <div><span class="text-slate-500"><%= t('vehicle') %>:</span> <%= `${record.owner_name} • ${record.vehicle_number}` %></div>
+                  <div><span class="text-slate-500"><%= t('tripDate') %>:</span> <%= record.trip_date || '-' %></div>
+                  <div><span class="text-slate-500"><%= t('receiptNo') %>:</span> <%= record.receipt_no || (`#${record.id}`) %></div>
+                </div>
+              </div>
+              <div class="record-panel">
+                <p class="record-panel-title"><%= t('recordedBy') %></p>
+                <div class="mt-2 space-y-1 text-slate-700">
+                  <div><span class="text-slate-500"><%= t('recordedBy') %>:</span> <%= record.recorded_by || '-' %></div>
+                  <div><span class="text-slate-500"><%= t('paidAmount') %>:</span> <%= record.paid_amount %></div>
+                  <div><span class="text-slate-500"><%= t('remainingAmount') %>:</span> <%= record.remaining_amount %></div>
+                </div>
+              </div>
+            </div>
+
+            <div class="record-actions">
+              <a class="btn-outline btn-sm" href="/records/credits/<%= record.id %>/payments"><%= t('addPayment') %></a>
+              <a class="btn-outline btn-sm" href="/records/credits/<%= record.id %>/payments"><%= t('paymentHistory') %></a>
+              <a class="btn-outline btn-sm" href="/records/credits/<%= record.id %>/edit"><%= t('edit') %></a>
+              <details class="action-menu">
+                <summary class="btn-outline btn-sm">⋯</summary>
+                <div class="action-menu-panel">
+                  <form method="post" action="/records/credits/<%= record.id %>/paid">
+                    <input type="hidden" name="paid" value="<%= isPaid ? 0 : 1 %>" />
+                    <button class="action-menu-item" type="submit"><%= isPaid ? t('markUnpaid') : t('markPaid') %></button>
+                  </form>
+                  <a class="action-menu-item" href="/records/credits/<%= record.id %>/print" target="_blank"><%= t('print') %></a>
+                  <form method="post" action="/records/credits/<%= record.id %>/delete" onsubmit="return confirm('<%= t('deleteCreditConfirm') %>');">
+                    <button class="action-menu-item action-menu-danger" type="submit"><%= t('delete') %></button>
+                  </form>
+                </div>
+              </details>
+            </div>
+          </div>
+        <% }) %>
+      </div>
+    <% } %>
   </div>
 
   <div class="mt-6 card p-6">
@@ -203,11 +259,14 @@
       </div>
     </div>
     <% if (!customerCumulativeTotals || customerCumulativeTotals.length === 0) { %>
-      <p class="mt-4 text-sm text-slate-500"><%= t('noCredits') %></p>
+      <div class="empty-state mt-4">
+        <p class="empty-state-title"><%= t('noCredits') %></p>
+        <p class="empty-state-copy"><%= t('emptyRangeHint') %></p>
+      </div>
     <% } else { %>
       <div class="mt-4 grid gap-3">
         <% customerCumulativeTotals.forEach((row, idx) => { %>
-          <% const customerKey = String(row.customer_name || '').trim().toLowerCase(); %>
+          <% const customerKey = row.customer_id ? String(row.customer_id) : String(row.customer_name || '').trim().toLowerCase(); %>
           <% const customerDetails = safeCustomerCumulativeDetailsByCustomer[customerKey] || []; %>
           <div class="card p-4">
             <div class="flex flex-wrap items-center justify-between gap-2">
@@ -218,7 +277,9 @@
               <div class="flex flex-wrap items-center gap-2">
                 <span class="badge bg-red-100 text-red-700"><%= t('totalRemaining') %>: <%= row.total_remaining %></span>
                 <% if ((row.customer_name || '').trim()) { %>
-                  <a class="btn-outline btn-sm" target="_blank" href="/records/credits/customer-cumulative/print?customer_name=<%= encodeURIComponent(row.customer_name) %>&customer_credit_from=<%= customerCreditFromValue %>&customer_credit_to=<%= customerCreditToValue %>&from=<%= from %>&to=<%= to %>"><%= t('printList') %></a>
+                  <a class="btn-outline btn-sm" href="<%= row.customer_id ? `/records/customers/${row.customer_id}/edit` : `/records/customers?q=${encodeURIComponent(row.customer_name)}` %>"><%= t('manage') %></a>
+                  <a class="btn-outline btn-sm" href="/records/payment-history?from=<%= customerCreditFromValue %>&to=<%= customerCreditToValue %>&source=CUSTOMER_CREDIT&q=<%= encodeURIComponent(row.customer_name) %>"><%= t('paymentHistory') %></a>
+                  <a class="btn-outline btn-sm" target="_blank" href="/records/credits/customer-cumulative/print?customer_id=<%= row.customer_id %>&customer_name=<%= encodeURIComponent(row.customer_name) %>&customer_credit_from=<%= customerCreditFromValue %>&customer_credit_to=<%= customerCreditToValue %>&from=<%= from %>&to=<%= to %>"><%= t('printList') %></a>
                 <% } %>
               </div>
             </div>
@@ -243,6 +304,7 @@
             <% if ((row.customer_name || '').trim() && Number(row.total_remaining || 0) > 0) { %>
               <div class="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-3">
                 <form id="customer-pay-<%= idx %>" method="post" action="/records/credits/pay/customer-total" class="js-payment-split grid gap-3 lg:grid-cols-5" data-max="<%= row.total_remaining %>">
+                  <% if (row.customer_id) { %><input type="hidden" name="customer_id" value="<%= row.customer_id %>" /><% } %>
                   <input type="hidden" name="customer_name" value="<%= row.customer_name %>" />
                   <input type="hidden" name="from" value="<%= from %>" />
                   <input type="hidden" name="to" value="<%= to %>" />
@@ -269,8 +331,9 @@
                     <input class="input h-10 bg-slate-50" type="number" step="0.01" min="0" name="payment_amount" readonly />
                     <p class="mt-1 text-xs text-slate-500"><%= t('totalRemaining') %>: <%= row.total_remaining %></p>
                   </div>
-                  <div class="flex items-end">
+                  <div class="flex items-end gap-2">
                     <button class="btn-primary" type="submit"><%= t('addPayment') %></button>
+                    <a class="btn-outline" href="/records/payment-history?from=<%= customerCreditFromValue %>&to=<%= customerCreditToValue %>&source=CUSTOMER_CREDIT&q=<%= encodeURIComponent(row.customer_name) %>"><%= t('paymentHistory') %></a>
                   </div>
                 </form>
               </div>
@@ -314,19 +377,7 @@
     <% } %>
   </div>
 
-  <div class="mt-4 grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-7">
-    <div class="card p-4">
-      <p class="text-slate-500"><%= t('totalAmount') %></p>
-      <p class="text-lg font-semibold"><%= creditTotals.total_amount %></p>
-    </div>
-    <div class="card p-4">
-      <p class="text-slate-500"><%= t('totalPaidAmount') %></p>
-      <p class="text-lg font-semibold"><%= creditTotals.total_paid %></p>
-    </div>
-    <div class="card p-4">
-      <p class="text-slate-500"><%= t('totalRemaining') %></p>
-      <p class="text-lg font-semibold"><%= creditTotals.total_remaining %></p>
-    </div>
+  <div class="mt-4 grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-4">
     <div class="card p-4">
       <p class="text-slate-500"><%= t('totalCreditJars') %></p>
       <p class="text-lg font-semibold"><%= creditTotals.total_jars %></p>

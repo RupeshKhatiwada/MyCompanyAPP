@@ -20,13 +20,21 @@
         <label class="label"><%= t('date') %></label>
         <input class="input" type="date" name="purchase_date" value="<%= record.purchase_date %>" required />
       </div>
+      <div>
+        <label class="label"><%= t('expenseCategoryLabel') %></label>
+        <select class="input" name="expense_category">
+          <% (categoryOptions || []).forEach((option) => { %>
+            <option value="<%= option.value %>" <%= record.expense_category === option.value ? 'selected' : '' %>><%= option.label %></option>
+          <% }) %>
+        </select>
+      </div>
       <div class="sm:col-span-2">
-        <label class="label"><%= t('itemName') %></label>
-        <input class="input" type="text" name="item_name" value="<%= record.item_name %>" required />
+        <label class="label"><%= t('expenseDetailsLabel') %></label>
+        <input class="input" type="text" name="item_name" value="<%= record.item_name %>" placeholder="<%= t('expenseDetailsPlaceholder') %>" />
       </div>
       <div>
-        <label class="label"><%= t('sellerName') %></label>
-        <input class="input" type="text" name="seller_name" value="<%= record.seller_name || '' %>" />
+        <label class="label"><%= t('expensePaidToLabel') %></label>
+        <input class="input" type="text" name="seller_name" value="<%= record.seller_name || '' %>" placeholder="<%= t('expensePaidToPlaceholder') %>" />
       </div>
       <div>
         <label class="label"><%= t('amount') %></label>

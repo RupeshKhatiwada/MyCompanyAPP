@@ -1,0 +1,48 @@
+<%- include('../partials/shell-start', { title }) %>
+<section class="py-8">
+  <div class="flex flex-wrap items-center justify-between gap-3">
+    <div>
+      <h1 class="text-3xl font-semibold"><%= record ? t('editCustomerTitle') : t('addCustomerTitle') %></h1>
+      <p class="text-slate-600"><%= t('customerFormSubtitle') %></p>
+    </div>
+    <a class="btn-outline" href="/records/customers"><%= t('back') %></a>
+  </div>
+
+  <%
+    const safeFormValues = typeof formValues !== 'undefined' && formValues ? formValues : {};
+    const pickValue = (key, fallback = '') => {
+      if (Object.prototype.hasOwnProperty.call(safeFormValues, key)) return safeFormValues[key];
+      if (record && typeof record[key] !== 'undefined' && record[key] !== null) return record[key];
+      return fallback;
+    };
+  %>
+
+  <div class="mt-6 card p-6">
+    <% if (notice) { %>
+      <div class="mb-4 rounded-lg bg-emerald-50 px-4 py-3 text-sm text-emerald-700"><%= notice %></div>
+    <% } %>
+    <% if (error) { %>
+      <div class="mb-4 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700"><%= error %></div>
+    <% } %>
+
+    <form method="post" action="<%= record ? `/records/customers/${record.id}` : '/records/customers' %>" class="space-y-4">
+      <div>
+        <label class="label"><%= t('customerName') %></label>
+        <input class="input" type="text" name="name" value="<%= pickValue('name', '') %>" required />
+      </div>
+      <div>
+        <label class="label"><%= t('customerPhone') %></label>
+        <input class="input" type="text" name="phone" value="<%= pickValue('phone', '') %>" />
+      </div>
+      <div>
+        <label class="label"><%= t('customerLocation') %></label>
+        <input class="input" type="text" name="location" value="<%= pickValue('location', '') %>" />
+      </div>
+      <div class="flex flex-wrap gap-2">
+        <button class="btn-primary" type="submit"><%= t('save') %></button>
+        <a class="btn-outline" href="/records/customers"><%= t('cancel') %></a>
+      </div>
+    </form>
+  </div>
+</section>
+<%- include('../partials/shell-end') %>

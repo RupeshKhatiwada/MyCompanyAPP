@@ -7,7 +7,7 @@
     </div>
     <div class="flex flex-wrap gap-2">
       <% if (customer) { %>
-        <a class="btn-outline" href="/admin/reports/customer-ledger/print?customer=<%= encodeURIComponent(customer) %>&from=<%= from %>&to=<%= to %>" target="_blank"><%= t('print') %></a>
+        <a class="btn-outline" href="/admin/reports/customer-ledger/print?customer_id=<%= customerId || '' %>&customer=<%= encodeURIComponent(customer) %>&from=<%= from %>&to=<%= to %>" target="_blank"><%= t('print') %></a>
       <% } %>
     </div>
   </div>
@@ -15,10 +15,15 @@
   <form class="mt-4 flex flex-wrap items-end gap-3" method="get" action="/admin/reports/customer-ledger">
     <div class="min-w-[220px]">
       <label class="label"><%= t('customerName') %></label>
-      <select class="input" name="customer">
+      <select class="input" name="customer_ref">
         <option value=""><%= t('selectCustomer') %></option>
-        <% customers.forEach((name) => { %>
-          <option value="<%= name %>" <%= name === customer ? 'selected' : '' %>><%= name %></option>
+        <% customers.forEach((row) => { %>
+          <% const parts = [row.name]; %>
+          <% if (row.phone) parts.push(row.phone); %>
+          <% if (row.location) parts.push(row.location); %>
+          <% if (Number(row.is_active || 1) !== 1) parts.push(t('inactive')); %>
+          <% if (Number(row.is_legacy || 0) === 1) parts.push(t('legacyCustomer')); %>
+          <option value="<%= row.value %>" <%= row.value === customerRef ? 'selected' : '' %>><%= parts.join(' • ') %></option>
         <% }) %>
       </select>
     </div>

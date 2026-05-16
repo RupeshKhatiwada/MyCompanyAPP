@@ -135,12 +135,8 @@
               <input class="input" type="number" min="1" name="quantity[]" value="1" data-quantity required />
             </div>
             <div>
-              <label class="label"><%= t('pricePerUnit') %></label>
-              <input class="input" type="number" min="0" step="0.01" name="unit_price[]" value="0" data-unit-price />
-            </div>
-            <div>
               <label class="label"><%= t('totalAmount') %></label>
-              <input class="input bg-slate-50" type="number" min="0" step="0.01" value="0" data-total-amount readonly />
+              <input class="input" type="number" min="0" step="0.01" name="total_amount[]" value="0" data-total-amount />
             </div>
             <div>
               <label class="label"><%= t('paidAmount') %></label>
@@ -201,12 +197,8 @@
             <input class="input" type="number" min="1" name="quantity[]" value="1" data-quantity required />
           </div>
           <div>
-            <label class="label"><%= t('pricePerUnit') %></label>
-            <input class="input" type="number" min="0" step="0.01" name="unit_price[]" value="0" data-unit-price />
-          </div>
-          <div>
             <label class="label"><%= t('totalAmount') %></label>
-            <input class="input bg-slate-50" type="number" min="0" step="0.01" value="0" data-total-amount readonly />
+            <input class="input" type="number" min="0" step="0.01" name="total_amount[]" value="0" data-total-amount />
           </div>
           <div>
             <label class="label"><%= t('paidAmount') %></label>
@@ -356,7 +348,6 @@
             <th class="px-4 py-3"><%= t('details') %></th>
             <th class="px-4 py-3"><%= t('usageStatus') %></th>
             <th class="px-4 py-3"><%= t('quantity') %></th>
-            <th class="px-4 py-3"><%= t('pricePerUnit') %></th>
             <th class="px-4 py-3"><%= t('totalAmount') %></th>
             <th class="px-4 py-3"><%= t('paidAmount') %></th>
             <th class="px-4 py-3"><%= t('remaining') %></th>
@@ -368,7 +359,7 @@
         <tbody>
           <% if (!safeEntries || safeEntries.length === 0) { %>
             <tr>
-              <td class="px-4 py-4 text-slate-500" colspan="13"><%= t('noImports') %></td>
+              <td class="px-4 py-4 text-slate-500" colspan="12"><%= t('noImports') %></td>
             </tr>
           <% } %>
           <% safeEntries.forEach((row) => { %>
@@ -385,7 +376,6 @@
               <% const unit = itemUnitMap[row.item_type] || safeResolveImportItemUnit(row.item_type, row.item_unit_label, t); %>
               <td class="px-4 py-3"><%= row.direction === 'OUT' ? t('used') : t('unused') %></td>
               <td class="px-4 py-3"><%= row.quantity %><%= unit ? ` ${unit}` : '' %></td>
-              <td class="px-4 py-3"><%= Number(row.unit_price || 0) %></td>
               <td class="px-4 py-3"><%= rowTotal %></td>
               <td class="px-4 py-3"><%= rowPaid %></td>
               <td class="px-4 py-3">
@@ -490,9 +480,8 @@
       const jarTypeSelect = row.querySelector('[data-jar-type]');
       const quantityLabel = row.querySelector('[data-quantity-label]');
       const quantityInput = row.querySelector('[data-quantity]');
-      const unitPriceInput = row.querySelector('[data-unit-price]');
       const totalAmountInput = row.querySelector('[data-total-amount]');
-      if (!itemSelect || !directionSelect || !quantityLabel || !quantityInput || !unitPriceInput || !totalAmountInput) return;
+      if (!itemSelect || !directionSelect || !quantityLabel || !quantityInput || !totalAmountInput) return;
 
       const meta = itemMeta[itemSelect.value] || { unit: "", usesDirection: true };
       const unit = meta.unit || "";
@@ -522,10 +511,6 @@
           }
         }
       }
-
-      const qty = toNumber(quantityInput.value);
-      const unitPrice = toNumber(unitPriceInput.value);
-      totalAmountInput.value = (qty * unitPrice).toFixed(2);
     };
 
     const resetRow = (row) => {
@@ -533,7 +518,7 @@
       const directionSelect = row.querySelector('[data-direction]');
       const jarTypeSelect = row.querySelector('[data-jar-type]');
       const quantityInput = row.querySelector('[data-quantity]');
-      const unitPriceInput = row.querySelector('[data-unit-price]');
+      const totalAmountInput = row.querySelector('[data-total-amount]');
       const paidInput = row.querySelector('input[name="paid_amount[]"]');
       const paymentModeSelect = row.querySelector('select[name="payment_mode[]"]');
       const noteInput = row.querySelector('input[name="line_note[]"]');
@@ -541,7 +526,7 @@
       if (directionSelect) directionSelect.value = "IN";
       if (jarTypeSelect) jarTypeSelect.value = "";
       if (quantityInput) quantityInput.value = "1";
-      if (unitPriceInput) unitPriceInput.value = "0";
+      if (totalAmountInput) totalAmountInput.value = "0";
       if (paidInput) paidInput.value = "0";
       if (paymentModeSelect) paymentModeSelect.value = "FULL";
       if (noteInput) noteInput.value = "";
@@ -553,14 +538,12 @@
       const directionSelect = row.querySelector('[data-direction]');
       const jarTypeSelect = row.querySelector('[data-jar-type]');
       const quantityInput = row.querySelector('[data-quantity]');
-      const unitPriceInput = row.querySelector('[data-unit-price]');
       const removeButton = row.querySelector('[data-remove-import-row]');
 
       if (itemSelect) itemSelect.addEventListener('change', () => syncRow(row));
       if (directionSelect) directionSelect.addEventListener('change', () => syncRow(row));
       if (jarTypeSelect) jarTypeSelect.addEventListener('change', () => syncRow(row));
       if (quantityInput) quantityInput.addEventListener('input', () => syncRow(row));
-      if (unitPriceInput) unitPriceInput.addEventListener('input', () => syncRow(row));
       if (removeButton) {
         removeButton.addEventListener('click', () => {
           const rows = rowsWrap.querySelectorAll('[data-import-row]');

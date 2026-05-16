@@ -75,8 +75,9 @@
         <thead class="table-head">
           <tr>
             <th class="px-4 py-3"><%= t('date') %></th>
-            <th class="px-4 py-3"><%= t('itemName') %></th>
-            <th class="px-4 py-3"><%= t('sellerName') %></th>
+            <th class="px-4 py-3"><%= t('expenseCategoryLabel') %></th>
+            <th class="px-4 py-3"><%= t('expenseDetailsLabel') %></th>
+            <th class="px-4 py-3"><%= t('expensePaidToLabel') %></th>
             <th class="px-4 py-3"><%= t('amount') %></th>
             <th class="px-4 py-3"><%= t('paidAmount') %></th>
             <th class="px-4 py-3"><%= t('remaining') %></th>
@@ -90,13 +91,14 @@
         <tbody>
           <% if (!rows || rows.length === 0) { %>
             <tr>
-              <td class="px-4 py-4 text-slate-500" colspan="11"><%= t('noPurchases') %></td>
+              <td class="px-4 py-4 text-slate-500" colspan="12"><%= t('noPurchases') %></td>
             </tr>
           <% } %>
           <% (rows || []).forEach((row) => { %>
             <% const due = Math.max(0, Number(row.amount || 0) - Number(row.paid_amount || 0)); %>
             <tr class="table-row">
               <td class="px-4 py-3"><%= row.purchase_date %></td>
+              <td class="px-4 py-3"><%= row.expense_category_label %></td>
               <td class="px-4 py-3"><%= row.item_name %></td>
               <td class="px-4 py-3"><%= row.seller_name || '-' %></td>
               <td class="px-4 py-3"><%= row.amount %></td>

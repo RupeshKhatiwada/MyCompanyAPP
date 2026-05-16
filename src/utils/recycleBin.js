@@ -5,6 +5,7 @@ const tableColumnsCache = new Map();
 const allowedTables = new Set([
   "exports",
   "credits",
+  "customers",
   "credit_payments",
   "import_entries",
   "jar_sales",
@@ -220,6 +221,10 @@ const restoreEntry = (entryId, userId) => {
           }
         });
         restoredEntityId = creditId;
+        break;
+      }
+      case "customer": {
+        restoredEntityId = insertRow("customers", payload.customer || {}, { keepId: true });
         break;
       }
       case "import_entry": {

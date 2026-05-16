@@ -27,6 +27,62 @@
       }
     })();
   </script>
+  <script>
+    document.addEventListener("DOMContentLoaded", function () {
+      document.addEventListener("wheel", function () {
+        var active = document.activeElement;
+        if (active && active.tagName === "INPUT" && active.type === "number") {
+          active.blur();
+        }
+      }, { passive: true });
+
+      if (document.documentElement.lang !== "ne" || !document.body) return;
+      var nepaliDigits = {
+        "0": "०",
+        "1": "१",
+        "2": "२",
+        "3": "३",
+        "4": "४",
+        "5": "५",
+        "6": "६",
+        "7": "७",
+        "8": "८",
+        "9": "९"
+      };
+      var blockedTags = {
+        SCRIPT: true,
+        STYLE: true,
+        TEXTAREA: true,
+        INPUT: true,
+        SELECT: true,
+        OPTION: true
+      };
+      var walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, {
+        acceptNode: function (node) {
+          if (!node || !node.nodeValue || !/\d/.test(node.nodeValue)) {
+            return NodeFilter.FILTER_REJECT;
+          }
+          var parent = node.parentNode;
+          while (parent && parent !== document.body) {
+            if (parent.nodeType === 1 && blockedTags[parent.tagName]) {
+              return NodeFilter.FILTER_REJECT;
+            }
+            parent = parent.parentNode;
+          }
+          return NodeFilter.FILTER_ACCEPT;
+        }
+      });
+      var textNodes = [];
+      while (walker.nextNode()) {
+        textNodes.push(walker.currentNode);
+      }
+      textNodes.forEach(function (node) {
+        node.nodeValue = node.nodeValue.replace(/\d/g, function (digit) {
+          return nepaliDigits[digit] || digit;
+        });
+      });
+    });
+  </script>
   <link rel="stylesheet" href="/css/styles.css?v=<%= assetVersion %>" />
   <script src="/js/calendar-ui.js?v=<%= assetVersion %>" defer></script>
   <style>

@@ -1,129 +1,150 @@
 <%- include('../partials/shell-start', { title }) %>
 <section class="py-8">
-  <div class="flex flex-wrap items-center justify-between gap-3">
-    <div>
-      <h1 class="text-3xl font-semibold"><%= t('jarContainerLendingPaymentsTitle') %></h1>
-      <p class="text-slate-600"><%= t('jarContainerLendingPaymentsSubtitle') %></p>
+  <div class="page-header">
+    <div class="flex flex-wrap items-start justify-between gap-4">
+      <div>
+        <h1 class="text-3xl font-semibold"><%= t('jarContainerLendingPaymentsTitle') %></h1>
+        <p class="mt-1 text-slate-600"><%= t('jarContainerLendingPaymentsSubtitle') %></p>
+      </div>
+      <div class="flex flex-wrap gap-2">
+        <a class="btn-outline" href="/records/jar-container-lending/<%= record.id %>/returns"><%= t('manageReturns') %></a>
+        <a class="btn-outline" href="/records/jar-container-lending?from=<%= record.lend_date %>&to=<%= record.lend_date %>"><%= t('back') %></a>
+      </div>
     </div>
-    <a class="btn-outline" href="/records/jar-container-lending?from=<%= record.lend_date %>&to=<%= record.lend_date %>"><%= t('back') %></a>
   </div>
 
   <% if (error) { %>
-    <div class="mt-4 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700"><%= error %></div>
+    <div class="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"><%= error %></div>
   <% } %>
   <% if (success) { %>
-    <div class="mt-4 rounded-lg bg-emerald-50 px-4 py-3 text-sm text-emerald-700"><%= success %></div>
+    <div class="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700"><%= success %></div>
   <% } %>
 
-  <div class="mt-6 grid gap-4 lg:grid-cols-5">
+  <div class="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
     <div class="card p-4">
-      <p class="text-slate-500"><%= t('date') %></p>
-      <p class="text-lg font-semibold"><%= record.lend_date %></p>
+      <p class="text-xs font-medium uppercase tracking-wide text-slate-500"><%= t('date') %></p>
+      <p class="mt-2 text-2xl font-semibold"><%= record.lend_date %></p>
     </div>
     <div class="card p-4">
-      <p class="text-slate-500"><%= t('customer') %></p>
-      <p class="text-lg font-semibold"><%= record.customer_name %></p>
+      <p class="text-xs font-medium uppercase tracking-wide text-slate-500"><%= t('customer') %></p>
+      <p class="mt-2 text-2xl font-semibold"><%= record.customer_name %></p>
     </div>
     <div class="card p-4">
-      <p class="text-slate-500"><%= t('depositTarget') %></p>
-      <p class="text-lg font-semibold"><%= Number(record.deposit_amount || 0) %></p>
+      <p class="text-xs font-medium uppercase tracking-wide text-slate-500"><%= t('depositTarget') %></p>
+      <p class="mt-2 text-2xl font-semibold"><%= Number(record.deposit_amount || 0) %></p>
     </div>
     <div class="card p-4">
-      <p class="text-slate-500"><%= t('depositReceived') %></p>
-      <p class="text-lg font-semibold"><%= Number(record.deposit_paid_amount || 0) %></p>
+      <p class="text-xs font-medium uppercase tracking-wide text-slate-500"><%= t('depositReceived') %></p>
+      <p class="mt-2 text-2xl font-semibold"><%= Number(record.deposit_paid_amount || 0) %></p>
     </div>
     <div class="card p-4">
-      <p class="text-slate-500"><%= t('remainingAmount') %></p>
-      <p class="text-lg font-semibold"><%= Number(record.deposit_due || 0) %></p>
+      <p class="text-xs font-medium uppercase tracking-wide text-slate-500"><%= t('remainingAmount') %></p>
+      <p class="mt-2 text-2xl font-semibold"><%= Number(record.deposit_due || 0) %></p>
     </div>
   </div>
 
-  <div class="mt-6 grid gap-6 lg:grid-cols-[360px_minmax(0,1fr)]">
+  <div class="mt-6 grid gap-6 xl:grid-cols-[minmax(320px,0.95fr)_minmax(0,1.15fr)]">
     <div class="card p-6">
-      <h2 class="text-lg font-semibold"><%= t('addDepositPayment') %></h2>
-      <form class="mt-4 space-y-4" method="post" action="/records/jar-container-lending/<%= record.id %>/payments">
+      <div class="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 class="text-lg font-semibold"><%= t('addDepositPayment') %></h2>
+          <p class="mt-1 text-sm text-slate-600"><%= record.jar_name %><% if (record.location) { %> • <%= record.location %><% } %></p>
+        </div>
+        <div class="surface-muted px-3 py-2 text-xs text-slate-500"><%= t('remainingAmount') %>: <%= Number(record.deposit_due || 0) %></div>
+      </div>
+
+      <form class="mt-5 space-y-4" method="post" action="/records/jar-container-lending/<%= record.id %>/payments">
         <div>
           <label class="label"><%= t('date') %></label>
-          <input class="input" type="date" name="payment_date" value="<%= record.lend_date %>" required />
+          <input class="input mt-1" type="date" name="payment_date" value="<%= record.lend_date %>" required />
         </div>
-        <div class="grid gap-3 sm:grid-cols-3 lg:grid-cols-1 xl:grid-cols-3">
+        <div class="grid gap-3 sm:grid-cols-3">
           <div>
             <label class="label"><%= t('methodCash') %></label>
-            <input class="input" type="number" step="0.01" min="0" max="<%= Number(record.deposit_due || 0) %>" name="cash_amount" data-cash />
+            <input class="input mt-1" type="number" step="0.01" min="0" max="<%= Number(record.deposit_due || 0) %>" name="cash_amount" data-cash />
           </div>
           <div>
             <label class="label"><%= t('methodBank') %></label>
-            <input class="input" type="number" step="0.01" min="0" max="<%= Number(record.deposit_due || 0) %>" name="bank_amount" data-bank />
+            <input class="input mt-1" type="number" step="0.01" min="0" max="<%= Number(record.deposit_due || 0) %>" name="bank_amount" data-bank />
           </div>
           <div>
             <label class="label"><%= t('methodEWallet') %></label>
-            <input class="input" type="number" step="0.01" min="0" max="<%= Number(record.deposit_due || 0) %>" name="ewallet_amount" data-ewallet />
+            <input class="input mt-1" type="number" step="0.01" min="0" max="<%= Number(record.deposit_due || 0) %>" name="ewallet_amount" data-ewallet />
           </div>
         </div>
         <div>
           <label class="label"><%= t('paymentAmount') %></label>
-          <input class="input bg-slate-50" type="number" step="0.01" min="0" name="payment_amount" data-total readonly />
+          <input class="input mt-1 bg-slate-50" type="number" step="0.01" min="0" name="payment_amount" data-total readonly />
         </div>
         <div>
           <label class="label"><%= t('note') %></label>
-          <input class="input" type="text" name="note" />
+          <input class="input mt-1" type="text" name="note" />
         </div>
         <input type="hidden" name="payment_method" value="CASH" />
-        <button class="btn-primary w-full" type="submit"><%= t('savePayment') %></button>
+        <button class="btn-primary w-full sm:w-auto" type="submit"><%= t('savePayment') %></button>
       </form>
     </div>
 
-    <div class="card overflow-hidden">
-      <div class="overflow-x-auto">
-        <table class="table-base">
-          <thead class="table-head">
-            <tr>
-              <th class="px-4 py-3"><%= t('date') %></th>
-              <th class="px-4 py-3"><%= t('paymentReceiptNo') %></th>
-              <th class="px-4 py-3"><%= t('amount') %></th>
-              <th class="px-4 py-3"><%= t('paymentMethodLabel') %></th>
-              <th class="px-4 py-3"><%= t('note') %></th>
-              <th class="px-4 py-3"><%= t('recordedBy') %></th>
-              <th class="table-action-sticky px-4 py-3 text-right"><%= t('actions') %></th>
-            </tr>
-          </thead>
-          <tbody>
-            <% if (!payments || payments.length === 0) { %>
-              <tr>
-                <td class="px-4 py-4 text-slate-500" colspan="7"><%= t('noPayments') %></td>
-              </tr>
-            <% } %>
-            <% payments.forEach((payment) => { %>
-              <% const methodLabel = payment.payment_method === 'BANK' ? t('methodBank') : payment.payment_method === 'E_WALLET' ? t('methodEWallet') : payment.payment_method === 'MIXED' ? t('methodMixed') : t('methodCash'); %>
-              <% const splitParts = []; %>
-              <% if (Number(payment.cash_amount || 0) > 0) splitParts.push(`${t('methodCash')}: ${payment.cash_amount}`); %>
-              <% if (Number(payment.bank_amount || 0) > 0) splitParts.push(`${t('methodBank')}: ${payment.bank_amount}`); %>
-              <% if (Number(payment.ewallet_amount || 0) > 0) splitParts.push(`${t('methodEWallet')}: ${payment.ewallet_amount}`); %>
-              <tr class="table-row">
-                <td class="px-4 py-3"><%= payment.payment_date %></td>
-                <td class="px-4 py-3"><%= payment.receipt_no || '-' %></td>
-                <td class="px-4 py-3"><%= Number(payment.amount || 0) %></td>
-                <td class="px-4 py-3">
-                  <div><%= methodLabel %></div>
-                  <% if (splitParts.length > 1) { %>
-                    <div class="text-xs text-slate-500"><%= splitParts.join(' • ') %></div>
-                  <% } %>
-                </td>
-                <td class="px-4 py-3"><%= payment.note || '-' %></td>
-                <td class="px-4 py-3"><%= payment.recorded_by || '-' %></td>
-                <td class="table-action-sticky px-4 py-3 text-right">
-                  <div class="flex justify-end gap-2">
-                    <a class="btn-outline" href="/records/jar-container-lending/payments/<%= payment.id %>/print?autoprint=1" target="_blank"><%= t('print') %></a>
-                    <form method="post" action="/records/jar-container-lending/payments/<%= payment.id %>/delete" onsubmit="return confirm('<%= t('deletePaymentConfirm') %>');">
-                      <button class="btn-outline" type="submit"><%= t('delete') %></button>
-                    </form>
-                  </div>
-                </td>
-              </tr>
-            <% }) %>
-          </tbody>
-        </table>
+    <div class="card p-5">
+      <div class="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 class="text-lg font-semibold"><%= t('depositHistory') %></h2>
+          <p class="mt-1 text-sm text-slate-600"><%= t('jarContainerLendingPaymentsSubtitle') %></p>
+        </div>
+        <div class="text-sm text-slate-500"><%= (payments || []).length %> <%= t('entries').toLowerCase() %></div>
       </div>
+
+      <% if (!payments || payments.length === 0) { %>
+        <div class="surface-muted mt-4 p-5 text-sm text-slate-500"><%= t('noPayments') %></div>
+      <% } else { %>
+        <div class="mt-4 space-y-3">
+          <% payments.forEach((payment) => { %>
+            <% const methodLabel = payment.payment_method === 'BANK' ? t('methodBank') : payment.payment_method === 'E_WALLET' ? t('methodEWallet') : payment.payment_method === 'MIXED' ? t('methodMixed') : t('methodCash'); %>
+            <% const splitParts = []; %>
+            <% if (Number(payment.cash_amount || 0) > 0) splitParts.push(`${t('methodCash')}: ${payment.cash_amount}`); %>
+            <% if (Number(payment.bank_amount || 0) > 0) splitParts.push(`${t('methodBank')}: ${payment.bank_amount}`); %>
+            <% if (Number(payment.ewallet_amount || 0) > 0) splitParts.push(`${t('methodEWallet')}: ${payment.ewallet_amount}`); %>
+            <div class="record-card">
+              <div class="flex flex-wrap items-start justify-between gap-4">
+                <div>
+                  <p class="font-semibold text-slate-900"><%= payment.payment_date %></p>
+                  <p class="mt-1 text-xs text-slate-500"><%= payment.receipt_no || '-' %></p>
+                </div>
+                <div class="surface-muted min-w-[170px] px-4 py-3 text-right">
+                  <p class="text-xs font-semibold uppercase tracking-wide text-slate-500"><%= t('amount') %></p>
+                  <p class="mt-1 text-lg font-semibold text-slate-900"><%= Number(payment.amount || 0) %></p>
+                  <p class="mt-1 text-xs text-slate-500"><%= methodLabel %></p>
+                </div>
+              </div>
+
+              <div class="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                <div class="surface-muted p-3 text-sm">
+                  <p class="text-xs font-semibold uppercase tracking-wide text-slate-500"><%= t('paymentMethodLabel') %></p>
+                  <div class="mt-2 text-slate-700"><%= methodLabel %></div>
+                  <% if (splitParts.length > 1) { %>
+                    <div class="mt-1 text-xs text-slate-500"><%= splitParts.join(' • ') %></div>
+                  <% } %>
+                </div>
+                <div class="surface-muted p-3 text-sm">
+                  <p class="text-xs font-semibold uppercase tracking-wide text-slate-500"><%= t('note') %></p>
+                  <div class="mt-2 text-slate-700"><%= payment.note || '-' %></div>
+                </div>
+                <div class="surface-muted p-3 text-sm">
+                  <p class="text-xs font-semibold uppercase tracking-wide text-slate-500"><%= t('recordedBy') %></p>
+                  <div class="mt-2 text-slate-700"><%= payment.recorded_by || '-' %></div>
+                </div>
+              </div>
+
+              <div class="mt-4 flex flex-wrap gap-2">
+                <a class="btn-outline btn-sm" href="/records/jar-container-lending/payments/<%= payment.id %>/print?autoprint=1" target="_blank"><%= t('print') %></a>
+                <form method="post" action="/records/jar-container-lending/payments/<%= payment.id %>/delete" onsubmit="return confirm('<%= t('deletePaymentConfirm') %>');">
+                  <button class="btn-outline btn-sm" type="submit"><%= t('delete') %></button>
+                </form>
+              </div>
+            </div>
+          <% }) %>
+        </div>
+      <% } %>
     </div>
   </div>
 </section>

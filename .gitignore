@@ -1,0 +1,7 @@
+.DS_Store
+node_modules/
+data/*.db-shm
+data/*.db-wal
+data/backups/*.db
+data/sessions/*.json
+views/records/exports 2.ejs

@@ -6,7 +6,10 @@
       <p class="text-slate-600"><%= t('exportsTitle') %></p>
     </div>
     <div class="flex flex-wrap gap-2">
-      <% if (Number(record.is_company) !== 1 && Number(record.credit_amount || 0) > 0) { %>
+      <% if (Number(record.is_system) !== 1) { %>
+        <a class="btn-primary" href="/records/credits/new?vehicle_id=<%= record.vehicle_id %>&credit_date=<%= record.export_date %>&trip_date=<%= record.export_date %>&export_id=<%= record.id %>"><%= t('addCredit') %></a>
+      <% } %>
+      <% if (Number(record.is_company) !== 1 && Number(record.is_system) !== 1 && Number(record.credit_amount || 0) > 0) { %>
         <a class="btn-outline" href="/records/exports/<%= record.id %>/pay-credit"><%= t('payCredit') %></a>
       <% } %>
       <a class="btn-outline" href="/records/exports/<%= record.id %>/print" target="_blank"><%= t('print') %></a>
@@ -16,8 +19,11 @@
   </div>
 
   <% const netJars = Math.max(0, (record.jar_count || 0) - (record.return_jar_count || 0) - (record.leakage_jar_count || 0)); %>
-  <% const netBottles = Math.max(0, (record.bottle_case_count || 0) - (record.return_bottle_case_count || 0)); %>
-  <% const collectionAmount = Number(record.collection_amount || 0); %>
+  <% const netBottles = Math.max(0, (record.bottle_case_count || 0) - (record.return_bottle_case_count || 0) - (record.damaged_bottle_case_count || 0)); %>
+  <% const soldJarAmount = Number(record.sold_jar_amount || 0) || (Number(record.sold_jar_count || 0) * Number(record.sold_jar_price || 0)); %>
+  <% const collectionAmount = Number(record.is_company || 0) === 1 ? Number(record.collection_amount || 0) + soldJarAmount : Number(record.collection_amount || 0); %>
+  <% const totalAmount = Number(record.is_company || 0) === 1 ? Math.max(Number(record.total_amount || 0), collectionAmount) : Number(record.total_amount || 0); %>
+  <% const paidAmount = Number(record.is_company || 0) === 1 ? Math.max(Number(record.paid_amount || 0), collectionAmount) : Number(record.paid_amount || 0); %>
 
   <div class="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
     <div class="card p-4">
@@ -26,11 +32,11 @@
     </div>
     <div class="card p-4">
       <p class="text-slate-500"><%= t('vehicleNumber') %></p>
-      <p class="text-lg font-semibold"><%= record.vehicle_number %></p>
+      <p class="text-lg font-semibold"><%= Number(record.is_system) === 1 ? '-' : record.vehicle_number %></p>
     </div>
     <div class="card p-4">
       <p class="text-slate-500"><%= t('ownerName') %></p>
-      <p class="text-lg font-semibold"><%= record.owner_name %></p>
+      <p class="text-lg font-semibold"><%= Number(record.is_system) === 1 ? t('inPersonSale') : record.owner_name %></p>
     </div>
     <div class="card p-4">
       <p class="text-slate-500"><%= t('recordedBy') %></p>
@@ -60,6 +66,7 @@
             <th class="px-4 py-3"><%= t('netJars') %></th>
             <th class="px-4 py-3"><%= t('bottleCases') %></th>
             <th class="px-4 py-3"><%= t('returnBottleCases') %></th>
+            <th class="px-4 py-3"><%= t('damagedBottleCases') %></th>
             <th class="px-4 py-3"><%= t('netBottles') %></th>
             <th class="px-4 py-3"><%= t('dispensers') %></th>
             <th class="px-4 py-3"><%= t('totalExportAmount') %></th>
@@ -73,9 +80,10 @@
             <td class="px-4 py-3"><%= netJars %></td>
             <td class="px-4 py-3"><%= record.bottle_case_count %></td>
             <td class="px-4 py-3"><%= record.return_bottle_case_count %></td>
+            <td class="px-4 py-3"><%= record.damaged_bottle_case_count || 0 %></td>
             <td class="px-4 py-3"><%= netBottles %></td>
             <td class="px-4 py-3"><%= record.dispenser_count || 0 %></td>
-            <td class="px-4 py-3"><%= record.total_amount %></td>
+            <td class="px-4 py-3"><%= totalAmount %></td>
           </tr>
         </tbody>
       </table>
@@ -91,7 +99,7 @@
     <% } else { %>
       <div class="card p-4">
         <p class="text-slate-500"><%= t('paidAmount') %></p>
-        <p class="text-lg font-semibold"><%= record.paid_amount %></p>
+        <p class="text-lg font-semibold"><%= paidAmount %></p>
       </div>
       <div class="card p-4">
         <p class="text-slate-500"><%= t('creditAmount') %></p>

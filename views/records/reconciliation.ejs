@@ -37,26 +37,37 @@
 
   <% const savedRow = saved || null; %>
   <% const savedDiff = savedRow ? Number(savedRow.difference_total || 0) : null; %>
-  <div class="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-    <div class="card p-4">
-      <p class="text-slate-500"><%= t('expectedCollection') %></p>
-      <p class="text-xl font-semibold"><%= snapshot.expected.collection %></p>
-      <p class="mt-1 text-xs text-slate-500"><%= t('methodCash') %>: <%= snapshot.inflow.expectedCash %> • <%= t('methodBank') %>: <%= snapshot.inflow.expectedBank %> • <%= t('methodEWallet') %>: <%= snapshot.inflow.expectedEwallet %></p>
+  <div class="money-equation mt-4">
+    <div class="money-equation-card is-total">
+      <p class="money-equation-label"><%= t('expectedCollection') %></p>
+      <p class="money-equation-value"><%= snapshot.expected.collection %></p>
+      <p class="money-equation-meta"><%= t('methodCash') %>: <%= snapshot.inflow.expectedCash %> • <%= t('methodBank') %>: <%= snapshot.inflow.expectedBank %> • <%= t('methodEWallet') %>: <%= snapshot.inflow.expectedEwallet %></p>
     </div>
-    <div class="card p-4">
-      <p class="text-slate-500"><%= t('deductedFromCollection') %></p>
-      <p class="text-xl font-semibold"><%= snapshot.deductions.total %></p>
+    <div class="money-equation-operator">-</div>
+    <div class="money-equation-card is-deduction">
+      <p class="money-equation-label"><%= t('deductedFromCollection') %></p>
+      <p class="money-equation-value"><%= snapshot.deductions.total %></p>
+      <p class="money-equation-meta"><%= t('importsTitle') %>: <%= snapshot.deductions.imports %> • <%= t('vehicleExpensesTitle') %>: <%= snapshot.deductions.vehicleExpenses %> • <%= t('salaryPaid') %>: <%= (snapshot.deductions.staffSalaries || 0) + (snapshot.deductions.workerSalaries || 0) %></p>
     </div>
-    <div class="card p-4">
-      <p class="text-slate-500"><%= t('expectedNetCollection') %></p>
-      <p class="text-xl font-semibold"><%= snapshot.expected.netAfterDeductions %></p>
+    <div class="money-equation-operator">=</div>
+    <div class="money-equation-card is-net">
+      <p class="money-equation-label"><%= t('expectedNetCollection') %></p>
+      <p class="money-equation-value <%= Number(snapshot.expected.netAfterDeductions || 0) >= 0 ? 'text-emerald-700' : 'text-red-700' %>"><%= snapshot.expected.netAfterDeductions %></p>
+      <p class="money-equation-meta"><%= t('collectionSummaryNote') %></p>
     </div>
-    <div class="card p-4">
-      <p class="text-slate-500"><%= t('differenceAmount') %></p>
-      <p class="text-xl font-semibold <%= savedDiff === null ? 'text-slate-900' : (savedDiff === 0 ? 'text-emerald-700' : (savedDiff > 0 ? 'text-amber-700' : 'text-red-700')) %>"><%= savedDiff === null ? '-' : savedDiff %></p>
-      <% if (savedRow) { %>
-        <p class="mt-1 text-xs text-slate-500"><%= t('recordedBy') %>: <%= savedRow.reconciled_by_name || '-' %></p>
-      <% } %>
+  </div>
+
+  <div class="mt-3 money-equation money-equation-vertical">
+    <div class="money-equation-card">
+      <div class="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <p class="money-equation-label"><%= t('differenceAmount') %></p>
+          <p class="money-equation-value <%= savedDiff === null ? 'text-slate-900' : (savedDiff === 0 ? 'text-emerald-700' : (savedDiff > 0 ? 'text-amber-700' : 'text-red-700')) %>"><%= savedDiff === null ? '-' : savedDiff %></p>
+        </div>
+        <% if (savedRow) { %>
+          <p class="text-xs text-slate-500"><%= t('recordedBy') %>: <%= savedRow.reconciled_by_name || '-' %></p>
+        <% } %>
+      </div>
     </div>
   </div>
 
@@ -79,6 +90,12 @@
               <td class="px-4 py-3"><%= snapshot.inflow.exports.cash %></td>
               <td class="px-4 py-3"><%= snapshot.inflow.exports.bank %></td>
               <td class="px-4 py-3"><%= snapshot.inflow.exports.eWallet %></td>
+            </tr>
+            <tr class="table-row">
+              <td class="px-4 py-3"><%= t('exportCreditPayments') %></td>
+              <td class="px-4 py-3"><%= snapshot.inflow.exportCreditPayments.cash %></td>
+              <td class="px-4 py-3"><%= snapshot.inflow.exportCreditPayments.bank %></td>
+              <td class="px-4 py-3"><%= snapshot.inflow.exportCreditPayments.eWallet %></td>
             </tr>
             <tr class="table-row">
               <td class="px-4 py-3"><%= t('customerPayments') %></td>

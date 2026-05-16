@@ -6,10 +6,12 @@
   "scripts": {
     "dev": "nodemon src/server.js",
     "start": "node src/server.js",
+    "test": "node --test tests/*.test.js",
     "build:css": "tailwindcss -i ./src/styles/tailwind.css -o ./public/css/styles.css --minify",
     "watch:css": "tailwindcss -i ./src/styles/tailwind.css -o ./public/css/styles.css --watch",
     "build": "npm run build:css",
     "make:windows-kit": "node scripts/build-windows-kit.js",
+    "integrity:check": "node scripts/health-check.js",
     "health:check": "node scripts/health-check.js",
     "backup:test": "node scripts/backup-verify.js",
     "deploy:ready": "npm run build:css && npm run health:check && npm run backup:test && npm run make:windows-kit",

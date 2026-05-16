@@ -28,7 +28,7 @@
             <th class="px-4 py-3"><%= t('owner') %></th>
             <th class="px-4 py-3"><%= t('phone') %></th>
             <th class="px-4 py-3"><%= t('vehicleType') %></th>
-            <th class="px-4 py-3"><%= t('vehicleJarContainerSummary') %></th>
+            <th class="px-4 py-3"><%= t('insuranceExpiry') %> / <%= t('permitExpiry') %> / <%= t('taxExpiry') %></th>
             <th class="px-4 py-3"><%= t('status') %></th>
             <th class="px-4 py-3 text-right"><%= t('actions') %></th>
           </tr>
@@ -40,7 +40,7 @@
             </tr>
           <% } %>
           <% vehicles.forEach((vehicle) => { %>
-            <% const metrics = (vehicleMetricsById && vehicleMetricsById[vehicle.id]) || {}; %>
+            <% const compliance = (vehicleComplianceById && vehicleComplianceById[vehicle.id]) || {}; %>
             <tr class="table-row">
               <td class="px-4 py-3">
                 <% if (vehicle.profile_pic_path) { %>
@@ -56,10 +56,18 @@
               <td class="px-4 py-3">
                 <% if (Number(vehicle.is_company || 0) === 1) { %>
                   <div class="space-y-1 text-xs text-slate-600">
-                    <div><span class="font-medium text-slate-800"><%= t('totalAddedJarContainers') %>:</span> <%= Number(metrics.total_added_jar_containers || 0) %></div>
-                    <div><span class="font-medium text-slate-800"><%= t('soldJars') %>:</span> <%= Number(metrics.total_jar_sold || 0) %></div>
-                    <div><span class="font-medium text-slate-800"><%= t('totalLeakageJars') %>:</span> <%= Number(metrics.total_leakage_jars || 0) %></div>
-                    <div><span class="font-medium text-slate-800"><%= t('currentContainerBalance') %>:</span> <%= Number(metrics.current_container_balance || 0) %></div>
+                    <div>
+                      <span class="font-medium text-slate-800"><%= t('insuranceExpiry') %>:</span>
+                      <span><%= compliance.insurance_expiry ? (typeof localizeDigits === 'function' ? localizeDigits(formatDateDual(compliance.insurance_expiry)) : formatDateDual(compliance.insurance_expiry)) : '-' %></span>
+                    </div>
+                    <div>
+                      <span class="font-medium text-slate-800"><%= t('permitExpiry') %>:</span>
+                      <span><%= compliance.permit_expiry ? (typeof localizeDigits === 'function' ? localizeDigits(formatDateDual(compliance.permit_expiry)) : formatDateDual(compliance.permit_expiry)) : '-' %></span>
+                    </div>
+                    <div>
+                      <span class="font-medium text-slate-800"><%= t('taxExpiry') %>:</span>
+                      <span><%= compliance.tax_expiry ? (typeof localizeDigits === 'function' ? localizeDigits(formatDateDual(compliance.tax_expiry)) : formatDateDual(compliance.tax_expiry)) : '-' %></span>
+                    </div>
                   </div>
                 <% } else { %>
                   <span class="text-slate-400">-</span>

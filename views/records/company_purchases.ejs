@@ -35,8 +35,8 @@
     </div>
     <div class="flex flex-wrap gap-2">
       <a class="btn-outline" href="/records/vendor-aging?from=<%= from %>&to=<%= to %>&q=<%= encodeURIComponent(q || '') %>"><%= t('vendorAgingTitle') %></a>
-      <a class="btn-outline" href="/records/company-purchases/print?from=<%= from %>&to=<%= to %>&q=<%= encodeURIComponent(q || '') %>" target="_blank"><%= t('downloadPdf') %></a>
-      <a class="btn-outline" href="/records/company-purchases/export?from=<%= from %>&to=<%= to %>&q=<%= encodeURIComponent(q || '') %>"><%= t('exportCsv') %></a>
+      <a class="btn-outline" href="/records/company-purchases/print?from=<%= from %>&to=<%= to %>&expense_category=<%= selectedCategory %>&q=<%= encodeURIComponent(q || '') %>" target="_blank"><%= t('downloadPdf') %></a>
+      <a class="btn-outline" href="/records/company-purchases/export?from=<%= from %>&to=<%= to %>&expense_category=<%= selectedCategory %>&q=<%= encodeURIComponent(q || '') %>"><%= t('exportCsv') %></a>
     </div>
   </div>
 
@@ -61,6 +61,15 @@
       <label class="label"><%= t('search') %></label>
       <input class="input" type="text" name="q" value="<%= q %>" placeholder="<%= t('purchaseSearchPlaceholder') %>" />
     </div>
+    <div>
+      <label class="label"><%= t('expenseCategoryLabel') %></label>
+      <select class="input" name="expense_category">
+        <option value="ALL" <%= selectedCategory === 'ALL' ? 'selected' : '' %>><%= t('all') %></option>
+        <% (categoryOptions || []).forEach((option) => { %>
+          <option value="<%= option.value %>" <%= selectedCategory === option.value ? 'selected' : '' %>><%= option.label %></option>
+        <% }) %>
+      </select>
+    </div>
     <button class="btn-outline" type="submit"><%= t('filter') %></button>
   </form>
 
@@ -71,13 +80,21 @@
         <label class="label"><%= t('date') %></label>
         <input class="input" type="date" name="purchase_date" value="<%= to %>" required />
       </div>
+      <div>
+        <label class="label"><%= t('expenseCategoryLabel') %></label>
+        <select class="input" name="expense_category">
+          <% (categoryOptions || []).forEach((option) => { %>
+            <option value="<%= option.value %>"><%= option.label %></option>
+          <% }) %>
+        </select>
+      </div>
       <div class="sm:col-span-2">
-        <label class="label"><%= t('itemName') %></label>
-        <input class="input" type="text" name="item_name" required />
+        <label class="label"><%= t('expenseDetailsLabel') %></label>
+        <input class="input" type="text" name="item_name" placeholder="<%= t('expenseDetailsPlaceholder') %>" />
       </div>
       <div>
-        <label class="label"><%= t('sellerName') %></label>
-        <input class="input" type="text" name="seller_name" />
+        <label class="label"><%= t('expensePaidToLabel') %></label>
+        <input class="input" type="text" name="seller_name" placeholder="<%= t('expensePaidToPlaceholder') %>" />
       </div>
       <div>
         <label class="label"><%= t('amount') %></label>
@@ -171,14 +188,81 @@
     </div>
   </div>
 
+  <div class="mt-6 card p-6">
+    <div class="flex flex-wrap items-center justify-between gap-3">
+      <div>
+        <h2 class="text-lg font-semibold"><%= t('categoryTotalsTitle') %></h2>
+        <p class="mt-1 text-sm text-slate-600"><%= t('categoryTotalsSubtitle') %></p>
+      </div>
+      <div class="text-sm text-slate-500"><%= (categoryTotals || []).reduce((sum, row) => sum + Number(row.entries || 0), 0) %> <%= t('entries') %></div>
+    </div>
+    <div class="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+      <% (categoryTotals || []).forEach((row) => { %>
+        <div class="record-panel">
+          <p class="record-panel-title"><%= row.label %></p>
+          <p class="mt-2 text-lg font-semibold text-slate-900"><%= Number(row.total || 0) %></p>
+          <div class="mt-2 space-y-1 text-sm text-slate-600">
+            <div><span class="text-slate-500"><%= t('paidAmount') %>:</span> <%= Number(row.paid || 0) %></div>
+            <div><span class="text-slate-500"><%= t('remaining') %>:</span> <%= Number(row.due || 0) %></div>
+            <div><span class="text-slate-500"><%= t('entries') %>:</span> <%= Number(row.entries || 0) %></div>
+          </div>
+        </div>
+      <% }) %>
+    </div>
+  </div>
+
+  <div class="mt-6 card p-6">
+    <div class="flex flex-wrap items-center justify-between gap-3">
+      <div>
+        <h2 class="text-lg font-semibold"><%= t('monthlyCategorySummaryTitle') %></h2>
+        <p class="mt-1 text-sm text-slate-600"><%= t('monthlyCategorySummarySubtitle') %></p>
+      </div>
+      <div class="text-sm text-slate-500"><%= Number((monthlyCategorySummary || []).length || 0) %> <%= t('entries') %></div>
+    </div>
+    <div class="mt-4 overflow-x-auto">
+      <table class="table-base">
+        <thead class="table-head">
+          <tr>
+            <th class="px-4 py-3"><%= t('month') %></th>
+            <th class="px-4 py-3"><%= t('total') %></th>
+            <th class="px-4 py-3"><%= t('paidAmount') %></th>
+            <th class="px-4 py-3"><%= t('remaining') %></th>
+            <% (visibleCategoryOptions || []).forEach((option) => { %>
+              <th class="px-4 py-3"><%= option.label %></th>
+            <% }) %>
+          </tr>
+        </thead>
+        <tbody>
+          <% if (!(monthlyCategorySummary || []).length) { %>
+            <tr>
+              <td class="px-4 py-4 text-slate-500" colspan="<%= 4 + (visibleCategoryOptions || []).length %>"><%= t('noPurchases') %></td>
+            </tr>
+          <% } %>
+          <% (monthlyCategorySummary || []).forEach((row) => { %>
+            <tr class="table-row">
+              <td class="px-4 py-3"><%= row.month_label %></td>
+              <td class="px-4 py-3"><%= Number(row.total || 0) %></td>
+              <td class="px-4 py-3"><%= Number(row.paid || 0) %></td>
+              <td class="px-4 py-3"><%= Number(row.due || 0) %></td>
+              <% (visibleCategoryOptions || []).forEach((option) => { %>
+                <td class="px-4 py-3"><%= Number(((row.categories || {})[option.value] || {}).total || 0) %></td>
+              <% }) %>
+            </tr>
+          <% }) %>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
   <div class="mt-6 card p-3 sm:p-4">
     <div class="purchase-table-scroll">
       <table class="table-base">
         <thead class="table-head">
           <tr>
             <th class="px-4 py-3"><%= t('date') %></th>
-            <th class="px-4 py-3"><%= t('itemName') %></th>
-            <th class="px-4 py-3"><%= t('sellerName') %></th>
+            <th class="px-4 py-3"><%= t('expenseCategoryLabel') %></th>
+            <th class="px-4 py-3"><%= t('expenseDetailsLabel') %></th>
+            <th class="px-4 py-3"><%= t('expensePaidToLabel') %></th>
             <th class="px-4 py-3"><%= t('amount') %></th>
             <th class="px-4 py-3"><%= t('paidAmount') %></th>
             <th class="px-4 py-3"><%= t('remaining') %></th>
@@ -193,13 +277,14 @@
         <tbody>
           <% if (!rows || rows.length === 0) { %>
             <tr>
-              <td class="px-4 py-4 text-slate-500" colspan="12"><%= t('noPurchases') %></td>
+              <td class="px-4 py-4 text-slate-500" colspan="13"><%= t('noPurchases') %></td>
             </tr>
           <% } %>
           <% rows.forEach((row) => { %>
             <% const rowDue = Math.max(0, Number(row.amount || 0) - Number(row.paid_amount || 0)); %>
             <tr class="table-row">
               <td class="px-4 py-3"><%= row.purchase_date %></td>
+              <td class="px-4 py-3"><%= row.expense_category_label %></td>
               <td class="px-4 py-3"><%= row.item_name %></td>
               <td class="px-4 py-3"><%= row.seller_name || '-' %></td>
               <td class="px-4 py-3"><%= row.amount %></td>
@@ -235,8 +320,9 @@
         <thead class="table-head">
           <tr>
             <th class="px-4 py-3"><%= t('date') %></th>
-            <th class="px-4 py-3"><%= t('itemName') %></th>
-            <th class="px-4 py-3"><%= t('sellerName') %></th>
+            <th class="px-4 py-3"><%= t('expenseCategoryLabel') %></th>
+            <th class="px-4 py-3"><%= t('expenseDetailsLabel') %></th>
+            <th class="px-4 py-3"><%= t('expensePaidToLabel') %></th>
             <th class="px-4 py-3"><%= t('paymentReceiptNo') %></th>
             <th class="px-4 py-3"><%= t('amount') %></th>
             <th class="px-4 py-3"><%= t('paymentMethodLabel') %></th>
@@ -249,7 +335,7 @@
         <tbody>
           <% if (!safePaymentRows.length) { %>
             <tr>
-              <td class="px-4 py-4 text-slate-500" colspan="10"><%= t('noPaymentHistory') %></td>
+              <td class="px-4 py-4 text-slate-500" colspan="11"><%= t('noPaymentHistory') %></td>
             </tr>
           <% } %>
           <% safePaymentRows.forEach((row) => { %>
@@ -257,6 +343,7 @@
             <% const sourceLabel = row.payment_source === 'OWNER_PERSONAL' ? t('sourceOwnerPersonal') : row.payment_source === 'BANK_OTHER' ? t('sourceBankOther') : t('sourceDailyCollection'); %>
             <tr class="table-row">
               <td class="px-4 py-3"><%= row.payment_date %></td>
+              <td class="px-4 py-3"><%= row.expense_category_label %></td>
               <td class="px-4 py-3"><%= row.item_name %></td>
               <td class="px-4 py-3"><%= row.seller_name || '-' %></td>
               <td class="px-4 py-3"><%= row.receipt_no || '-' %></td>

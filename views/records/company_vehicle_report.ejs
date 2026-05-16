@@ -1,0 +1,163 @@
+<%- include('../partials/shell-start', { title }) %>
+<section class="py-8">
+  <div class="page-header flex flex-wrap items-start justify-between gap-4">
+    <div>
+      <h1 class="text-3xl font-semibold"><%= t('companyVehicleReportTitle') %></h1>
+      <p class="text-slate-600"><%= t('companyVehicleReportSubtitle') %></p>
+    </div>
+  </div>
+
+  <div class="mt-4 card p-5">
+    <form class="grid gap-3 sm:grid-cols-4" method="get" action="/records/company-vehicle-report">
+      <input type="hidden" name="tab" value="<%= tab || 'summary' %>" />
+      <div>
+        <label class="label"><%= t('from') %></label>
+        <input class="input" type="date" name="from" value="<%= from %>" />
+      </div>
+      <div>
+        <label class="label"><%= t('to') %></label>
+        <input class="input" type="date" name="to" value="<%= to %>" />
+      </div>
+      <div>
+        <label class="label"><%= t('selectVehicle') %></label>
+        <select class="input" name="vehicle_id">
+          <option value=""><%= t('allVehicles') %></option>
+          <% (vehicles || []).forEach((vehicle) => { %>
+            <option value="<%= vehicle.id %>" <%= Number(vehicleId || 0) === Number(vehicle.id) ? 'selected' : '' %>><%= vehicle.vehicle_number %> • <%= vehicle.owner_name %></option>
+          <% }) %>
+        </select>
+      </div>
+      <div class="flex items-end justify-end">
+        <button class="btn-outline" type="submit"><%= t('filter') %></button>
+      </div>
+    </form>
+  </div>
+
+  <div class="mt-6 flex flex-wrap gap-2">
+    <a class="<%= (tab || 'summary') === 'summary' ? 'btn-primary' : 'btn-outline' %>" href="/records/company-vehicle-report?from=<%= from %>&to=<%= to %><%= vehicleId ? `&vehicle_id=${vehicleId}` : '' %>&tab=summary"><%= t('summary') %></a>
+    <a class="<%= (tab || 'summary') === 'daily' ? 'btn-primary' : 'btn-outline' %>" href="/records/company-vehicle-report?from=<%= from %>&to=<%= to %><%= vehicleId ? `&vehicle_id=${vehicleId}` : '' %>&tab=daily"><%= t('companyVehicleDailyBreakdown') %></a>
+  </div>
+
+  <div class="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+    <div class="card p-5">
+      <p class="text-sm text-slate-500"><%= t('vehicleCount') %></p>
+      <p class="mt-2 text-2xl font-semibold"><%= totals.vehicle_count %></p>
+    </div>
+    <div class="card p-5">
+      <p class="text-sm text-slate-500"><%= t('tripCount') %></p>
+      <p class="mt-2 text-2xl font-semibold"><%= totals.trip_count %></p>
+    </div>
+    <div class="card p-5">
+      <p class="text-sm text-slate-500"><%= t('netJars') %></p>
+      <p class="mt-2 text-2xl font-semibold"><%= totals.net_jars %></p>
+    </div>
+    <div class="card p-5">
+      <p class="text-sm text-slate-500"><%= t('netAmount') %></p>
+      <p class="mt-2 text-2xl font-semibold text-aqua-700"><%= totals.net_amount %></p>
+    </div>
+  </div>
+
+  <div class="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+    <div class="card p-5">
+      <p class="text-sm text-slate-500"><%= t('leakageJars') %></p>
+      <p class="mt-2 text-2xl font-semibold"><%= totals.leakage_jars %></p>
+    </div>
+    <div class="card p-5">
+      <p class="text-sm text-slate-500"><%= t('soldJars') %></p>
+      <p class="mt-2 text-2xl font-semibold"><%= totals.sold_jar_containers %></p>
+    </div>
+    <div class="card p-5">
+      <p class="text-sm text-slate-500"><%= t('netBottles') %></p>
+      <p class="mt-2 text-2xl font-semibold"><%= totals.net_bottle_cases %></p>
+    </div>
+    <div class="card p-5">
+      <p class="text-sm text-slate-500"><%= t('expenseAmount') %></p>
+      <p class="mt-2 text-2xl font-semibold text-amber-700"><%= totals.expense_amount %></p>
+    </div>
+  </div>
+
+  <% if ((tab || 'summary') === 'summary') { %>
+    <div class="mt-6 card overflow-hidden">
+      <div class="table-scroll-region is-collapsed">
+        <table class="table-base">
+          <thead class="table-head">
+            <tr>
+              <th class="px-4 py-3"><%= t('vehicle') %></th>
+              <th class="px-4 py-3"><%= t('tripCount') %></th>
+              <th class="px-4 py-3"><%= t('netJars') %></th>
+              <th class="px-4 py-3"><%= t('netBottles') %></th>
+              <th class="px-4 py-3"><%= t('leakageJars') %></th>
+              <th class="px-4 py-3"><%= t('soldJars') %></th>
+              <th class="px-4 py-3"><%= t('collectionAmount') %></th>
+              <th class="px-4 py-3"><%= t('expenseAmount') %></th>
+              <th class="px-4 py-3"><%= t('netAmount') %></th>
+            </tr>
+          </thead>
+          <tbody>
+            <% if (!(rows || []).length) { %>
+              <tr>
+                <td class="px-4 py-4 text-slate-500" colspan="9"><%= t('noCompanyVehicleReportRows') %></td>
+              </tr>
+            <% } %>
+            <% (rows || []).forEach((row) => { %>
+              <tr class="table-row">
+                <td class="px-4 py-3 font-medium"><%= row.vehicle_number %> • <%= row.owner_name %></td>
+                <td class="px-4 py-3"><%= row.trip_count %></td>
+                <td class="px-4 py-3"><%= row.net_jars %></td>
+                <td class="px-4 py-3"><%= row.net_bottle_cases %></td>
+                <td class="px-4 py-3"><%= row.leakage_jars %></td>
+                <td class="px-4 py-3"><%= row.sold_jar_containers %></td>
+                <td class="px-4 py-3"><%= row.collection_amount %></td>
+                <td class="px-4 py-3"><%= row.expense_amount %></td>
+                <td class="px-4 py-3 font-semibold"><%= row.net_amount %></td>
+              </tr>
+            <% }) %>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  <% } else { %>
+    <div class="mt-6 card overflow-hidden">
+      <div class="table-scroll-region is-collapsed">
+        <table class="table-base">
+          <thead class="table-head">
+            <tr>
+              <th class="px-4 py-3"><%= t('date') %></th>
+              <th class="px-4 py-3"><%= t('vehicle') %></th>
+              <th class="px-4 py-3"><%= t('tripCount') %></th>
+              <th class="px-4 py-3"><%= t('netJars') %></th>
+              <th class="px-4 py-3"><%= t('netBottles') %></th>
+              <th class="px-4 py-3"><%= t('leakageJars') %></th>
+              <th class="px-4 py-3"><%= t('soldJars') %></th>
+              <th class="px-4 py-3"><%= t('collectionAmount') %></th>
+              <th class="px-4 py-3"><%= t('expenseAmount') %></th>
+              <th class="px-4 py-3"><%= t('netAmount') %></th>
+            </tr>
+          </thead>
+          <tbody>
+            <% if (!(dailyRows || []).length) { %>
+              <tr>
+                <td class="px-4 py-4 text-slate-500" colspan="10"><%= t('noCompanyVehicleReportRows') %></td>
+              </tr>
+            <% } %>
+            <% (dailyRows || []).forEach((detail) => { %>
+              <tr class="table-row">
+                <td class="px-4 py-3"><%= typeof formatDateDual === 'function' ? formatDateDual(detail.export_date) : detail.export_date %></td>
+                <td class="px-4 py-3 font-medium"><%= detail.vehicle_number %> • <%= detail.owner_name %></td>
+                <td class="px-4 py-3"><%= detail.trip_count %></td>
+                <td class="px-4 py-3"><%= detail.net_jars %></td>
+                <td class="px-4 py-3"><%= detail.net_bottle_cases %></td>
+                <td class="px-4 py-3"><%= detail.leakage_jars %></td>
+                <td class="px-4 py-3"><%= detail.sold_jar_containers %></td>
+                <td class="px-4 py-3"><%= detail.collection_amount %></td>
+                <td class="px-4 py-3"><%= detail.expense_amount %></td>
+                <td class="px-4 py-3 font-semibold"><%= detail.net_amount %></td>
+              </tr>
+            <% }) %>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  <% } %>
+</section>
+<%- include('../partials/shell-end') %>

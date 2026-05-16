@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="<%= lang %>">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title><%= t('collectionSummaryTitle') %> | AQUA MSK</title>
+  <link rel="stylesheet" href="/css/styles.css?v=<%= assetVersion %>" />
+  <style>
+    <%- include('../partials/print-report-styles', { pageSize: 'A4 portrait' }) %>
+  </style>
+</head>
+<body class="text-slate-900">
+  <div class="print-page">
+    <div class="print-toolbar print-hidden">
+      <button class="btn-primary" onclick="window.print()"><%= t('print') %></button>
+    </div>
+
+    <div class="print-header">
+      <div class="print-header-copy">
+        <%- include('../partials/print-brand', { subtitle: t('collectionSummaryTitle') }) %>
+        <div class="print-header-meta">
+          <span><strong><%= t('from') %>:</strong> <%= typeof formatDateDual === 'function' ? formatDateDual(from) : from %></span>
+          <span><strong><%= t('to') %>:</strong> <%= typeof formatDateDual === 'function' ? formatDateDual(to) : to %></span>
+        </div>
+      </div>
+    </div>
+
+    <div class="money-equation mt-6">
+      <div class="money-equation-card is-total">
+        <p class="money-equation-label"><%= t('totalAmountCollected') %></p>
+        <p class="money-equation-value"><%= summary.totalAmountCollected %></p>
+        <p class="money-equation-meta"><%= t('methodCash') %>: <%= summary.collectedByMethod.cash %> • <%= t('methodBank') %>: <%= summary.collectedByMethod.bank %> • <%= t('methodEWallet') %>: <%= summary.collectedByMethod.eWallet %></p>
+      </div>
+      <div class="money-equation-operator">-</div>
+      <div class="money-equation-card is-deduction">
+        <p class="money-equation-label"><%= t('collectionDeductions') %></p>
+        <p class="money-equation-value"><%= summary.totalDeductions %></p>
+        <p class="money-equation-meta"><%= t('companyPurchasesTitle') %>: <%= summary.companyExpenses %> • <%= t('vehicleExpensesTitle') %>: <%= summary.vehicleExpenses %> • <%= t('salaryPaid') %>: <%= summary.salaryGiven %> • <%= t('otherDeductions') %>: <%= (summary.otherDeductions || 0) + (summary.depositRefunds || 0) %></p>
+      </div>
+      <div class="money-equation-operator">=</div>
+      <div class="money-equation-card is-net">
+        <p class="money-equation-label"><%= t('expectedNetCollection') %></p>
+        <p class="money-equation-value <%= Number(summary.netCollectionAmount || 0) >= 0 ? 'text-emerald-700' : 'text-red-700' %>"><%= summary.netCollectionAmount %></p>
+        <p class="money-equation-meta"><%= t('collectionSummaryNote') %></p>
+      </div>
+    </div>
+
+    <div class="print-summary-grid mt-6">
+      <div class="print-summary-card">
+        <p class="print-summary-label"><%= t('netJars') %></p>
+        <p class="print-summary-value"><%= summary.netJarSold %></p>
+      </div>
+      <div class="print-summary-card">
+        <p class="print-summary-label"><%= t('netJarContainerSold') %></p>
+        <p class="print-summary-value"><%= summary.netJarContainerSold %></p>
+      </div>
+      <div class="print-summary-card">
+        <p class="print-summary-label"><%= t('netBottles') %></p>
+        <p class="print-summary-value"><%= summary.netBottleCases %></p>
+      </div>
+      <div class="print-summary-card">
+        <p class="print-summary-label"><%= t('totalAmountCollected') %></p>
+        <p class="print-summary-value"><%= summary.totalAmountCollected %></p>
+      </div>
+      <div class="print-summary-card">
+        <p class="print-summary-label"><%= t('vehicleExpensesTitle') %></p>
+        <p class="print-summary-value"><%= summary.vehicleExpenses %></p>
+      </div>
+      <div class="print-summary-card">
+        <p class="print-summary-label"><%= t('companyPurchasesTitle') %></p>
+        <p class="print-summary-value"><%= summary.companyExpenses %></p>
+      </div>
+      <div class="print-summary-card">
+        <p class="print-summary-label"><%= t('salaryPaid') %></p>
+        <p class="print-summary-value"><%= summary.salaryGiven %></p>
+      </div>
+      <div class="print-summary-card">
+        <p class="print-summary-label"><%= t('collectionDeductions') %></p>
+        <p class="print-summary-value"><%= summary.totalDeductions %></p>
+      </div>
+      <div class="print-summary-card">
+        <p class="print-summary-label"><%= t('expectedNetCollection') %></p>
+        <p class="print-summary-value"><%= summary.netCollectionAmount %></p>
+      </div>
+    </div>
+
+    <div class="print-section mt-6">
+      <div class="print-section-header">
+        <div>
+          <h2 class="print-section-title"><%= t('paymentMix') %></h2>
+          <p class="print-section-subtitle"><%= t('allPaymentHistorySubtitle') %></p>
+        </div>
+      </div>
+      <table class="print-kv-table">
+        <tbody>
+          <tr>
+            <th><%= t('methodCash') %></th>
+            <td><%= summary.collectedByMethod.cash %></td>
+          </tr>
+          <tr>
+            <th><%= t('methodBank') %></th>
+            <td><%= summary.collectedByMethod.bank %></td>
+          </tr>
+          <tr>
+            <th><%= t('methodEWallet') %></th>
+            <td><%= summary.collectedByMethod.eWallet %></td>
+          </tr>
+          <% if (summary.otherDeductions > 0) { %>
+            <tr>
+              <th><%= t('otherDeductions') %></th>
+              <td><%= summary.otherDeductions %></td>
+            </tr>
+          <% } %>
+          <% if (summary.depositRefunds > 0) { %>
+            <tr>
+              <th><%= t('depositRefundLabel') %></th>
+              <td><%= summary.depositRefunds %></td>
+            </tr>
+          <% } %>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="print-note">
+      <%= t('collectionSummaryNote') %>
+    </div>
+  </div>
+</body>
+</html>
